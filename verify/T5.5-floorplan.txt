@@ -1,0 +1,665 @@
+T5.5 - Floor-plan dashboard: the house, the summary card, the icon set
+====================================================================
+Run 2026-08-05 on the Snapdragon X Elite laptop (win32), Git Bash / PowerShell,
+cwd = C:\Users\QCWorkshop26\Workspace\QNet-Home-impl (worktree, branch
+implementation, on top of checkpoint G). node v22.20.0, python venv at .venv
+(paho-mqtt 2.x) - the same environment T5.1-T5.4 were verified in.
+The demo broker was already running on 127.0.0.1:1883 / :9001 (PID 14436); it
+was REUSED throughout, never restarted and never killed, and is still running.
+
+Deliverables:
+  dashboard/index.html      the product page, re-laid-out around a floor plan
+  verify/T5.5-floorplan.txt this file
+
+NOT touched: dashboard/admin.html, qnet/agent, qnet/tools, tests/.
+NOT changed: packaging/build.ps1 and qnet/app.py. Both were checked and neither
+needed an edit - this task added no new files and renamed none, so the staging
+and bundling lists were already correct. The rebuild in 1h proves it.
+Nothing was committed.
+
+--------------------------------------------------------------------
+WHAT CHANGED, AND WHAT DELIBERATELY DID NOT
+--------------------------------------------------------------------
+This was a LAYOUT + FEATURES evolution of checkpoint G's product page, not a
+rewrite. Everything the brief said to keep is still the same code: the MiniMQTT
+client (byte-identical, still the copy attributed to admin.html / dev/sim.html),
+the qnet/session/<id> + qnet/<room>/* subscribe-and-index logic, humanize(),
+deriveNames(), roomState(), houseStatus(), takeoverPredicate(), relativeTime(),
+elapsedSeconds(), statusStripFacts(), conversationBubbles(), the help and
+settings modals, the connection field, the takeover overlay, the AGPL footer
+and the ?selftest=1 harness.
+
+The one behavioural change inside the kept code is humanize()'s return shape:
+`icon` (an emoji character) became `iconId` (a name in the inline SVG sprite).
+It is still pure, still returns null for every admin-only event kind, and still
+puts the word SIMULATED inside the sentence. Its self-tests were updated to
+assert the new field, and a new case asserts that every iconId it can return
+actually exists in the sprite - a typo'd name would otherwise ship as an empty
+box on a page nobody looks at twice.
+
+One other deliberate change: pressing Save in Settings no longer forces a
+reconnect unless the hub address actually changed. Saving a room assignment
+used to drop and re-establish the connection for no reason.
+
+NEW LAYOUT
+  Two columns at >900px, one column below it, at a single breakpoint.
+  LEFT   an inline SVG schematic of a standard two-bedroom home
+  RIGHT  a max-380px column: the Summary card above the Live activity feed
+
+DESIGN CHOICES WORTH RECORDING
+
+  * The plan is drawn ONCE in markup and only ever re-tinted by script. The
+    geometry never moves, so a state change has nothing to reflow and nothing
+    to get wrong at 3am. Script touches four things per room: a CSS class, a
+    caption string, and two `is-off` toggles.
+
+  * Walls are individual line segments with real door gaps, not five
+    rectangles butted together. That is the whole difference between "a floor
+    plan" and "a grid of boxes". 1.5px stroke, rounded outer corners (r=10),
+    a front-door gap in the bottom wall and a doorway into each of the three
+    top rooms, plus an open archway between Living Room and Kitchen. Quarter-
+    circle door swings at 1px / 45% opacity say "this is a door" without
+    competing with anything that matters.
+
+  * Bathroom is 138 units wide against the bedrooms' 218, so it reads as the
+    small room without needing a label to say so.
+
+  * The alert pulse is 2s ease-in-out on opacity, not a strobe - DESIGN S14's
+    "urgent but not a siren". It is disabled entirely under
+    prefers-reduced-motion.
+
+  * An unmonitored room's caption says "No device", never "All quiet". "All
+    quiet" about a room nobody is watching would be a lie by omission.
+
+  * Two devices in one schematic room resolve to the WORST of their states,
+    using the same rank order the top bar's worst-room rule uses. Averaging an
+    alert away was never an option.
+
+  * MAPPING PRECEDENCE is saved override > shipped default > name similarity >
+    Unassigned, and only the OVERRIDES are persisted, never the resolved
+    result. A house that never opens Settings picks up any later improvement to
+    the guesser; a house that DID open Settings keeps exactly the decision a
+    person made. An override of "" is a deliberate "keep this off the plan" and
+    is honoured as such rather than being silently re-guessed on next load.
+
+  * Similarity is exact > prefix > containment > Dice coefficient over letter
+    pairs, with a floor of 0.6. Deliberately conservative: putting a fall in
+    the WRONG room on the map is worse than leaving a chip in the Unassigned
+    row for someone to assign. "bath" and "kitchenette" are matched;
+    "guest_room" and "utility" are not, and park.
+
+  * The Summary card is labelled "Summary" with a sparkle and a
+    "Generated from today's activity" tooltip. It does NOT claim a model wrote
+    it, because no model did: composeSummary() is a deterministic pure function
+    with 19 unit tests over it. The seam for a future qnet/summary message is marked
+    ">>> SEAM <<<" in three places (the function's early return, the module
+    variable, and the branch in the message handler) and is itself unit-tested.
+
+  * SIMULATED is preserved in the recap sentence, not only the feed, and the
+    renderer paints the same red badge on it in both places. S14's rule is
+    about the reader, and the reader is the same person.
+
+  * Icons are stroke-only on a 24x24 grid with NO fill/stroke attributes on any
+    path, so every glyph inherits colour from the <use> that summons it. That
+    inheritance is why there is no per-icon colour CSS in the file at all, and
+    why the alert icon is red and the all-clear icon is green for free.
+
+--------------------------------------------------------------------
+PART 1 - MACHINE-VERIFIED
+--------------------------------------------------------------------
+
+1a. LOGIC CORE self-test - 89/89, run from the SHIPPED file
+-----------------------------------------------------------
+Method, unchanged from T5.1/T5.2/T5.4: the block between the "LOGIC CORE BEGIN"
+and "LOGIC CORE END" banner comments in dashboard/index.html is sliced out of
+the file at runtime (from the end of the BEGIN banner to the start of the END
+banner, so not one character of executable code is altered), compiled and run
+under node. runSelfTest() lives INSIDE that block, so the browser's ?selftest=1
+panel and this node run execute byte-identical cases.
+
+  $ node <harness> dashboard/index.html
+  # extracted 952 lines of LOGIC CORE from dashboard/index.html
+  QNet Home product-page self-test: 89/89 passed
+
+53 of these are checkpoint G's, carried forward unchanged except for the seven
+that asserted an emoji `icon` and now assert an `iconId`. 36 are new. The brief
+asked for at least 20 assertions covering six named areas; all six are covered,
+by 36 cases:
+
+  mapping resolution + name similarity + localStorage override    9 cases
+  state -> tint                                                   4 cases
+  composeSummary (4 required scenarios + 9 more)                 13 cases
+  humanize iconId mapping                                         3 cases
+  takeover predicate unchanged                       5 cases (pre-existing,
+                                                     re-run untouched)
+  unmapped-room parking                              2 cases (the explicit
+                                                     park case + the override
+                                                     un-assign case)
+
+FULL RESULT LIST
+  [PASS] detected -> named-room fall sentence, alert
+  [PASS] say -> QNet quoted, neutral
+  [PASS] heard silence -> 'No response yet', dim
+  [PASS] heard with text -> derived resident name, quoted
+  [PASS] heard with text, unknown resident -> 'Resident', never a crash
+  [PASS] phase -> escalate -> 'QNet is getting help', alert
+  [PASS] phase -> call_help -> 'Calling for emergency help', alert
+  [PASS] tool notify_contacts -> derived contact name was notified, good
+  [PASS] tool notify_contacts, unknown contact -> generic noun, still English
+  [PASS] SIMULATED survives humanization: in the TEXT and as a badge
+  [PASS] brief -> responder sentence
+  [PASS] terminal 'resolved' -> 'All clear'
+  [PASS] terminal 'cancelled' -> 'False alarm - all clear'
+  [PASS] refusal -> null (hidden here; admin portal shows it)
+  [PASS] llm decision line -> null (hidden here; admin portal shows it)
+  [PASS] unknown/future event kind -> null, never a crash
+  [PASS] unknown tool (look_in_rooms) -> null
+  [PASS] non-escalating phase move -> null
+  [PASS] malformed entries -> null, never a crash
+  [PASS] NO JARGON: no rendered sentence in a full fall run leaks wire vocabulary
+  [PASS] NO JARGON: same for a full find run
+  [PASS] find: the question renders as 'You asked: ...'
+  [PASS] find: the answer renders as a QNet sentence
+  [PASS] find: 'found' exit is not announced as an all-clear
+  [PASS] takeover: safety + active -> true
+  [PASS] takeover: a find run NEVER takes over (routine + active)
+  [PASS] takeover: safety + closed -> false (drops on close)
+  [PASS] takeover: safety + cancelled -> false (drops on cancel)
+  [PASS] takeover: nothing running -> false
+  [PASS] room state: nothing running -> 'All quiet ✓'
+  [PASS] room state: active safety in check -> 'Checking in...'
+  [PASS] room state: active safety in escalate -> 'Needs attention'
+  [PASS] room state: active safety in call_help -> 'Help is on the way'
+  [PASS] room state: recently closed -> 'All clear'
+  [PASS] room state: closed long ago -> back to 'All quiet ✓'
+  [PASS] room state: an active question leaves the room quiet (never interrupts)
+  [PASS] house: all quiet -> 'Everything looks fine'
+  [PASS] house: one room checking -> 'Checking on the Kitchen...'
+  [PASS] house: alert beats caution and names the room
+  [PASS] house: no rooms at all -> still a calm sentence, never blank
+  [PASS] relative time: seconds -> 'just now'
+  [PASS] relative time: 120s -> '2 min ago'
+  [PASS] relative time: 2h and 2 days
+  [PASS] relative time: missing timestamp -> empty, never 'NaN ago'
+  [PASS] elapsed: measured in the run's own clock, so a replay is not '3 days'
+  [PASS] elapsed: empty log -> 0
+  [PASS] status strip is built from facts, and keeps SIMULATED
+  [PASS] status strip claims nothing that did not happen
+  [PASS] chat bubbles: QNet right, person left, silence centred, nothing else in
+  [PASS] chat bubbles over the full fall run: 3 turns, silence included
+  [PASS] names are learned from what the house said
+  [PASS] names: nothing to learn -> nulls, and humanize still reads as English
+  [PASS] room label: identifiers become proper nouns
+  [PASS] icons: every iconId humanize() can return exists in the sprite
+  [PASS] icons: the mappings that carry meaning (fall/say/emergency/all-clear/find)
+  [PASS] icons: no emoji survives into an iconId (they are sprite names now)
+  [PASS] mapping: the shipped defaults land every stock room name
+  [PASS] mapping: punctuation and case are irrelevant ('living_room', 'Bedroom 2')
+  [PASS] mapping: NAME SIMILARITY catches what the defaults miss
+  [PASS] mapping: UNMAPPED ROOM PARKS in Unassigned rather than being guessed wrong
+  [PASS] mapping: a SAVED OVERRIDE beats the default map
+  [PASS] mapping: a saved override beats a similarity match too
+  [PASS] mapping: an override of "" is a deliberate un-assign, not a re-guess
+  [PASS] mapping: a saved override naming a room that no longer exists parks it
+  [PASS] mapping: malformed input -> empty result, never a crash
+  [PASS] mapping: the reverse index groups devices under each drawn room
+  [PASS] tint: each human tone paints its own wash on the schematic
+  [PASS] tint: an unknown tone falls back to neutral, never to red
+  [PASS] tint: every state this page can produce tints to something real
+  [PASS] device list text: monitored rooms name the hardware, empty ones say so
+  [PASS] summary: ALL QUIET - nothing running, nothing earlier
+  [PASS] summary: ACTIVE SAFETY, still checking -> names the room
+  [PASS] summary: ACTIVE SAFETY, help called -> the loud sentence, first
+  [PASS] summary: ACTIVE SAFETY, escalating but not yet called
+  [PASS] summary: RESOLVED WITH SIMULATED CALL - the word SURVIVES into the recap
+  [PASS] summary: a recap without an emergency call does NOT say SIMULATED
+  [PASS] summary: a cancelled run recaps as a false alarm
+  [PASS] summary: FIND-ONLY day - questions are counted, never alarming
+  [PASS] summary: all three sentences at once, in the required order
+  [PASS] summary: THE SEAM - a supplied digest replaces the composed text verbatim
+  [PASS] summary: an empty supplied digest falls back to the composed text
+  [PASS] summary: malformed state -> still a sentence, never blank, never a crash
+  [PASS] summary: NO JARGON in any composed digest
+  [PASS] summary state: MID-INCIDENT -> the active sentence, no recap yet
+  [PASS] summary state: POST-CLOSE -> recap, with SIMULATED and the contact
+  [PASS] summary state: a find run is counted, never promoted to a house state
+  [PASS] summary state: IDLE - nothing at all -> the quiet digest
+  [PASS] summary state: the most recent closed incident is the one recapped
+  [PASS] summary state: malformed run documents -> a usable state, never a crash
+
+The assertions the brief called out by name, individually:
+  * mapping resolution incl. name similarity                       PASS
+      "bath" -> Bathroom and "kitchenette" -> Kitchen by similarity;
+      "guest_room" and "utility" park in Unassigned rather than being
+      guessed onto a wrong room.
+  * mapping resolution incl. localStorage override                 PASS
+      a saved override beats both the shipped default and a similarity
+      match; an override of "" parks the room; an override naming a room
+      that no longer exists parks it instead of crashing.
+  * unmapped-room parking                                          PASS
+  * state -> tint                                                  PASS
+      quiet->quiet, caution->caution, alert->alert, good->clear, and every
+      state roomState() can actually produce tints to one of those four.
+      An unknown tone falls back to neutral, NEVER to red.
+  * composeSummary, all-quiet                                      PASS
+      "All quiet in the house."
+  * composeSummary, active-safety                                  PASS
+      "QNet is checking on the Kitchen." (checking)
+      "Kitchen needs attention - help has been called." (call placed)
+      "Bedroom needs attention - QNet is getting help." (escalating)
+  * composeSummary, resolved-with-simulated-call, SIMULATED
+    SURVIVES INTO THE RECAP                                        PASS
+      "All quiet in the house. Earlier: a fall in the Kitchen at 8:14 PM -
+       resolved; a SIMULATED emergency call was placed and Sarah was
+       notified."
+      and the negative control: a recap with no emergency call does NOT
+      contain the word.
+  * composeSummary, find-only                                      PASS
+      "All quiet in the house. 2 questions answered today." (and the
+      singular form, which is a different sentence)
+  * humanize iconId mapping                                        PASS
+      person / chat / phone / check-circle / magnifier on the lines that
+      carry meaning; every id humanize() can return is in the sprite; no
+      emoji survives into an iconId.
+  * takeover predicate unchanged                                   PASS
+      all five checkpoint-G cases re-run byte-identical, including "a find
+      run NEVER takes over".
+
+1b. ICON SET PARITY - the sprite and ICON_IDS are the same 15 names
+-------------------------------------------------------------------
+  ICON_IDS (15) vs sprite (15)
+  in ICON_IDS but not drawn: []
+  drawn but not in ICON_IDS: []                                    PASS
+
+  The 15: house, camera, speaker, mic, bell, phone, chat, person, magnifier,
+  check-circle, alert-triangle, sparkle, gear, question, arrow-down.
+  (The brief named 14; arrow-down was added for the "jump to latest" pill.)
+
+  BROKEN <use> refs across the whole file: none                    PASS
+  Every href="#i-..." in the document resolves to a <symbol> that exists.
+
+1c. LIVE REPLAY - real captured payloads through the shipped logic
+------------------------------------------------------------------
+The broker was already up (netstat: 127.0.0.1:1883 and :9001 LISTENING, PID
+14436), so it was reused. dev/spy.py subscribed to qnet/# and captured every
+message while three replays ran - the demo fixture the brief asks for, plus a
+recorded fall session and a recorded find session, because the fixture alone
+contains no `llm` line, no `look_in_rooms` tool and no routine run:
+
+  $ python dev/spy.py > capture.txt          # my own subscriber, killed after
+  $ python dev/replay_session.py dev/fixtures/replay_demo.jsonl --speed 20 --quiet
+    replay: done - 13 lines published, session 01KZ4P7Y60AMVHC2XGA709VNSG
+            final state='closed' phase='call_help'
+  $ python dev/replay_session.py data/sessions/kitchen__fall-response__2026-08-05T14-28-45.jsonl --speed 20 --quiet
+    replay: done - 19 lines published, session 01KZ9X8B5WYTP66X7QDM2X4FYQ
+            final state='active' phase='call_help'
+  $ python dev/replay_session.py data/live-t6/sessions/bedroom__find-object__2026-08-05T15-15-07.jsonl --speed 20 --quiet
+    replay: done - 5 lines published, session 01KZ9ZX85M1B7GW6SV3SHHTPD4
+            final state='closed' phase='search'
+
+Captured: 55 messages. Fed through the SHIPPED LOGIC CORE (extracted exactly as
+in 1a) using the product page's own two routing regexes:
+
+  CAPTURED TOPICS
+     37  qnet/session/<id>
+     11  qnet/kitchen/say
+      3  qnet/kitchen/heard
+      2  qnet/kitchen/event
+      1  qnet/bedroom/heard
+      1  qnet/bedroom/say
+
+    routed to the run handler   : 37
+    routed to the room handler  : 18
+    unrouted (would be ignored) : 0
+    JSON parse failures         : 0
+    humanize() exceptions       : 0
+    composeSummary() exceptions : 0
+
+  EVERY MESSAGE KIND IN THE CAPTURE, THROUGH humanize()  [iconId | sentence]
+    detected               -> [person] A fall was detected in the Kitchen
+    heard:silence          -> [mic] No response yet
+    heard:text             -> [mic] Resident: "a responder just walked in, thank you"
+    llm                    -> <hidden: admin-only>
+    phase->call_help       -> [phone] Calling for emergency help
+    phase->done            -> <hidden: admin-only>
+    phase->escalate        -> [alert-triangle] QNet is getting help
+    phase->resolved        -> [check-circle] All clear
+    say                    -> [chat] QNet: "I saw you fall. Take a breath - are you okay?"
+    tool:call_emergency    -> [phone] Emergency services called - SIMULATED
+    tool:look_in_rooms     -> <hidden: admin-only>
+    tool:notify_contacts   -> [bell] A trusted contact was notified
+
+  DERIVED NAMES  resident=null contact="Sarah"
+  (resident stays null because none of these three recordings contains a
+  `brief` line, which is where a resident's name is learnable from. The page
+  therefore says "Resident:" - readable English, no crash, no placeholder
+  token. Same observed behaviour as T5.4 recorded.)
+
+  DEVICE -> FLOOR PLAN, over the rooms this capture actually discovered
+    discovered rooms : ["bedroom","kitchen"]
+    Bedroom 1    bedroom  [default]
+    Bathroom     -
+    Bedroom 2    -
+    Living Room  -
+    Kitchen      kitchen  [default]
+    unassigned       : (none)
+
+  ROOM STATES -> MAP TINTS at end of capture
+    bedroom    All clear            -> tint-clear
+    kitchen    Help is on the way   -> tint-alert
+    house: "Kitchen needs attention"
+
+  composeSummary() OVER THE REAL CAPTURE, AT THE THREE POINTS THE BRIEF ASKS FOR
+    mid-incident   "Kitchen needs attention - help has been called."
+    post-close     "All quiet in the house. Earlier: a fall in the Kitchen at
+                    1:50 PM - resolved; a SIMULATED emergency call was placed
+                    and Sarah was notified."
+    idle           "All quiet in the house."
+
+    (and the end-of-capture state, where a second fall is still open in the
+     Kitchen while the first has closed and a question was answered:
+     "Kitchen needs attention - help has been called. Earlier: a fall in the
+      Kitchen at 1:50 PM - resolved; a SIMULATED emergency call was placed and
+      Sarah was notified. 1 question answered today."
+     - all three sentences, in the required order, from real traffic.)
+
+  ASSERTIONS
+    [PASS] every captured message was routed (no unrouted topic)
+    [PASS] every captured payload parsed
+    [PASS] humanize() never threw on a real payload
+    [PASS] composeSummary() never threw on a real capture
+    [PASS] every iconId produced by the real capture exists in the sprite
+    [PASS] no rendered sentence from the real capture leaks wire vocabulary
+    [PASS] SIMULATED survived humanization of the real capture
+    [PASS] SIMULATED survived into the composed SUMMARY of the real capture
+    [PASS] a routine (find) run never satisfied the takeover predicate
+    [PASS] a safety run did satisfy it
+    [PASS] every discovered room landed on the plan or in Unassigned - never lost
+    [PASS] every discovered room was auto-assigned with NO saved override
+    [PASS] every room state tinted to a real wash
+    [PASS] no composed digest leaks wire vocabulary
+    [PASS] names were learned from event content alone
+
+  15/15 replay-parse assertions passed
+
+1d. UI-LAYER SMOKE TEST - the whole inline script, actually executed
+--------------------------------------------------------------------
+`node --check` proves a file parses; it does not prove the UI layer RUNS. With
+no jsdom available (and none wanted - this project ships with no npm tree), the
+page's entire inline <script> was executed under a hand-written stub DOM built
+from the shipped markup's own ids and .fp-room groups, then driven with the 55
+real captured messages through the page's OWN client.onMessage.
+
+The only modification is one appended line inside the IIFE that hands
+client.onMessage out to the harness (it is closure-scoped, which is right for
+the page and inconvenient for a test). Every code path exercised is the shipped
+one.
+
+  # executed the whole inline <script> of dashboard/index.html under a stub DOM
+    .fp-room groups found in markup : 5  (bedroom1, bathroom, bedroom2, living, kitchen)
+    event listeners registered      : 40
+    getElementById on a missing id  : none
+    captured messages delivered     : 55
+    exceptions from the handler     : 0
+    timer ticks run                 : 1
+    summary card text after replay  :
+      "Kitchen needs attention - help has been called. Earlier: a fall in the
+       Kitchen at 1:50 PM - resolved; a <span class="sim-badge">SIMULATED</span>
+       emergency call was placed and Sarah was notified. 1 question answered
+       today."
+
+    0 exceptions - the UI layer runs end to end                    PASS
+
+That last line is worth reading closely: it is the real innerHTML the real
+renderSummary() produced from real wire traffic, with the SIMULATED badge
+markup in place.
+
+Static wiring checks over the same file:
+    ids in markup                   : 57
+    ids used by $()                 : 33
+    ids used but missing from markup: none                         PASS
+    SVG blocks in <body>            : 10, all well-formed XML      PASS
+    whole-document tag balance      : no errors, nothing left open PASS
+
+1e. LOCALSTORAGE OVERRIDE ROBUSTNESS
+------------------------------------
+loadRoomMap()'s guard was driven with every shape a real localStorage can hand
+back, and the result run through the shipped resolveMapping():
+
+  null (never saved)     -> assigned={"kitchen":"kitchen","bedroom":"bedroom1"}  unassigned=[]
+  corrupt text           -> assigned={"kitchen":"kitchen","bedroom":"bedroom1"}  unassigned=[]
+  wrong shape (array)    -> assigned={"kitchen":"kitchen","bedroom":"bedroom1"}  unassigned=[]
+  valid override         -> assigned={"kitchen":"bedroom2"}  unassigned=["bedroom"]
+
+A corrupt or hostile stored value falls back to the shipped defaults rather
+than throwing on load; a valid one is honoured, including its "" un-assign.
+                                                                   PASS
+
+1f. SYNTAX + VISIBLE-TEXT JARGON AUDIT
+--------------------------------------
+  node --check over the entire inline <script> of dashboard/index.html  PASS
+  node --check over the entire inline <script> of dashboard/admin.html  PASS
+    (admin.html is untouched by this task; checked to prove it)
+
+  Visible-text audit: HTML comments, <style> and <script> stripped, then all
+  remaining tags stripped, leaving only what a human can read. Searched for
+  /\bmqtt\b|qnet\/|\bsession\b|\bphase\b|\burgency\b|\bskill\b|\bulid\b|
+   \bpayload\b|\bjson\b|\btopic\b|\brefusal\b|\bbroker\b|ws:\/\//gi
+    visible-text jargon hits: NONE                                      PASS
+
+  The floor plan's <text> elements are visible text too, and were audited
+  separately since the tag-stripper would otherwise have eaten them:
+    floor-plan labels: ["Bedroom 1","All quiet","Bathroom","Bedroom 2",
+                        "Living Room","Kitchen"]
+    label jargon hits: NONE                                             PASS
+
+  Script-injected strings are covered by the two whole-run NO-JARGON cases in
+  1a plus the new "NO JARGON in any composed digest" case, and by the
+  "no rendered sentence from the real capture leaks wire vocabulary" and
+  "no composed digest leaks wire vocabulary" assertions in 1c.
+
+  New visible strings this task introduced, for the record: "Your home",
+  "Not on the plan yet:", "Assign rooms", "Summary", "Generated from today's
+  activity", "Live activity", "Jump to latest", "Live view", "Camera streaming
+  is not enabled in this build", "Coming soon", "No QNet device in this room.",
+  "QNet room device - camera, mic, speaker", "Rooms & devices", "Not on the
+  plan", "you chose this", "matched by name", "closest match", "no match
+  found", "No device", "Last activity ...". Not one is jargon.
+
+1g. THE EXISTING SUITE IS UNTOUCHED
+-----------------------------------
+  $ .venv/Scripts/python.exe -m pytest tests/ -q
+  ................................................................  [100%]
+  64 passed, 7 deselected in 17.21s                                    PASS
+
+1h. PACKAGING - STILL PACKS, WITH NO PACKAGING CHANGES
+-------------------------------------------------------
+This task added no files and renamed none, so packaging/build.ps1's $DataFiles
+list and qnet/app.py's stage_dashboard() were already correct. Both were read
+and confirmed to need no edit; the rebuild proves it:
+
+  $ powershell -ExecutionPolicy Bypass -File packaging\build.ps1
+  ...
+  4787 INFO: Build complete! The results are available in:
+       C:\Users\QCWorkshop26\Workspace\QNet-Home-impl\dist
+
+  BUILD OK  C:\...\dist\QNetHome\QNetHome.exe
+    dist size : 20.3 MB across 55 files
+    bundled   : _internal\dashboard\index.html (133,718 bytes)
+    bundled   : _internal\dashboard\admin.html (56,749 bytes)
+    bundled   : _internal\dev\fixtures\replay_demo.jsonl (1,359 bytes)
+
+  == launch check (--self-close 5) ==
+  QNet Home dashboard
+    mode:        frozen bundle
+    bundle root: C:\...\dist\QNetHome\_internal
+    dashboard:   C:\...\dist\QNetHome\_internal\dashboard\index.html
+    opening:     file:///C:/Users/QCWorkshop26/AppData/Local/QNetHome/dashboard/index.html
+    opened in the system default browser
+  Self-close reached; exiting cleanly.
+  LAUNCH OK
+
+  Size delta vs T5.4: 20.2 MB / 55 files -> 20.3 MB / 55 files. Same file
+  count. The whole increase is index.html growing 67,747 -> 133,718 bytes
+  (the sprite, the plan geometry, the new CSS and the 36 new self-test cases).
+  Still no build step, no npm, no CDN, no network fetch of any kind.
+
+  MSIX: NOT re-packed this pass (optional per the brief, as in T5.4). Nothing
+  here affects the MSIX layout - it packs dist\QNetHome as a directory tree and
+  the tree's shape is unchanged. AppxManifest.xml untouched.
+
+--------------------------------------------------------------------
+PART 2 - HUMAN CHECKLIST (needs a rendered browser; not machine-verifiable)
+--------------------------------------------------------------------
+No browser automation was available in this session, so everything below is
+left unchecked for a human. Setup: the broker up (it already is - REUSE it, do
+NOT start a second one), dashboard/index.html open via file://, and a driver:
+
+  python dev/replay_session.py dev/fixtures/replay_demo.jsonl --speed 5
+  python dev/inject.py fall --room kitchen
+  python dev/inject.py ask --room kitchen --kind query --text "where are my glasses"
+
+--- THE HOUSE (left column) -------------------------------------------------
+[ ] the plan reads as a floor plan at a glance, not as five boxes: continuous
+    outer wall with rounded corners, a front-door gap bottom-left with a swing
+    arc, doorways into Bedroom 1 / Bathroom / Bedroom 2, an open archway
+    between Living Room and Kitchen
+[ ] Bathroom is visibly the small room, centre-top, between the two bedrooms
+[ ] room name labels are centred and legible; the state caption under each
+    name reads in plain English
+[ ] MAP TINTS across one replayed fall: Kitchen goes neutral -> amber wash
+    (checking) -> red wash (needs attention / help called) -> green wash (all
+    clear) -> back to neutral a few minutes later
+[ ] the red wash PULSES slowly - about one breath every 2 seconds. It should
+    read as urgent, not as a strobe. Turn on "reduce motion" in the OS and
+    confirm it goes flat but stays red
+[ ] the alert BADGE (triangle in a red circle) appears at the incident room's
+    centre while the run is open, and disappears when it closes
+[ ] DEVICE MARKERS: a small pill with a camera and a speaker glyph sits at a
+    fixed anchor in every room that has a device. Rooms with no device have no
+    pill and their caption says "No device", NOT "All quiet"
+[ ] HOVER a room: the tooltip card shows room name, human state, the device
+    line ("QNet room device - camera, mic, speaker") and "Last activity 2 min
+    ago". It follows the room, never hangs off the window edge, and updates
+    live while an incident is running
+[ ] KEYBOARD: Tab through the plan. Every room takes focus with a visible blue
+    focus ring, the same tooltip appears on focus, and Enter or Space opens the
+    room modal
+[ ] CLICK a monitored room: modal shows the room name, its state with a
+    matching icon, the device list, and the LIVE VIEW PLACEHOLDER - a 16:9 dark
+    panel, camera glyph, "Live view", "Camera streaming is not enabled in this
+    build", and a muted "Coming soon" chip. It should look like a slot waiting
+    for a picture, not like a broken image
+[ ] CLICK an unmonitored room (e.g. Bathroom with nothing in it): says "No QNet
+    device in this room." and the black 16:9 panel is NOT shown
+[ ] UNASSIGNED ROW: publish traffic for a room the guesser will not place
+    (e.g. `python dev/inject.py fall --room utility`). A chip labelled "Utility"
+    appears above the plan with "Not on the plan yet:" and an "Assign rooms"
+    link that opens Settings
+[ ] Settings > "Rooms & devices": one row per room the house has been heard
+    from, each with a dropdown and a note saying how it got there ("matched by
+    name" / "closest match" / "you chose this" / "no match found"). Reassign
+    one, Save, and watch it move on the plan. Reload the page - it stays.
+    Set one to "Not on the plan" and confirm it moves to the chip row and
+    STAYS there across a reload
+
+--- SUMMARY CARD (right column, top) ----------------------------------------
+[ ] subtle gradient hairline border, sparkle icon, the word "Summary". Hovering
+    the heading shows "Generated from today's activity". Nowhere does the card
+    claim a model wrote it
+[ ] with nothing happening: "All quiet in the house."
+[ ] mid-incident it becomes "QNet is checking on the Kitchen." then "Kitchen
+    needs attention - help has been called.", live, without a reload
+[ ] after the run closes it becomes "All quiet in the house. Earlier: a fall in
+    the Kitchen at <clock time> - resolved; a SIMULATED emergency call was
+    placed and Sarah was notified."
+[ ] the word SIMULATED in the recap carries the SAME red/white badge the feed
+    line does
+[ ] run the `ask` inject and confirm the digest gains "1 question answered
+    today." and that this NEVER makes the house sound alarming
+
+--- LIVE ACTIVITY (right column, below) -------------------------------------
+[ ] newest line at the BOTTOM, chat-like, and the view follows it as messages
+    land
+[ ] scroll UP mid-incident: the feed stops moving under you and a blue "Jump to
+    latest" pill appears at the bottom. Press it - it scrolls to the newest
+    line and the pill disappears. Scroll back down manually and the pill also
+    disappears
+[ ] every line is icon + sentence + clock time. Read the whole feed aloud - if
+    any line would not make sense to someone who has never heard of MQTT, that
+    is a bug
+[ ] the emergency line is unmissable: red text, red-tinted row, red left bar,
+    and the red/white bold SIMULATED badge on the line itself
+[ ] NOT in the feed anywhere: refusals, llm decision lines, look_in_rooms,
+    intermediate phase moves, any id, any topic, any JSON. Open admin.html and
+    confirm all of them ARE there - same incident, both pages
+
+--- ICONS -------------------------------------------------------------------
+[ ] NO emoji anywhere in the page's chrome. Every glyph is a stroked SVG at a
+    consistent weight, and each one is the same colour as the text beside it
+    (red on the alert lines, green on the all-clear, muted in the tooltip)
+[ ] emoji DO still appear inside quoted spoken text if the engine said one -
+    that is correct and intended
+[ ] the top bar's house mark, the ? and the gear are all icons now, optically
+    the same size
+
+--- TAKEOVER (unchanged behaviour) ------------------------------------------
+[ ] a fall still takes the whole screen within about a second: big room name,
+    elapsed timer counting up, chat bubbles, status strip
+[ ] the status strip's "Emergency call placed - SIMULATED" carries the red badge
+[ ] BEHIND the takeover, the map is already tinted red for that room - dismiss
+    the overlay with "Mark as resolved" and the plan is correct underneath,
+    with no flicker or re-layout
+[ ] "Mark as resolved" clears the overlay immediately and dev/spy.py shows
+    {"op":"reset","room":"kitchen"} on qnet/kitchen/cmd
+[ ] a find query NEVER takes over the screen
+
+--- RESPONSIVE / THEME / OFFLINE --------------------------------------------
+[ ] RESPONSIVE STACK: drag the window narrower. At about 900px the two columns
+    become one - plan on top, summary then feed below - the plan scales down
+    with its aspect ratio intact and stays legible, the top bar wraps rather
+    than overflowing, and the page NEVER scrolls sideways at any width down to
+    a phone
+[ ] dark-friendly: flip the OS theme both ways with the page open. The plan's
+    walls, room fills and all four state washes are legible in both, and
+    neither looks like an accident
+[ ] works from file:// with no local server and with the network cable out
+    (no CDN, no font fetch, no analytics - DevTools Network empty apart from
+    the page itself)
+[ ] `?selftest=1` shows the 89-case panel on the page, matching Part 1a
+[ ] Help (?) and Settings (gear) modals still open, Escape/scrim/x still close
+    them, the footer still reads "QNet Home - Help - Admin portal - Source
+    (AGPL-3.0)" and the Source link still opens the repo in a new tab
+
+--------------------------------------------------------------------
+SUMMARY
+--------------------------------------------------------------------
+Machine-verifiable surface: PASS in full.
+  89/89 logic-core assertions from the shipped page (53 carried forward, 36
+    new), covering mapping resolution with name similarity and localStorage
+    overrides, unmapped-room parking, state->tint, humanize's iconId mapping,
+    the takeover predicate re-run unchanged, and composeSummary across
+    all-quiet / active-safety / resolved-with-simulated-call / find-only -
+    with SIMULATED asserted to survive into the recap
+  15/15 replay-parse assertions over 55 messages captured off the live broker
+    across three replayed runs - zero unrouted topics, zero parse failures,
+    zero humanize() exceptions, zero composeSummary() exceptions, and the
+    digest printed at mid-incident, post-close and idle
+  the entire inline UI layer executed under a stub DOM and driven with those
+    same 55 real messages: 0 exceptions, no missing element ids
+  icon sprite and ICON_IDS are the same 15 names; no broken <use> reference
+  all 10 SVG blocks well-formed; whole-document tag balance clean
+  localStorage override robust against null, corrupt and wrong-shape values
+  node --check on both HTML files' inline scripts
+  visible-text jargon audit: zero hits, including the floor plan's own labels
+  64 passed, 7 deselected - the existing suite is untouched
+  PyInstaller build OK with NO packaging changes needed, 20.3 MB / 55 files
+Not machine-verifiable: anything needing a rendered browser - actual colours,
+the pulse as experienced, tooltip placement, the modal's live-view panel, the
+responsive stack, theme flipping, and the judgement call that the plan reads as
+a floor plan. Those are the boxes in Part 2, left unchecked for a human. No
+browser automation was available in this session.
+
+Nothing was committed. The demo broker (PID 14436) was reused throughout, was
+never restarted or killed, and is still running; the only process stopped was
+my own dev/spy.py subscriber.

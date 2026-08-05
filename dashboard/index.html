@@ -78,6 +78,11 @@
     --caution: #a06a00;
     --alert: #c22630;
     --shadow: 0 1px 2px rgba(16, 20, 32, 0.05), 0 6px 20px rgba(16, 20, 32, 0.05);
+    /* T5.5 floor plan */
+    --fp-room: #f1f4f8; --fp-wall: #6f7787; --fp-chip: #ffffff;
+    --fp-caution-fill: rgba(160, 106, 0, 0.20);
+    --fp-alert-fill: rgba(194, 38, 48, 0.20);
+    --fp-clear-fill: rgba(18, 128, 90, 0.18);
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -94,17 +99,29 @@
       --caution: #efb54a;
       --alert: #ff6b70;
       --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+      --fp-room: #1b1f28; --fp-wall: #6b7488; --fp-chip: #232833;
+      --fp-caution-fill: rgba(239, 181, 74, 0.22);
+      --fp-alert-fill: rgba(255, 107, 112, 0.22);
+      --fp-clear-fill: rgba(63, 194, 135, 0.20);
     }
   }
   :root[data-theme="light"] {
     --bg: #f6f7f9; --bg-soft: #eef0f4; --card: #ffffff; --card-2: #f4f6f9;
     --line: #e2e5ec; --line-soft: #eceff4; --text: #14161d; --muted: #626a7a;
     --brand: #2f6fed; --calm: #12805a; --caution: #a06a00; --alert: #c22630;
+    --fp-room: #f1f4f8; --fp-wall: #6f7787; --fp-chip: #ffffff;
+    --fp-caution-fill: rgba(160, 106, 0, 0.20);
+    --fp-alert-fill: rgba(194, 38, 48, 0.20);
+    --fp-clear-fill: rgba(18, 128, 90, 0.18);
   }
   :root[data-theme="dark"] {
     --bg: #0d0f14; --bg-soft: #14171e; --card: #171a22; --card-2: #1d212a;
     --line: #272c37; --line-soft: #21252e; --text: #e9ebf1; --muted: #949bab;
     --brand: #6d9bff; --calm: #3fc287; --caution: #efb54a; --alert: #ff6b70;
+    --fp-room: #1b1f28; --fp-wall: #6b7488; --fp-chip: #232833;
+    --fp-caution-fill: rgba(239, 181, 74, 0.22);
+    --fp-alert-fill: rgba(255, 107, 112, 0.22);
+    --fp-clear-fill: rgba(63, 194, 135, 0.20);
   }
 
   * { box-sizing: border-box; }
@@ -118,7 +135,7 @@
   }
   a { color: var(--brand); }
 
-  .shell { max-width: 1000px; margin: 0 auto; padding: 0 24px 56px; }
+  .shell { max-width: 1180px; margin: 0 auto; padding: 0 24px 56px; }
 
   /* ---------------- top bar ---------------- */
   .topbar {
@@ -129,7 +146,7 @@
     border-bottom: 1px solid var(--line);
   }
   .topbar-inner {
-    max-width: 1000px; margin: 0 auto; padding: 16px 24px;
+    max-width: 1180px; margin: 0 auto; padding: 16px 24px;
     display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
   }
   .brand {
@@ -303,35 +320,484 @@
     border-radius: 12px; padding: 16px; font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
     white-space: pre-wrap; max-height: 50vh; overflow-y: auto; color: var(--text);
   }
+
+  /* ==================================================================
+     T5.5 - THE HOUSE
+     Left: an SVG floor plan of a standard two-bedroom home. Right: a
+     380px column with the summary card over the live activity feed.
+     One breakpoint, at 900px, where the two columns become one.
+     ================================================================== */
+
+  /* ---- the icon sprite ---- */
+  /* Every glyph is stroke-only and inherits currentColor, so an icon is
+     always exactly the colour of the text it sits beside - which is what
+     makes the alert red and the all-clear green for free. */
+  .sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+  .ico {
+    width: 18px; height: 18px; display: block; flex: none;
+    fill: none; stroke: currentColor; stroke-width: 1.8;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  .ico.sm { width: 15px; height: 15px; }
+  .ico.lg { width: 22px; height: 22px; }
+
+  /* ---- two-column shell ---- */
+  .layout {
+    margin-top: 32px;
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+    gap: 24px; align-items: start;
+  }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: minmax(0, 1fr); }
+    .side { max-width: none; }
+  }
+  .side { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+
+  .panel {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 18px; box-shadow: var(--shadow);
+  }
+  .panel-head {
+    display: flex; align-items: center; gap: 9px;
+    padding: 15px 18px 0;
+  }
+  .panel-head h2 { margin: 0; }
+  .panel-head .ico { color: var(--muted); }
+
+  /* ---- unassigned chip row ---- */
+  .chiprow {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    padding: 12px 18px 0; font-size: 0.85rem; color: var(--muted);
+  }
+  .chiprow[hidden] { display: none; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px; border-radius: 999px;
+    border: 1px dashed var(--line); background: var(--card-2); color: var(--muted);
+    font-size: 0.82rem; font-weight: 600;
+  }
+  .chiprow .link {
+    background: none; border: none; padding: 0; font: inherit; font-weight: 600;
+    color: var(--brand); cursor: pointer; text-decoration: underline;
+  }
+
+  /* ---- the floor plan itself ---- */
+  .fp-wrap { padding: 14px 18px 18px; }
+  .floorplan { width: 100%; height: auto; display: block; }
+
+  /* Walls: one weight for the shell, the same for partitions. 1.5px reads as
+     drawn rather than as a border at every zoom we care about. */
+  .fp-wall {
+    fill: none; stroke: var(--fp-wall); stroke-width: 1.5;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  .fp-swing { fill: none; stroke: var(--fp-wall); stroke-width: 1; opacity: 0.45; }
+
+  .fp-fill {
+    fill: var(--fp-room); stroke: none;
+    transition: fill 420ms ease;
+  }
+  .fp-room { cursor: pointer; outline: none; }
+  .fp-room .fp-name {
+    font-size: 15px; font-weight: 650; fill: var(--text);
+    text-anchor: middle; pointer-events: none; user-select: none;
+    letter-spacing: -0.01em;
+  }
+  .fp-room .fp-cap {
+    font-size: 11.5px; font-weight: 600; fill: var(--muted);
+    text-anchor: middle; pointer-events: none; user-select: none;
+  }
+  .fp-room:hover .fp-fill { filter: brightness(0.97); }
+  @media (prefers-color-scheme: dark) { .fp-room:hover .fp-fill { filter: brightness(1.22); } }
+  .fp-room:focus-visible .fp-focus { stroke: var(--brand); stroke-width: 2.5; opacity: 1; }
+  .fp-focus { fill: none; stroke: none; opacity: 0; pointer-events: none; }
+
+  /* State washes. Neutral is the base fill above; the rest paint over it. */
+  .fp-room.tint-caution .fp-fill { fill: var(--fp-caution-fill); }
+  .fp-room.tint-caution .fp-cap { fill: var(--caution); }
+  .fp-room.tint-alert   .fp-fill { fill: var(--fp-alert-fill); animation: fpPulse 2s ease-in-out infinite; }
+  .fp-room.tint-alert   .fp-cap { fill: var(--alert); }
+  .fp-room.tint-alert   .fp-name { fill: var(--alert); }
+  .fp-room.tint-clear   .fp-fill { fill: var(--fp-clear-fill); }
+  .fp-room.tint-clear   .fp-cap { fill: var(--calm); }
+  /* The 2s pulse is DESIGN S14's "urgent but not a siren": a slow breath, not
+     a strobe. Anyone who has asked the OS to stop animating gets a flat wash. */
+  @keyframes fpPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+  @media (prefers-reduced-motion: reduce) {
+    .fp-room.tint-alert .fp-fill { animation: none; }
+  }
+
+  /* The incident badge, at the room's centroid while a run is open. */
+  .fp-badge { pointer-events: none; }
+  .fp-badge.is-off { display: none; }
+  .fp-badge circle { fill: var(--alert); stroke: none; }
+  .fp-badge use { color: #ffffff; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* Device dot-cluster: camera + speaker in a pill, at a fixed anchor. */
+  .fp-dev { pointer-events: none; }
+  .fp-dev.is-off { display: none; }
+  .fp-dev .fp-dev-chip { fill: var(--fp-chip); stroke: var(--fp-wall); stroke-width: 0.8; opacity: 0.95; }
+  .fp-dev use { color: var(--muted); fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+  .fp-room.tint-alert .fp-dev use { color: var(--alert); }
+
+  /* ---- hover / focus tooltip ---- */
+  .fp-tip {
+    position: fixed; z-index: 120; pointer-events: none; opacity: 0;
+    transition: opacity 120ms ease; max-width: 260px;
+    background: var(--card); color: var(--text);
+    border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: var(--shadow); padding: 11px 14px; font-size: 0.86rem;
+  }
+  .fp-tip.show { opacity: 1; }
+  .fp-tip .tip-name { font-weight: 700; font-size: 0.95rem; }
+  .fp-tip .tip-state { font-weight: 600; margin-top: 2px; }
+  .fp-tip .tip-state.caution { color: var(--caution); }
+  .fp-tip .tip-state.alert { color: var(--alert); }
+  .fp-tip .tip-state.good { color: var(--calm); }
+  .fp-tip .tip-state.quiet { color: var(--muted); }
+  .fp-tip .tip-line { color: var(--muted); margin-top: 6px; display: flex; align-items: center; gap: 7px; }
+
+  /* ---- the Summary card ---- */
+  /* A 1px gradient hairline, done as a padded wrapper so it works without
+     border-image and degrades to a plain rounded card if the gradient is
+     unsupported. Subtle on purpose: this card must not out-shout an alert. */
+  .summary {
+    padding: 1px; border-radius: 18px;
+    background: var(--line);
+    background: linear-gradient(135deg, var(--brand) 0%, #9b6dff 48%, var(--calm) 100%);
+    box-shadow: var(--shadow);
+  }
+  .summary-inner { background: var(--card); border-radius: 17px; padding: 16px 18px 18px; }
+  .summary-head {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+    color: var(--muted); cursor: help;
+  }
+  .summary-head h2 { margin: 0; }
+  .summary-head .ico { color: var(--brand); }
+  .summary-text { font-size: 0.98rem; line-height: 1.55; }
+  .summary-text .sim-badge { vertical-align: 2px; }
+
+  /* ---- live activity feed ---- */
+  .feed-panel { display: flex; flex-direction: column; overflow: hidden; position: relative; }
+  .feed-scroll { max-height: 46vh; min-height: 140px; overflow-y: auto; padding: 6px 0 4px; scroll-behavior: smooth; }
+  @media (max-width: 900px) { .feed-scroll { max-height: 60vh; } }
+  .feed-scroll .entry { padding: 11px 18px; }
+  .feed-scroll .entry .icon { width: auto; display: flex; align-items: center; padding-top: 2px; }
+  .jump-pill {
+    position: absolute; left: 50%; transform: translateX(-50%); bottom: 12px; z-index: 5;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: 999px; cursor: pointer;
+    background: var(--brand); color: #fff; border: none;
+    font: inherit; font-size: 0.82rem; font-weight: 650;
+    box-shadow: 0 4px 14px rgba(16, 20, 32, 0.28);
+  }
+  .jump-pill[hidden] { display: none; }
+  .jump-pill .ico { stroke-width: 2.2; }
+
+  /* ---- room modal: the camera live-view placeholder ---- */
+  /* This is the DESIGNED SLOT for streaming, not a stub apologising for its
+     absence: a real 16:9 panel where the picture will go, labelled honestly. */
+  .cam {
+    position: relative; width: 100%; aspect-ratio: 16 / 9;
+    border-radius: 14px; overflow: hidden;
+    background: #10131a; border: 1px solid var(--line);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px; text-align: center; padding: 18px;
+  }
+  /* aspect-ratio fallback for older engines */
+  @supports not (aspect-ratio: 16 / 9) { .cam { height: 0; padding-bottom: 56.25%; } }
+  .cam::before {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(120% 90% at 50% 40%, rgba(255,255,255,0.06), transparent 70%);
+  }
+  .cam .ico { width: 42px; height: 42px; color: #6f7889; stroke-width: 1.4; position: relative; }
+  .cam-title { position: relative; color: #cdd3df; font-weight: 650; letter-spacing: 0.01em; }
+  .cam-note { position: relative; color: #8992a3; font-size: 0.86rem; max-width: 34ch; }
+  .cam-chip {
+    position: relative; display: inline-block; padding: 2px 10px; border-radius: 999px;
+    background: rgba(255,255,255,0.07); color: #97a0b1;
+    font-size: 0.74rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .room-modal-state { display: flex; align-items: center; gap: 8px; font-weight: 650; margin: 2px 0 4px; }
+  .room-modal-state.caution { color: var(--caution); }
+  .room-modal-state.alert { color: var(--alert); }
+  .room-modal-state.good { color: var(--calm); }
+  .room-modal-state.quiet { color: var(--muted); }
+  .devline { display: flex; align-items: center; gap: 9px; color: var(--muted); margin: 6px 0; }
+
+  /* ---- Settings: rooms & devices ---- */
+  .maprow {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 9px 0; border-bottom: 1px solid var(--line-soft);
+  }
+  .maprow:last-child { border-bottom: none; }
+  .maprow .devname { flex: 1 1 130px; font-weight: 650; color: var(--text); min-width: 0; }
+  .maprow .how { color: var(--muted); font-size: 0.78rem; }
+  .maprow select {
+    font: inherit; font-size: 0.9rem; padding: 7px 10px; border-radius: 9px;
+    background: var(--card-2); color: var(--text); border: 1px solid var(--line);
+  }
+  .maprow select:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
 </style>
 </head>
 <body>
 
+<!-- ===================== ICON SPRITE =====================
+  T5.5. Every glyph on this page comes from here. Hand-drawn on a 24x24 grid,
+  stroke-only, no fills, no attributes on the paths at all - so each one
+  inherits fill/stroke/stroke-width from the <use> that summons it and is
+  therefore always the exact colour of the text beside it. That inheritance is
+  why there is no per-icon colour CSS anywhere in this file.
+
+  Emoji are gone from the page's chrome entirely (they render differently on
+  every OS, they carry no stroke weight, and half of them are a different size
+  to the other half). They survive ONLY inside quoted spoken text, which is the
+  resident's words or the engine's - not this page's vocabulary.
+
+  ICON_IDS in the LOGIC CORE lists these names, and the self-test asserts that
+  every iconId humanize() can return is one of them.
+-->
+<svg class="sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-house" viewBox="0 0 24 24">
+    <path d="M3 10.6 12 3.3l9 7.3"/><path d="M5.6 9.6V20.4h12.8V9.6"/><path d="M10 20.4v-5.2h4v5.2"/>
+  </symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24">
+    <path d="M3.2 8.9a2 2 0 0 1 2-2h2.1l1.3-2h6.8l1.3 2h2.1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5.2a2 2 0 0 1-2-2z"/>
+    <circle cx="12" cy="12.7" r="3.2"/>
+  </symbol>
+  <symbol id="i-speaker" viewBox="0 0 24 24">
+    <path d="M4 9.4h3.6L12 5.3v13.4L7.6 14.6H4z"/>
+    <path d="M15.4 9.6a3.9 3.9 0 0 1 0 4.8"/><path d="M17.9 7a7.4 7.4 0 0 1 0 10"/>
+  </symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24">
+    <path d="M12 3.4a2.6 2.6 0 0 1 2.6 2.6v5.3a2.6 2.6 0 0 1-5.2 0V6A2.6 2.6 0 0 1 12 3.4z"/>
+    <path d="M6.6 11.2a5.4 5.4 0 0 0 10.8 0"/><path d="M12 16.6v4"/><path d="M9.2 20.6h5.6"/>
+  </symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24">
+    <path d="M6.6 16.4V10a5.4 5.4 0 0 1 10.8 0v6.4"/><path d="M4.6 16.4h14.8"/>
+    <path d="M10 19.3a2.2 2.2 0 0 0 4 0"/>
+  </symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24">
+    <path d="M6.7 3.5 9 3.9l1.2 3.6-1.9 1.5a12.2 12.2 0 0 0 5.7 5.7l1.5-1.9 3.6 1.2.4 2.4a1.6 1.6 0 0 1-1.7 1.8C10.5 19.7 4.3 13.5 4.9 5.3A1.6 1.6 0 0 1 6.7 3.5z"/>
+  </symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24">
+    <path d="M4 5.6h16v9.8h-9.4L5.9 19v-3.6H4z"/>
+  </symbol>
+  <symbol id="i-person" viewBox="0 0 24 24">
+    <circle cx="12" cy="7.4" r="3.3"/><path d="M4.9 20.2a7.1 7.1 0 0 1 14.2 0"/>
+  </symbol>
+  <symbol id="i-magnifier" viewBox="0 0 24 24">
+    <circle cx="10.7" cy="10.7" r="5.9"/><path d="m15 15 5 5"/>
+  </symbol>
+  <symbol id="i-check-circle" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="8.6"/><path d="m8 12.3 2.8 2.8 5.3-6"/>
+  </symbol>
+  <symbol id="i-alert-triangle" viewBox="0 0 24 24">
+    <path d="M12 3.9 21.2 19.7H2.8z"/><path d="M12 9.9v4.2"/><path d="M12 17.1h.01"/>
+  </symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24">
+    <path d="M11 3.6 12.6 8.5 17.5 10.1 12.6 11.7 11 16.6 9.4 11.7 4.5 10.1 9.4 8.5z"/>
+    <path d="M18 14.4 18.8 16.6 21 17.4 18.8 18.2 18 20.4 17.2 18.2 15 17.4 17.2 16.6z"/>
+  </symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24">
+    <path d="M13.9 3.4h-3.8l-.4 2.1a6.7 6.7 0 0 0-1.7.9l-2-.8-1.9 3.3 1.6 1.4a6.7 6.7 0 0 0 0 1.9l-1.6 1.4 1.9 3.3 2-.8a6.7 6.7 0 0 0 1.7.9l.4 2.1h3.8l.4-2.1a6.7 6.7 0 0 0 1.7-.9l2 .8 1.9-3.3-1.6-1.4a6.7 6.7 0 0 0 0-1.9l1.6-1.4-1.9-3.3-2 .8a6.7 6.7 0 0 0-1.7-.9z"/>
+    <circle cx="12" cy="12" r="2.8"/>
+  </symbol>
+  <symbol id="i-question" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="8.6"/>
+    <path d="M9.6 9.5a2.5 2.5 0 1 1 3.4 2.3c-.7.3-1 .9-1 1.6v.4"/><path d="M12 16.8h.01"/>
+  </symbol>
+  <symbol id="i-arrow-down" viewBox="0 0 24 24">
+    <path d="M12 4.8v14.4"/><path d="m5.8 13.2 6.2 6 6.2-6"/>
+  </symbol>
+</svg>
+
 <div class="topbar">
   <div class="topbar-inner">
-    <div class="brand"><span class="mark">⬡</span> QNet Home</div>
+    <div class="brand"><svg class="ico lg mark" aria-hidden="true"><use href="#i-house"></use></svg> QNet Home</div>
     <div class="house-status calm" id="houseStatus">Everything looks fine</div>
     <div class="topbar-actions">
       <span class="conn offline" id="conn"><span class="dot"></span><span id="connLabel">Reconnecting…</span></span>
-      <button class="icon-btn" id="helpBtn" title="Help" aria-label="Help">?</button>
-      <button class="icon-btn" id="settingsBtn" title="Settings" aria-label="Settings">⚙</button>
+      <button class="icon-btn" id="helpBtn" title="Help" aria-label="Help"><svg class="ico" aria-hidden="true"><use href="#i-question"></use></svg></button>
+      <button class="icon-btn" id="settingsBtn" title="Settings" aria-label="Settings"><svg class="ico" aria-hidden="true"><use href="#i-gear"></use></svg></button>
     </div>
   </div>
 </div>
 
 <div class="shell">
 
-  <section>
-    <h2>Rooms</h2>
-    <div class="rooms" id="rooms"></div>
-    <div class="placeholder" id="roomsEmpty">Waiting to hear from your home…</div>
-  </section>
+  <div class="layout">
 
-  <section>
-    <h2>Today at home</h2>
-    <div class="feed" id="feed"></div>
-    <div class="placeholder" id="feedEmpty">Nothing has happened today. That is the good outcome.</div>
-  </section>
+    <!-- ============ LEFT: THE HOUSE ============
+      A schematic of a standard two-bedroom home, drawn once in markup and only
+      ever RE-TINTED by script - the geometry never moves, so there is nothing
+      to reflow when a room changes state and nothing to get wrong at 3am.
+
+      Bedroom 1 | Bathroom (small, centre) | Bedroom 2   across the top
+      Living Room | Kitchen                              across the bottom
+
+      Walls are individual segments with real door gaps rather than five
+      rectangles butted together, which is the whole difference between "a
+      floor plan" and "a grid of boxes". Each room group is a button: hover or
+      tab to it for the tooltip, click or press Enter for the room modal.
+    -->
+    <section class="panel" aria-labelledby="planTitle">
+      <div class="panel-head">
+        <svg class="ico" aria-hidden="true"><use href="#i-house"></use></svg>
+        <h2 id="planTitle">Your home</h2>
+      </div>
+
+      <!-- Rooms the house mentioned that are not on the plan yet. They park
+           here rather than being guessed onto a wrong room. -->
+      <div class="chiprow" id="unassignedRow" hidden>
+        <span>Not on the plan yet:</span>
+        <span id="unassignedChips"></span>
+        <button type="button" class="link" id="assignLink">Assign rooms</button>
+      </div>
+
+      <div class="fp-wrap">
+        <svg class="floorplan" id="floorplan" viewBox="0 0 600 440"
+             preserveAspectRatio="xMidYMid meet" role="group" aria-label="Floor plan of your home">
+
+          <!-- room fills + labels + markers, painted under the walls -->
+          <g id="fpRooms">
+            <g class="fp-room" data-room="bedroom1" tabindex="0" role="button">
+              <rect class="fp-fill" x="11" y="11" width="218" height="188" rx="3"/>
+              <rect class="fp-focus" x="13" y="13" width="214" height="184" rx="3"/>
+              <g class="fp-badge is-off" transform="translate(120,75)">
+                <circle r="13"/><use href="#i-alert-triangle" x="-8" y="-8" width="16" height="16"/>
+              </g>
+              <text class="fp-name" x="120" y="111">Bedroom 1</text>
+              <text class="fp-cap" x="120" y="131">All quiet</text>
+              <g class="fp-dev is-off" transform="translate(120,163)">
+                <rect class="fp-dev-chip" x="-26" y="-12" width="52" height="24" rx="12"/>
+                <use href="#i-camera" x="-21" y="-8" width="16" height="16"/>
+                <use href="#i-speaker" x="5" y="-8" width="16" height="16"/>
+              </g>
+            </g>
+
+            <g class="fp-room" data-room="bathroom" tabindex="0" role="button">
+              <rect class="fp-fill" x="231" y="11" width="138" height="188" rx="3"/>
+              <rect class="fp-focus" x="233" y="13" width="134" height="184" rx="3"/>
+              <g class="fp-badge is-off" transform="translate(300,75)">
+                <circle r="13"/><use href="#i-alert-triangle" x="-8" y="-8" width="16" height="16"/>
+              </g>
+              <text class="fp-name" x="300" y="111">Bathroom</text>
+              <text class="fp-cap" x="300" y="131">All quiet</text>
+              <g class="fp-dev is-off" transform="translate(300,163)">
+                <rect class="fp-dev-chip" x="-26" y="-12" width="52" height="24" rx="12"/>
+                <use href="#i-camera" x="-21" y="-8" width="16" height="16"/>
+                <use href="#i-speaker" x="5" y="-8" width="16" height="16"/>
+              </g>
+            </g>
+
+            <g class="fp-room" data-room="bedroom2" tabindex="0" role="button">
+              <rect class="fp-fill" x="371" y="11" width="218" height="188" rx="3"/>
+              <rect class="fp-focus" x="373" y="13" width="214" height="184" rx="3"/>
+              <g class="fp-badge is-off" transform="translate(480,75)">
+                <circle r="13"/><use href="#i-alert-triangle" x="-8" y="-8" width="16" height="16"/>
+              </g>
+              <text class="fp-name" x="480" y="111">Bedroom 2</text>
+              <text class="fp-cap" x="480" y="131">All quiet</text>
+              <g class="fp-dev is-off" transform="translate(480,163)">
+                <rect class="fp-dev-chip" x="-26" y="-12" width="52" height="24" rx="12"/>
+                <use href="#i-camera" x="-21" y="-8" width="16" height="16"/>
+                <use href="#i-speaker" x="5" y="-8" width="16" height="16"/>
+              </g>
+            </g>
+
+            <g class="fp-room" data-room="living" tabindex="0" role="button">
+              <rect class="fp-fill" x="11" y="201" width="328" height="228" rx="3"/>
+              <rect class="fp-focus" x="13" y="203" width="324" height="224" rx="3"/>
+              <g class="fp-badge is-off" transform="translate(175,285)">
+                <circle r="13"/><use href="#i-alert-triangle" x="-8" y="-8" width="16" height="16"/>
+              </g>
+              <text class="fp-name" x="175" y="321">Living Room</text>
+              <text class="fp-cap" x="175" y="341">All quiet</text>
+              <g class="fp-dev is-off" transform="translate(175,373)">
+                <rect class="fp-dev-chip" x="-26" y="-12" width="52" height="24" rx="12"/>
+                <use href="#i-camera" x="-21" y="-8" width="16" height="16"/>
+                <use href="#i-speaker" x="5" y="-8" width="16" height="16"/>
+              </g>
+            </g>
+
+            <g class="fp-room" data-room="kitchen" tabindex="0" role="button">
+              <rect class="fp-fill" x="341" y="201" width="248" height="228" rx="3"/>
+              <rect class="fp-focus" x="343" y="203" width="244" height="224" rx="3"/>
+              <g class="fp-badge is-off" transform="translate(465,285)">
+                <circle r="13"/><use href="#i-alert-triangle" x="-8" y="-8" width="16" height="16"/>
+              </g>
+              <text class="fp-name" x="465" y="321">Kitchen</text>
+              <text class="fp-cap" x="465" y="341">All quiet</text>
+              <g class="fp-dev is-off" transform="translate(465,373)">
+                <rect class="fp-dev-chip" x="-26" y="-12" width="52" height="24" rx="12"/>
+                <use href="#i-camera" x="-21" y="-8" width="16" height="16"/>
+                <use href="#i-speaker" x="5" y="-8" width="16" height="16"/>
+              </g>
+            </g>
+          </g>
+
+          <!-- WALLS. Outer shell with a rounded corner radius and one gap for
+               the front door; partitions with a gap at every doorway. -->
+          <g class="fp-wall" pointer-events="none">
+            <path d="M20 10 H580 A10 10 0 0 1 590 20 V420 A10 10 0 0 1 580 430 H150
+                     M90 430 H20 A10 10 0 0 1 10 420 V20 A10 10 0 0 1 20 10"/>
+            <path d="M230 10 V200"/>
+            <path d="M370 10 V200"/>
+            <path d="M10 200 H150   M200 200 H278   M322 200 H420   M470 200 H590"/>
+            <path d="M340 200 V265  M340 335 V430"/>
+          </g>
+
+          <!-- Door swings. Thin and half-faded: they say "this is a door"
+               without competing with anything that matters. -->
+          <g class="fp-swing" pointer-events="none">
+            <path d="M90 430 A60 60 0 0 1 150 370"/>
+            <path d="M150 200 A50 50 0 0 1 200 150"/>
+            <path d="M278 200 A44 44 0 0 1 322 156"/>
+            <path d="M420 200 A50 50 0 0 1 470 150"/>
+          </g>
+        </svg>
+
+        <div class="placeholder" id="roomsEmpty" style="margin-top:14px;">Waiting to hear from your home…</div>
+      </div>
+    </section>
+
+    <!-- ============ RIGHT: SUMMARY over LIVE ACTIVITY ============ -->
+    <div class="side">
+
+      <!-- The digest. Composed by composeSummary() in the LOGIC CORE from
+           today's activity - deterministic, unit-tested, and deliberately NOT
+           claimed to be written by a model. The tooltip says where it comes
+           from; the sparkle says it is a digest rather than a reading. -->
+      <div class="summary">
+        <div class="summary-inner">
+          <div class="summary-head" title="Generated from today's activity">
+            <svg class="ico" aria-hidden="true"><use href="#i-sparkle"></use></svg>
+            <h2 id="summaryTitle">Summary</h2>
+          </div>
+          <div class="summary-text" id="summaryText" aria-live="polite">All quiet in the house.</div>
+        </div>
+      </div>
+
+      <section class="panel feed-panel" aria-labelledby="feedTitle">
+        <div class="panel-head">
+          <svg class="ico" aria-hidden="true"><use href="#i-chat"></use></svg>
+          <h2 id="feedTitle">Live activity</h2>
+        </div>
+        <!-- Newest at the BOTTOM, like a conversation, and it follows the
+             newest line unless you have scrolled up to read something - at
+             which point it stops moving under you and offers the pill. -->
+        <div class="feed-scroll" id="feedScroll">
+          <div class="feed" id="feed" style="border:none; box-shadow:none; border-radius:0; background:transparent;"></div>
+          <div class="placeholder" id="feedEmpty" style="border:none; padding:24px 18px;">Nothing has happened today. That is the good outcome.</div>
+        </div>
+        <button type="button" class="jump-pill" id="jumpPill" hidden>
+          <svg class="ico sm" aria-hidden="true"><use href="#i-arrow-down"></use></svg> Jump to latest
+        </button>
+      </section>
+
+    </div>
+  </div>
 
   <footer>
     <span>QNet Home</span>
@@ -418,6 +884,17 @@
     <button class="modal-close" data-close aria-label="Close">×</button>
     <h3 id="setTitle">Settings</h3>
 
+    <!-- T5.5: which real room sits where on the plan. Rooms are discovered by
+         listening, so this list grows on its own; the dropdowns only exist for
+         the cases the name guesser will not touch. -->
+    <h4 style="margin-top:18px;">Rooms &amp; devices</h4>
+    <p class="hint" style="margin:0 0 4px;">
+      Each room QNet has heard from, and where it sits on your floor plan.
+      Choose “Not on the plan” to leave one off.
+    </p>
+    <div id="mapRows"></div>
+    <p class="hint" id="mapEmpty">No rooms have been heard from yet.</p>
+
     <div class="field">
       <label for="hubUrl">Home hub address</label>
       <input id="hubUrl" type="text" spellcheck="false" autocapitalize="off" autocorrect="off">
@@ -435,6 +912,37 @@
     </div>
   </div>
 </div>
+
+<!-- ===================== ROOM (click a room on the plan) ===================== -->
+<div class="modal" id="roomModal" role="dialog" aria-modal="true" aria-labelledby="rmTitle">
+  <div class="modal-scrim" data-close></div>
+  <div class="modal-card">
+    <button class="modal-close" data-close aria-label="Close">×</button>
+    <h3 id="rmTitle">Room</h3>
+    <div class="room-modal-state quiet" id="rmState"></div>
+    <div class="devline" id="rmDevices"></div>
+
+    <h4>Live view</h4>
+    <!-- THE SLOT. Streaming is a future build, and this is the panel it will
+         appear in - correctly proportioned, in place, and labelled honestly
+         rather than hidden until it works. A family that clicks a room should
+         learn what this screen will one day do, and be told plainly that it
+         does not do it yet. -->
+    <div class="cam" id="rmCam" role="img" aria-label="Camera live view is not enabled in this build">
+      <svg class="ico" aria-hidden="true"><use href="#i-camera"></use></svg>
+      <div class="cam-title">Live view</div>
+      <div class="cam-note">Camera streaming is not enabled in this build</div>
+      <div class="cam-chip">Coming soon</div>
+    </div>
+    <p class="hint" style="margin-top:12px;">
+      Nothing this room sees or hears leaves your home. QNet understands it in
+      the room and only ever sends short sentences to this screen.
+    </p>
+  </div>
+</div>
+
+<!-- Hover / keyboard-focus card for the floor plan. -->
+<div class="fp-tip" id="fpTip" role="tooltip" aria-hidden="true"></div>
 
 <!-- ===================== SAFETY TAKEOVER ===================== -->
 <div id="takeover" role="dialog" aria-modal="true" aria-live="assertive">
@@ -697,7 +1205,14 @@ function roomLabel(room) {
  * THE function this page exists for: one wire log entry -> one plain English
  * sentence, or null.
  *
- *   humanize(entry, ctx) -> { icon, text, tone, badge? } | null
+ *   humanize(entry, ctx) -> { iconId, text, tone, badge? } | null
+ *
+ * T5.5: `icon` (an emoji character) became `iconId` (a key into the inline SVG
+ * sprite defined in the markup, ICON_IDS below). The function stays pure - it
+ * returns a NAME, never markup - so the node mirror of the self-test is
+ * unaffected by the fact that the browser turns that name into a <use> element.
+ * Emoji survive only inside quoted spoken text, which is the resident's or the
+ * engine's words, not this page's chrome.
  *
  * ctx: { room, urgency, residentName, contactName } - all optional. Unknown
  * names fall back to "Resident" / "A trusted contact" so a house whose config
@@ -721,46 +1236,47 @@ function humanize(entry, ctx) {
 
   switch (entry.event) {
     case "detected":
-      return { icon: "🧍", text: `A fall was detected in the ${room}`, tone: "alert" };
+      return { iconId: "person", text: `A fall was detected in the ${room}`, tone: "alert" };
 
     case "say":
-      return { icon: "💬", text: `QNet: “${entry.text || ""}”`, tone: "neutral" };
+      return { iconId: "chat", text: `QNet: “${entry.text || ""}”`, tone: "neutral" };
 
     case "heard": {
-      if (entry.silence || !entry.text) return { icon: "…", text: "No response yet", tone: "dim" };
+      if (entry.silence || !entry.text) return { iconId: "mic", text: "No response yet", tone: "dim" };
       // In a routine "where are my glasses" run the person is asking, not
       // answering - "You asked:" reads far better than "Margaret:" there.
-      if (routine) return { icon: "🔎", text: `You asked: “${entry.text}”`, tone: "neutral" };
-      return { icon: "🗣", text: `${resident}: “${entry.text}”`, tone: "neutral" };
+      if (routine) return { iconId: "magnifier", text: `You asked: “${entry.text}”`, tone: "neutral" };
+      return { iconId: "mic", text: `${resident}: “${entry.text}”`, tone: "neutral" };
     }
 
     case "phase": {
       if (TERMINAL_EXITS.has(entry.to)) {
-        if (entry.to === "cancelled") return { icon: "✅", text: "False alarm — all clear", tone: "good" };
+        if (entry.to === "cancelled") return { iconId: "check-circle", text: "False alarm — all clear", tone: "good" };
         // A question finishing is not an "all clear" - the answer sentence
         // already said everything there was to say. Safety runs always get it.
         if (routine) return null;
-        return { icon: "✅", text: "All clear", tone: "good" };
+        return { iconId: "check-circle", text: "All clear", tone: "good" };
       }
-      if (entry.to === "escalate") return { icon: "⚠️", text: "QNet is getting help", tone: "alert" };
-      if (entry.to === "call_help") return { icon: "🚨", text: "Calling for emergency help", tone: "alert" };
+      if (entry.to === "escalate") return { iconId: "alert-triangle", text: "QNet is getting help", tone: "alert" };
+      if (entry.to === "call_help") return { iconId: "phone", text: "Calling for emergency help", tone: "alert" };
       return null; // every other internal move: admin-only
     }
 
     case "tool": {
-      if (entry.tool === "notify_contacts") return { icon: "📨", text: `${contact} was notified`, tone: "good" };
+      if (entry.tool === "notify_contacts") return { iconId: "bell", text: `${contact} was notified`, tone: "good" };
       if (entry.tool === "call_emergency") {
         // DESIGN §14, hard requirement: the word SIMULATED is IN the sentence,
         // not in a tooltip and not in a legend. `badge` makes the renderer
         // paint it red and bold on the line as well; the text alone is already
         // enough for anyone reading a transcript of this feed.
-        return { icon: "📞", text: "Emergency services called — SIMULATED", tone: "emergency", badge: "SIMULATED" };
+        return { iconId: "phone", text: "Emergency services called — SIMULATED", tone: "emergency", badge: "SIMULATED" };
       }
       return null; // look_in_rooms and friends: plumbing, not news
     }
 
     case "brief":
-      return { icon: "🧑‍🚒", text: "A responder was briefed on what happened", tone: "neutral" };
+      // Spoken out loud in the room, so the speaker glyph, not the person one.
+      return { iconId: "speaker", text: "A responder was briefed on what happened", tone: "neutral" };
 
     default:
       // refusal, llm, and any event kind invented after this file was written.
@@ -927,6 +1443,288 @@ function conversationBubbles(log, ctx) {
 }
 
 /* ============================================================
+ * T5.5 - THE HOUSE: icons, device->room mapping, tints, summary.
+ * Still pure. Everything below returns names and plain data; the SVG floor
+ * plan in the markup is painted from it but never decided by it.
+ * ============================================================ */
+
+/** Every glyph in the inline sprite. humanize() may only return one of these,
+ * and the self-test asserts exactly that - a typo'd iconId would otherwise
+ * render as an empty box on a page nobody looks at twice. */
+const ICON_IDS = new Set([
+  "house", "camera", "speaker", "mic", "bell", "phone", "chat", "person",
+  "magnifier", "check-circle", "alert-triangle", "sparkle", "gear", "question",
+  "arrow-down",
+]);
+
+/** The five rooms the schematic actually draws. `id` is the SVG hook, `label`
+ * is the only form a human ever sees. Order is the order they appear in the
+ * Settings dropdowns. */
+const SCHEMATIC_ROOMS = [
+  { id: "bedroom1", label: "Bedroom 1" },
+  { id: "bathroom", label: "Bathroom" },
+  { id: "bedroom2", label: "Bedroom 2" },
+  { id: "living",   label: "Living Room" },
+  { id: "kitchen",  label: "Kitchen" },
+];
+const SCHEMATIC_IDS = new Set(SCHEMATIC_ROOMS.map((r) => r.id));
+
+/** The out-of-the-box guesses, applied to a normalised room name. A house that
+ * uses these names needs no configuration at all; anything else is either
+ * matched by similarity or parked until someone assigns it in Settings. */
+const DEFAULT_MAPPING = {
+  kitchen: "kitchen",
+  bedroom: "bedroom1",
+  living: "living",
+  livingroom: "living",
+  hall: "living",
+  bedroom2: "bedroom2",
+};
+
+/** Room names arrive as identifiers ("living_room", "Bedroom 2"). Compare them
+ * with the punctuation and case thrown away. */
+function normKey(s) {
+  return String(s == null ? "" : s).toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function bigrams(s) {
+  const out = [];
+  for (let i = 0; i < s.length - 1; i++) out.push(s.slice(i, i + 2));
+  return out;
+}
+
+/**
+ * How alike two room names are, 0..1. Exact beats prefix beats containment
+ * beats a Dice coefficient over letter pairs. Deliberately conservative: a
+ * wrong auto-assignment puts a fall in the wrong room on the map, which is
+ * worse than leaving a chip in the Unassigned row for someone to drag over.
+ */
+function similarity(a, b) {
+  const x = normKey(a), y = normKey(b);
+  if (!x || !y) return 0;
+  if (x === y) return 1;
+  if (x.startsWith(y) || y.startsWith(x)) return 0.85;
+  if (x.includes(y) || y.includes(x)) return 0.7;
+  const A = bigrams(x), B = bigrams(y);
+  if (!A.length || !B.length) return 0;
+  const pool = B.slice();
+  let hits = 0;
+  for (const g of A) {
+    const i = pool.indexOf(g);
+    if (i >= 0) { pool.splice(i, 1); hits++; }
+  }
+  return (2 * hits) / (A.length + B.length);
+}
+
+/** Below this, we do not guess. */
+const SIMILARITY_FLOOR = 0.6;
+
+/** Closest schematic room to a discovered room name, or null if nothing is
+ * close enough. Both the id and the human label are candidates, so "Bedroom 2"
+ * and "bedroom2" both find the same room. */
+function bestSchematicMatch(deviceRoom) {
+  let best = null, bestScore = 0;
+  for (const r of SCHEMATIC_ROOMS) {
+    const score = Math.max(similarity(deviceRoom, r.id), similarity(deviceRoom, r.label));
+    if (score > bestScore) { bestScore = score; best = r.id; }
+  }
+  return bestScore >= SIMILARITY_FLOOR ? { id: best, score: bestScore } : null;
+}
+
+/**
+ * Where every discovered room goes on the schematic.
+ *   resolveMapping(deviceRooms, overrides)
+ *     -> { assigned: {deviceRoom: schematicId}, unassigned: [deviceRoom],
+ *          source:   {deviceRoom: "saved"|"default"|"similar"|"unassigned"} }
+ *
+ * Precedence, highest first:
+ *   1. a saved override from Settings (localStorage). An override of "" is a
+ *      deliberate "keep this off the map" and parks the room - a person who
+ *      unassigned a room must not have it silently re-guessed on next load.
+ *   2. DEFAULT_MAPPING on the normalised name.
+ *   3. name similarity, if it clears SIMILARITY_FLOOR.
+ *   4. otherwise: Unassigned.
+ */
+function resolveMapping(deviceRooms, overrides) {
+  const ov = overrides && typeof overrides === "object" ? overrides : {};
+  const assigned = {}, unassigned = [], source = {};
+  for (const raw of (Array.isArray(deviceRooms) ? deviceRooms : [])) {
+    if (raw == null || raw === "") continue;
+    const dev = String(raw);
+    if (Object.prototype.hasOwnProperty.call(ov, dev)) {
+      const want = ov[dev];
+      source[dev] = "saved";
+      if (SCHEMATIC_IDS.has(want)) assigned[dev] = want;
+      else unassigned.push(dev);
+      continue;
+    }
+    const dflt = DEFAULT_MAPPING[normKey(dev)];
+    if (dflt && SCHEMATIC_IDS.has(dflt)) { assigned[dev] = dflt; source[dev] = "default"; continue; }
+    const near = bestSchematicMatch(dev);
+    if (near) { assigned[dev] = near.id; source[dev] = "similar"; continue; }
+    unassigned.push(dev);
+    source[dev] = "unassigned";
+  }
+  return { assigned, unassigned, source };
+}
+
+/** The other direction: schematic room id -> the device rooms sitting in it. */
+function devicesBySchematic(mapping) {
+  const out = {};
+  for (const r of SCHEMATIC_ROOMS) out[r.id] = [];
+  const assigned = (mapping && mapping.assigned) || {};
+  for (const dev of Object.keys(assigned).sort()) {
+    const id = assigned[dev];
+    if (out[id]) out[id].push(dev);
+  }
+  return out;
+}
+
+/**
+ * A room's human tone -> the wash painted on the schematic.
+ *   quiet -> neutral, caution -> amber, alert -> red (pulsing), good -> green.
+ * One function so the map, the tooltip and the room modal can never disagree
+ * about what colour a room is.
+ */
+function stateTint(tone) {
+  switch (tone) {
+    case "alert": return "alert";
+    case "caution": return "caution";
+    case "good": return "clear";
+    default: return "quiet";
+  }
+}
+
+/** What the map says a room's devices are. Fixed for this build: every QNet
+ * room node is the same hardware. */
+const ROOM_DEVICE_PARTS = ["camera", "mic", "speaker"];
+function deviceListText(deviceRooms) {
+  const n = (deviceRooms || []).length;
+  if (!n) return "No QNet device in this room.";
+  const noun = n === 1 ? "QNet room device" : `${n} QNet room devices`;
+  return `${noun} — ${ROOM_DEVICE_PARTS.join(", ")}`;
+}
+
+/**
+ * THE SUMMARY CARD'S TEXT, composed here and nowhere else.
+ *
+ *   composeSummary(state) -> string
+ *
+ * state: {
+ *   provided?:     string,   // THE SEAM - see below
+ *   active?:       { room, tone, phase } | null,
+ *   lastIncident?: { room, kind, atText, outcome, simulatedCall, notified } | null,
+ *   findCount?:    number,
+ * }
+ *
+ * Three sentences at most, in this order, because that is the order a person
+ * standing in front of the screen needs them: what is happening NOW, what
+ * happened before that, and how chatty the day was.
+ *
+ * This is NOT model output and the card must never imply that it is. It is a
+ * deterministic digest of today's activity, which is why it is a pure function
+ * with unit tests rather than a prompt. The card is labelled "Summary" with a
+ * sparkle and its tooltip says "Generated from today's activity".
+ *
+ * >>> SEAM <<<  If a future qnet/summary message ever carries a written digest,
+ * the transport hands it in as state.provided and it replaces this text
+ * verbatim - no other part of the page changes, and the card keeps its label
+ * and its tooltip. Everything below the early return is the fallback.
+ *
+ * SIMULATED: DESIGN §14 says the word is IN the sentence. That rule does not
+ * stop applying because the sentence is a recap - if an emergency call is
+ * anywhere in the incident, the recap carries the word too, and the self-test
+ * asserts it.
+ */
+function composeSummary(state) {
+  const s = state && typeof state === "object" ? state : {};
+
+  // >>> SEAM <<< a supplied digest wins outright.
+  if (typeof s.provided === "string" && s.provided.trim()) return s.provided.trim();
+
+  const parts = [];
+
+  const act = s.active || null;
+  if (act && act.room && act.tone === "alert") {
+    parts.push(act.phase === "call_help"
+      ? `${roomLabel(act.room)} needs attention — help has been called.`
+      : `${roomLabel(act.room)} needs attention — QNet is getting help.`);
+  } else if (act && act.room && act.tone === "caution") {
+    parts.push(`QNet is checking on the ${roomLabel(act.room)}.`);
+  } else {
+    parts.push("All quiet in the house.");
+  }
+
+  const inc = s.lastIncident || null;
+  if (inc && inc.room) {
+    const what = inc.kind === "fall" ? "a fall" : "something";
+    const when = inc.atText ? ` at ${inc.atText}` : "";
+    const outcome = inc.outcome === "cancelled" ? "marked a false alarm" : "resolved";
+    const tail = [];
+    if (inc.simulatedCall) tail.push("a SIMULATED emergency call was placed");
+    if (inc.notified) tail.push(`${inc.notified} was notified`);
+    parts.push(`Earlier: ${what} in the ${roomLabel(inc.room)}${when} — ${outcome}${
+      tail.length ? "; " + tail.join(" and ") : ""}.`);
+  }
+
+  const finds = Number(s.findCount) || 0;
+  if (finds > 0) parts.push(`${finds} question${finds === 1 ? "" : "s"} answered today.`);
+
+  return parts.join(" ");
+}
+
+/**
+ * The state composeSummary() eats, read off the same run documents the feed
+ * uses. Pure, and separate from composeSummary so the replay harness can build
+ * it from captured payloads and print the digest at any point in a run.
+ *
+ *   summaryStateFrom(sessionList, { now, clockText, contactName }) -> state
+ *
+ * clockText turns a timestamp into "8:14 PM". It is injected rather than
+ * computed here so this stays deterministic under node.
+ */
+function summaryStateFrom(sessionList, opts) {
+  const o = opts || {};
+  const clockText = typeof o.clockText === "function" ? o.clockText : () => "";
+  const list = (Array.isArray(sessionList) ? sessionList : []).filter(Boolean);
+  let active = null, lastIncident = null, findCount = 0;
+
+  for (const s of list) {
+    const log = Array.isArray(s.log) ? s.log : [];
+
+    // A question is never a house state, only a tally. §14's "never interrupts".
+    if (s.urgency === "routine") {
+      if (log.some((e) => e && e.event === "say")) findCount++;
+      continue;
+    }
+
+    if (takeoverPredicate(s)) {
+      const st = roomState(s, { now: o.now });
+      if (!active || (st.tone === "alert" && active.tone !== "alert")) {
+        active = { room: s.room, tone: st.tone, phase: s.phase };
+      }
+    }
+
+    // Only a CLOSED run is "earlier"; the open one is the first sentence.
+    if (s.state !== "active" && log.some((e) => e && e.event === "detected")) {
+      const first = log.find((e) => e && e.event === "detected");
+      const cand = {
+        room: s.room,
+        kind: "fall",
+        ts: first && first.ts,
+        atText: clockText(first && first.ts),
+        outcome: log.some((e) => e && e.event === "phase" && e.to === "cancelled") ? "cancelled" : "resolved",
+        simulatedCall: log.some((e) => e && e.event === "tool" && e.tool === "call_emergency"),
+        notified: log.some((e) => e && e.event === "tool" && e.tool === "notify_contacts")
+          ? (o.contactName || "A trusted contact") : null,
+      };
+      if (!lastIncident || (cand.ts || 0) >= (lastIncident.ts || 0)) lastIncident = cand;
+    }
+  }
+  return { active, lastIncident, findCount };
+}
+
+/* ============================================================
  * SELF-TEST - lives inside the LOGIC CORE block so the `node -e` extraction in
  * verify/T5.4-product.txt runs byte-identical cases to the browser's
  * ?selftest=1. Every assertion here is about a rule this page must not break.
@@ -969,16 +1767,16 @@ function runSelfTest() {
     // ---- humanize: the visible mappings ----
     { name: "detected -> named-room fall sentence, alert",
       fn: () => humanize(fallLog[0], fallCtx),
-      expect: (r) => r.icon === "🧍" && r.text === "A fall was detected in the Kitchen" && r.tone === "alert" },
+      expect: (r) => r.iconId === "person" && r.text === "A fall was detected in the Kitchen" && r.tone === "alert" },
     { name: "say -> QNet quoted, neutral",
       fn: () => humanize(fallLog[1], fallCtx),
-      expect: (r) => r.icon === "💬" && r.text === "QNet: “I saw you fall. Are you okay?”" && r.tone === "neutral" },
+      expect: (r) => r.iconId === "chat" && r.text === "QNet: “I saw you fall. Are you okay?”" && r.tone === "neutral" },
     { name: "heard silence -> 'No response yet', dim",
       fn: () => humanize(fallLog[2], fallCtx),
       expect: (r) => r.text === "No response yet" && r.tone === "dim" },
     { name: "heard with text -> derived resident name, quoted",
       fn: () => humanize({ event: "heard", text: "my hip hurts" }, { room: "kitchen", urgency: "safety", residentName: "Margaret" }),
-      expect: (r) => r.icon === "🗣" && r.text === "Margaret: “my hip hurts”" },
+      expect: (r) => r.iconId === "mic" && r.text === "Margaret: “my hip hurts”" },
     { name: "heard with text, unknown resident -> 'Resident', never a crash",
       fn: () => humanize({ event: "heard", text: "my hip hurts" }, { room: "kitchen" }),
       expect: (r) => r.text === "Resident: “my hip hurts”" },
@@ -990,7 +1788,7 @@ function runSelfTest() {
       expect: (r) => r.text === "Calling for emergency help" && r.tone === "alert" },
     { name: "tool notify_contacts -> derived contact name was notified, good",
       fn: () => humanize(fallLog[4], { room: "kitchen", urgency: "safety", contactName: "Sarah" }),
-      expect: (r) => r.icon === "📨" && r.text === "Sarah was notified" && r.tone === "good" },
+      expect: (r) => r.iconId === "bell" && r.text === "Sarah was notified" && r.tone === "good" },
     { name: "tool notify_contacts, unknown contact -> generic noun, still English",
       fn: () => humanize(fallLog[4], fallCtx),
       expect: (r) => r.text === "A trusted contact was notified" },
@@ -1000,10 +1798,10 @@ function runSelfTest() {
                      && r.badge === "SIMULATED" && r.tone === "emergency" },
     { name: "brief -> responder sentence",
       fn: () => humanize({ event: "brief", ask_id: "01L", spoken: true, text: "A fall was detected..." }, fallCtx),
-      expect: (r) => r.icon === "🧑‍🚒" && r.text === "A responder was briefed on what happened" },
+      expect: (r) => r.iconId === "speaker" && r.text === "A responder was briefed on what happened" },
     { name: "terminal 'resolved' -> 'All clear'",
       fn: () => humanize(fallLog[10], fallCtx),
-      expect: (r) => r.icon === "✅" && r.text === "All clear" && r.tone === "good" },
+      expect: (r) => r.iconId === "check-circle" && r.text === "All clear" && r.tone === "good" },
     { name: "terminal 'cancelled' -> 'False alarm — all clear'",
       fn: () => humanize({ event: "phase", from: "check", to: "cancelled" }, fallCtx),
       expect: (r) => r.text === "False alarm — all clear" && r.tone === "good" },
@@ -1036,7 +1834,7 @@ function runSelfTest() {
     // ---- find-run rendering ----
     { name: "find: the question renders as 'You asked: …'",
       fn: () => humanize(findLog[0], findCtx),
-      expect: (r) => r.icon === "🔎" && r.text === "You asked: “where are my glasses”" },
+      expect: (r) => r.iconId === "magnifier" && r.text === "You asked: “where are my glasses”" },
     { name: "find: the answer renders as a QNet sentence",
       fn: () => humanize(findLog[3], findCtx),
       expect: (r) => r.text === "QNet: “The glasses are in the bedroom, on the nightstand.”" },
@@ -1144,6 +1942,180 @@ function runSelfTest() {
     { name: "room label: identifiers become proper nouns",
       fn: () => [roomLabel("kitchen"), roomLabel("living_room"), roomLabel(null)],
       expect: (r) => r[0] === "Kitchen" && r[1] === "Living Room" && r[2] === "the house" },
+
+    /* ================= T5.5: THE HOUSE ================= */
+
+    // ---- icons ----
+    { name: "icons: every iconId humanize() can return exists in the sprite",
+      fn: () => fallLog.concat(findLog, [{ event: "brief" },
+                 { event: "phase", from: "check", to: "cancelled" }])
+                 .map((e) => humanize(e, fallCtx)).filter(Boolean).map((r) => r.iconId),
+      expect: (r) => r.length > 0 && r.every((id) => ICON_IDS.has(id)) },
+    { name: "icons: the mappings that carry meaning (fall/say/emergency/all-clear/find)",
+      fn: () => [humanize(fallLog[0], fallCtx).iconId, humanize(fallLog[1], fallCtx).iconId,
+                 humanize(fallLog[7], fallCtx).iconId, humanize(fallLog[10], fallCtx).iconId,
+                 humanize(findLog[0], findCtx).iconId],
+      expect: (r) => r[0] === "person" && r[1] === "chat" && r[2] === "phone"
+                     && r[3] === "check-circle" && r[4] === "magnifier" },
+    { name: "icons: no emoji survives into an iconId (they are sprite names now)",
+      fn: () => fallLog.map((e) => humanize(e, fallCtx)).filter(Boolean).map((r) => r.iconId),
+      expect: (r) => r.length === 9 && r.every((id) => /^[a-z-]+$/.test(id)) },
+
+    // ---- device -> room mapping ----
+    { name: "mapping: the shipped defaults land every stock room name",
+      fn: () => resolveMapping(["kitchen", "bedroom", "living", "hall", "bedroom2"], {}).assigned,
+      expect: (r) => r.kitchen === "kitchen" && r.bedroom === "bedroom1" && r.living === "living"
+                     && r.hall === "living" && r.bedroom2 === "bedroom2" },
+    { name: "mapping: punctuation and case are irrelevant ('living_room', 'Bedroom 2')",
+      fn: () => resolveMapping(["living_room", "Bedroom 2"], {}).assigned,
+      expect: (r) => r["living_room"] === "living" && r["Bedroom 2"] === "bedroom2" },
+    { name: "mapping: NAME SIMILARITY catches what the defaults miss",
+      fn: () => { const m = resolveMapping(["bath", "kitchenette", "bedroom_1"], {});
+                  return [m.assigned, m.source]; },
+      expect: (r) => r[0].bath === "bathroom" && r[0].kitchenette === "kitchen"
+                     && r[0].bedroom_1 === "bedroom1" && r[1].bath === "similar" },
+    { name: "mapping: UNMAPPED ROOM PARKS in Unassigned rather than being guessed wrong",
+      fn: () => resolveMapping(["kitchen", "guest_room", "utility"], {}),
+      expect: (r) => r.unassigned.length === 2 && r.unassigned.indexOf("guest_room") >= 0
+                     && r.unassigned.indexOf("utility") >= 0 && !("guest_room" in r.assigned)
+                     && r.assigned.kitchen === "kitchen" && r.source.guest_room === "unassigned" },
+    { name: "mapping: a SAVED OVERRIDE beats the default map",
+      fn: () => { const m = resolveMapping(["kitchen"], { kitchen: "bedroom2" });
+                  return [m.assigned.kitchen, m.source.kitchen]; },
+      expect: (r) => r[0] === "bedroom2" && r[1] === "saved" },
+    { name: "mapping: a saved override beats a similarity match too",
+      fn: () => resolveMapping(["bath"], { bath: "living" }).assigned,
+      expect: (r) => r.bath === "living" },
+    { name: "mapping: an override of \"\" is a deliberate un-assign, not a re-guess",
+      fn: () => { const m = resolveMapping(["kitchen"], { kitchen: "" });
+                  return [m.unassigned, m.assigned, m.source.kitchen]; },
+      expect: (r) => r[0].length === 1 && r[0][0] === "kitchen"
+                     && Object.keys(r[1]).length === 0 && r[2] === "saved" },
+    { name: "mapping: a saved override naming a room that no longer exists parks it",
+      fn: () => resolveMapping(["kitchen"], { kitchen: "conservatory" }).unassigned,
+      expect: (r) => r.length === 1 && r[0] === "kitchen" },
+    { name: "mapping: malformed input -> empty result, never a crash",
+      fn: () => [resolveMapping(null, null), resolveMapping([null, "", undefined], undefined)],
+      expect: (r) => r.every((m) => m.unassigned.length === 0 && Object.keys(m.assigned).length === 0) },
+    { name: "mapping: the reverse index groups devices under each drawn room",
+      fn: () => devicesBySchematic(resolveMapping(["kitchen", "bedroom", "bedroom2", "spare"], {})),
+      expect: (r) => r.kitchen.length === 1 && r.bedroom1[0] === "bedroom"
+                     && r.bedroom2[0] === "bedroom2" && r.bathroom.length === 0
+                     && r.living.length === 0 },
+
+    // ---- state -> tint ----
+    { name: "tint: each human tone paints its own wash on the schematic",
+      fn: () => ["quiet", "caution", "alert", "good"].map(stateTint),
+      expect: (r) => r[0] === "quiet" && r[1] === "caution" && r[2] === "alert" && r[3] === "clear" },
+    { name: "tint: an unknown tone falls back to neutral, never to red",
+      fn: () => [stateTint("banana"), stateTint(null), stateTint(undefined)],
+      expect: (r) => r.every((t) => t === "quiet") },
+    { name: "tint: every state this page can produce tints to something real",
+      fn: () => [roomState(null, { now: 5000 }),
+                 roomState({ urgency: "safety", state: "active", phase: "check" }, { now: 5000 }),
+                 roomState({ urgency: "safety", state: "active", phase: "call_help" }, { now: 5000 }),
+                 roomState({ urgency: "safety", state: "closed" }, { now: 5000, closedAt: 4950 })]
+                .map((s) => stateTint(s.tone)),
+      expect: (r) => r[0] === "quiet" && r[1] === "caution" && r[2] === "alert" && r[3] === "clear" },
+    { name: "device list text: monitored rooms name the hardware, empty ones say so",
+      fn: () => [deviceListText(["kitchen"]), deviceListText([]), deviceListText(null)],
+      expect: (r) => r[0] === "QNet room device — camera, mic, speaker"
+                     && r[1] === "No QNet device in this room."
+                     && r[2] === "No QNet device in this room." },
+
+    // ---- composeSummary ----
+    { name: "summary: ALL QUIET - nothing running, nothing earlier",
+      fn: () => composeSummary({ active: null, lastIncident: null, findCount: 0 }),
+      expect: (r) => r === "All quiet in the house." },
+    { name: "summary: ACTIVE SAFETY, still checking -> names the room",
+      fn: () => composeSummary({ active: { room: "kitchen", tone: "caution", phase: "check" } }),
+      expect: (r) => r === "QNet is checking on the Kitchen." },
+    { name: "summary: ACTIVE SAFETY, help called -> the loud sentence, first",
+      fn: () => composeSummary({ active: { room: "kitchen", tone: "alert", phase: "call_help" } }),
+      expect: (r) => r === "Kitchen needs attention — help has been called." },
+    { name: "summary: ACTIVE SAFETY, escalating but not yet called",
+      fn: () => composeSummary({ active: { room: "bedroom", tone: "alert", phase: "escalate" } }),
+      expect: (r) => r === "Bedroom needs attention — QNet is getting help." },
+    { name: "summary: RESOLVED WITH SIMULATED CALL - the word SURVIVES into the recap",
+      fn: () => composeSummary({
+        active: null, findCount: 0,
+        lastIncident: { room: "kitchen", kind: "fall", atText: "8:14 PM",
+                        outcome: "resolved", simulatedCall: true, notified: "Sarah" } }),
+      expect: (r) => /SIMULATED/.test(r) && r === "All quiet in the house. Earlier: a fall in the "
+        + "Kitchen at 8:14 PM — resolved; a SIMULATED emergency call was placed and Sarah was notified." },
+    { name: "summary: a recap without an emergency call does NOT say SIMULATED",
+      fn: () => composeSummary({ lastIncident: { room: "kitchen", kind: "fall", atText: "8:14 PM",
+                                                 outcome: "resolved", simulatedCall: false, notified: "Sarah" } }),
+      expect: (r) => !/SIMULATED/.test(r) && r === "All quiet in the house. Earlier: a fall in the "
+        + "Kitchen at 8:14 PM — resolved; Sarah was notified." },
+    { name: "summary: a cancelled run recaps as a false alarm",
+      fn: () => composeSummary({ lastIncident: { room: "kitchen", kind: "fall", atText: "9:02 AM",
+                                                 outcome: "cancelled", simulatedCall: false, notified: null } }),
+      expect: (r) => /marked a false alarm\.$/.test(r) },
+    { name: "summary: FIND-ONLY day - questions are counted, never alarming",
+      fn: () => [composeSummary({ findCount: 2 }), composeSummary({ findCount: 1 })],
+      expect: (r) => r[0] === "All quiet in the house. 2 questions answered today."
+                     && r[1] === "All quiet in the house. 1 question answered today." },
+    { name: "summary: all three sentences at once, in the required order",
+      fn: () => composeSummary({
+        active: { room: "kitchen", tone: "alert", phase: "call_help" },
+        lastIncident: { room: "bedroom", kind: "fall", atText: "8:14 PM", outcome: "resolved",
+                        simulatedCall: true, notified: "Sarah" },
+        findCount: 2 }),
+      expect: (r) => r.indexOf("Kitchen needs attention") === 0
+                     && r.indexOf("Earlier:") > 0 && r.indexOf("SIMULATED") > 0
+                     && r.indexOf("2 questions answered today.") > r.indexOf("Earlier:") },
+    { name: "summary: THE SEAM - a supplied digest replaces the composed text verbatim",
+      fn: () => composeSummary({ provided: "  A quiet afternoon; nobody needed anything.  ",
+                                 active: { room: "kitchen", tone: "alert", phase: "call_help" } }),
+      expect: (r) => r === "A quiet afternoon; nobody needed anything." },
+    { name: "summary: an empty supplied digest falls back to the composed text",
+      fn: () => composeSummary({ provided: "   ", active: { room: "kitchen", tone: "caution" } }),
+      expect: (r) => r === "QNet is checking on the Kitchen." },
+    { name: "summary: malformed state -> still a sentence, never blank, never a crash",
+      fn: () => [composeSummary(null), composeSummary({}), composeSummary({ active: {} }),
+                 composeSummary({ lastIncident: {} })],
+      expect: (r) => r.every((t) => typeof t === "string" && t.length > 0)
+                     && r.every((t) => t.indexOf("All quiet in the house.") === 0) },
+    { name: "summary: NO JARGON in any composed digest",
+      fn: () => [composeSummary({ active: { room: "kitchen", tone: "alert", phase: "call_help" },
+                                  lastIncident: { room: "bedroom", kind: "fall", atText: "8:14 PM",
+                                                  outcome: "resolved", simulatedCall: true, notified: "Sarah" },
+                                  findCount: 3 }),
+                 composeSummary({ findCount: 1 })],
+      expect: (r) => r.every((t) => !JARGON.test(t)) },
+
+    // ---- summaryStateFrom: run documents -> summary state ----
+    { name: "summary state: MID-INCIDENT -> the active sentence, no recap yet",
+      fn: () => composeSummary(summaryStateFrom(
+        [{ id: "01A", room: "kitchen", urgency: "safety", state: "active", phase: "call_help", log: fallLog }],
+        { now: 1200, clockText: () => "8:14 PM", contactName: "Sarah" })),
+      expect: (r) => r === "Kitchen needs attention — help has been called." },
+    { name: "summary state: POST-CLOSE -> recap, with SIMULATED and the contact",
+      fn: () => composeSummary(summaryStateFrom(
+        [{ id: "01A", room: "kitchen", urgency: "safety", state: "closed", phase: "resolved", log: fallLog }],
+        { now: 1200, clockText: () => "8:14 PM", contactName: "Sarah" })),
+      expect: (r) => r === "All quiet in the house. Earlier: a fall in the Kitchen at 8:14 PM — "
+        + "resolved; a SIMULATED emergency call was placed and Sarah was notified." },
+    { name: "summary state: a find run is counted, never promoted to a house state",
+      fn: () => { const st = summaryStateFrom(
+                    [{ id: "01B", room: "bedroom", urgency: "routine", state: "active", phase: "search", log: findLog }],
+                    { now: 2100, clockText: () => "9:00 AM" });
+                  return [st.active, st.findCount, composeSummary(st)]; },
+      expect: (r) => r[0] === null && r[1] === 1
+                     && r[2] === "All quiet in the house. 1 question answered today." },
+    { name: "summary state: IDLE - nothing at all -> the quiet digest",
+      fn: () => composeSummary(summaryStateFrom([], { now: 1 })),
+      expect: (r) => r === "All quiet in the house." },
+    { name: "summary state: the most recent closed incident is the one recapped",
+      fn: () => summaryStateFrom([
+        { id: "01A", room: "bedroom", urgency: "safety", state: "closed", log: [{ ts: 100, event: "detected" }] },
+        { id: "01B", room: "kitchen", urgency: "safety", state: "closed", log: [{ ts: 900, event: "detected" }] },
+      ], { now: 1000, clockText: () => "8:14 PM" }).lastIncident,
+      expect: (r) => r.room === "kitchen" && r.ts === 900 },
+    { name: "summary state: malformed run documents -> a usable state, never a crash",
+      fn: () => composeSummary(summaryStateFrom([null, {}, { log: "nope" }], { now: 1 })),
+      expect: (r) => r === "All quiet in the house." },
   ];
 
   const results = cases.map((c) => {
@@ -1168,7 +2140,11 @@ if (typeof window !== "undefined") window.runSelfTest = runSelfTest;
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { humanize, deriveNames, roomState, houseStatus, takeoverPredicate,
                      relativeTime, elapsedSeconds, formatElapsed, statusStripFacts,
-                     conversationBubbles, roomLabel, runSelfTest };
+                     conversationBubbles, roomLabel, runSelfTest,
+                     // T5.5 - the house
+                     ICON_IDS, SCHEMATIC_ROOMS, DEFAULT_MAPPING, normKey, similarity,
+                     bestSchematicMatch, resolveMapping, devicesBySchematic, stateTint,
+                     deviceListText, composeSummary, summaryStateFrom };
 }
 
 /* ============================================================
@@ -1188,6 +2164,26 @@ function loadHubUrl() {
 function saveHubUrl(url) {
   try { window.localStorage.setItem(STORE_KEY, url); } catch (_e) { /* best effort */ }
 }
+
+/* ---- T5.5: which discovered room sits on which drawn room ----
+   Only the OVERRIDES are stored - never the resolved result. If the defaults
+   or the name guesser improve in a later build, a house that never touched
+   Settings picks the improvement up; a house that DID touch Settings keeps
+   exactly the decision a person made, including "leave it off the plan". */
+const MAP_KEY = "qnethome.roommap";
+
+function loadRoomMap() {
+  try {
+    const raw = window.localStorage.getItem(MAP_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (_e) { return {}; }   // corrupt or storage-disabled: fall back to the defaults
+}
+function saveRoomMap(obj) {
+  try { window.localStorage.setItem(MAP_KEY, JSON.stringify(obj || {})); } catch (_e) { /* best effort */ }
+}
+let roomMapOverrides = loadRoomMap();
 
 /* ---- state (same indexing as dashboard/admin.html; see the header) ---- */
 const sessions = new Map();   // id -> the whole run document, as published
@@ -1284,11 +2280,23 @@ client.onMessage = (topic, payloadStr) => {
     return;
   }
 
+  // >>> SEAM <<< T5.5. If a future build ever publishes a written digest of the
+  // day, this is the one place that has to change: park the text and re-render.
+  // composeSummary() already prefers a provided digest over its own, and the
+  // card's label and tooltip stay exactly as they are.
+  if (topic === "qnet/summary") {
+    const text = payload && typeof payload.text === "string" ? payload.text : null;
+    providedSummary = text && text.trim() ? text : null;
+    renderSummary();
+    return;
+  }
+
   const roomMatch = topic.match(/^qnet\/([^/]+)\/(status|say|heard|event|looked|ask)$/);
   if (roomMatch) {
     ensureRoom(roomMatch[1]);
     touchRoom(roomMatch[1]);
     renderRooms();
+    renderSummary();
   }
 };
 
@@ -1318,26 +2326,107 @@ function currentRoomStates() {
   }));
 }
 
+/* ---- the floor plan ----
+   `plan` is the whole answer for one drawn room, and the tooltip, the modal
+   and the SVG all read it, so they cannot disagree about a room. */
+let plan = {};          // schematic id -> { label, devices, state, lastActivity, monitored }
+let mapping = { assigned: {}, unassigned: [], source: {} };
+
+function buildPlan() {
+  const states = currentRoomStates();
+  const byDevice = {};
+  for (const s of states) byDevice[s.room] = s;
+
+  mapping = resolveMapping(Array.from(rooms.keys()).sort(), roomMapOverrides);
+  const grouped = devicesBySchematic(mapping);
+
+  const out = {};
+  for (const r of SCHEMATIC_ROOMS) {
+    const devices = grouped[r.id] || [];
+    // Worst state in the room wins, exactly as the top bar's worst-room rule
+    // does - two devices in one room must never average out an alert.
+    let best = null, last = null;
+    for (const dev of devices) {
+      const s = byDevice[dev];
+      if (!s) continue;
+      if (last == null || (s.lastActivity || 0) > last) last = s.lastActivity;
+      const rank = { quiet: 0, good: 1, caution: 2, alert: 3 };
+      if (!best || rank[s.state.tone] > rank[best.tone]) best = s.state;
+    }
+    out[r.id] = {
+      id: r.id,
+      label: r.label,
+      devices,
+      monitored: devices.length > 0,
+      state: best || { label: "All quiet ✓", tone: "quiet" },
+      lastActivity: last,
+    };
+  }
+  return out;
+}
+
 function renderRooms() {
   const states = currentRoomStates();
-  const grid = $("rooms"), empty = $("roomsEmpty");
-  empty.hidden = states.length > 0;
-  grid.innerHTML = states.map((r) => `
-    <div class="room${r.state.tone === "alert" ? " alert" : ""}">
-      <div class="room-name">${escapeHtml(roomLabel(r.room))}</div>
-      <div class="room-state ${escapeHtml(r.state.tone)}"><span class="bullet"></span>${escapeHtml(r.state.label)}</div>
-      <div class="room-when">${escapeHtml(relativeTime(r.lastActivity))}</div>
-    </div>`).join("");
+  plan = buildPlan();
+
+  // Tint, caption, badge and device cluster for each drawn room.
+  document.querySelectorAll("#fpRooms .fp-room").forEach((g) => {
+    const info = plan[g.getAttribute("data-room")];
+    if (!info) return;
+    const tint = stateTint(info.state.tone);
+    g.classList.remove("tint-quiet", "tint-caution", "tint-alert", "tint-clear");
+    g.classList.add("tint-" + tint);
+
+    const cap = g.querySelector(".fp-cap");
+    // An unmonitored room says so rather than claiming to be quiet - "All
+    // quiet" about a room nobody is watching would be a lie by omission.
+    cap.textContent = info.monitored ? info.state.label : "No device";
+
+    // The badge marks WHICH room, for someone reading the plan from across a
+    // kitchen. It only shows while the incident is live.
+    g.querySelector(".fp-badge").classList.toggle("is-off", tint !== "alert");
+    g.querySelector(".fp-dev").classList.toggle("is-off", !info.monitored);
+
+    g.setAttribute("aria-label",
+      `${info.label}: ${info.monitored ? info.state.label : "no device in this room"}`);
+  });
+
+  // Rooms the house named that are not on the plan.
+  const chips = mapping.unassigned;
+  $("unassignedRow").hidden = chips.length === 0;
+  $("unassignedChips").innerHTML = chips
+    .map((d) => `<span class="chip">${escapeHtml(roomLabel(d))}</span>`).join(" ");
+
+  $("roomsEmpty").hidden = states.length > 0;
 
   const house = houseStatus(states);
   const hs = $("houseStatus");
   hs.className = `house-status ${house.tone}`;
   hs.textContent = house.text;
+
+  if (tipRoom) showTip(tipRoom);          // keep an open tooltip current
+  if ($("roomModal").classList.contains("open") && modalRoom) fillRoomModal(modalRoom);
+}
+
+/* ---- live activity ----
+   T5.5 reversed the order: NEWEST AT THE BOTTOM, like a conversation, and the
+   view follows it. The moment someone scrolls up to read an older line we stop
+   moving the page under them and offer the pill instead. `stick` is the whole
+   of that rule. */
+let stick = true;
+
+function nearBottom(el) {
+  return (el.scrollHeight - el.scrollTop - el.clientHeight) < 44;
+}
+
+function iconMarkup(iconId, extra) {
+  // Unknown ids would render as an empty box; fall back to the neutral glyph.
+  const id = ICON_IDS.has(iconId) ? iconId : "chat";
+  return `<svg class="ico${extra ? " " + extra : ""}" aria-hidden="true"><use href="#i-${id}"></use></svg>`;
 }
 
 function renderFeed() {
-  // Every run's every line, humanized; nulls simply never appear. Newest first,
-  // because this is the page you glance at, not a transcript you read forward.
+  // Every run's every line, humanized; nulls simply never appear.
   const items = [];
   for (const s of sessions.values()) {
     const ctx = ctxFor(s);
@@ -1347,17 +2436,47 @@ function renderFeed() {
       items.push({ ts: entry.ts, key: `${s.id}:${i}`, line });
     });
   }
-  items.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  items.sort((a, b) => (a.ts || 0) - (b.ts || 0));   // oldest first, newest last
 
-  const feed = $("feed"), empty = $("feedEmpty");
+  const feed = $("feed"), empty = $("feedEmpty"), scroller = $("feedScroll");
   empty.hidden = items.length > 0;
-  feed.innerHTML = items.slice(0, 200).map(({ ts, line }) => `
+
+  const wasStuck = stick;
+  feed.innerHTML = items.slice(-200).map(({ ts, line }) => `
     <div class="entry tone-${escapeHtml(line.tone)}">
-      <span class="icon">${escapeHtml(line.icon)}</span>
+      <span class="icon">${iconMarkup(line.iconId)}</span>
       <span class="body"><span class="text">${escapeHtml(line.text)}</span>${
         line.badge ? `<span class="sim-badge">${escapeHtml(line.badge)}</span>` : ""}</span>
       <span class="when">${escapeHtml(clockTime(ts))}</span>
     </div>`).join("");
+
+  if (wasStuck) {
+    scroller.scrollTop = scroller.scrollHeight;
+    $("jumpPill").hidden = true;
+  } else {
+    $("jumpPill").hidden = false;
+  }
+}
+
+/* ---- the summary card ---- */
+/* >>> SEAM <<< providedSummary is where a future qnet/summary message lands.
+   While it is null the card shows composeSummary()'s digest; the instant a
+   digest arrives on the wire it is shown instead, and nothing else changes. */
+let providedSummary = null;
+
+function renderSummary() {
+  const state = summaryStateFrom(Array.from(sessions.values()), {
+    now: Date.now() / 1000,
+    clockText: clockTime,
+    contactName: names.contactName,
+  });
+  state.provided = providedSummary;
+  const text = composeSummary(state);
+
+  // SIMULATED gets the same red badge in the recap that it gets in the feed:
+  // §14's rule is about the reader, and the reader is the same person here.
+  $("summaryText").innerHTML = escapeHtml(text)
+    .replace(/SIMULATED/g, '<span class="sim-badge">SIMULATED</span>');
 }
 
 function renderTakeover() {
@@ -1409,8 +2528,112 @@ function renderTakeover() {
 function renderAll() {
   renderRooms();
   renderFeed();
+  renderSummary();
   renderTakeover();
 }
+
+/* ============================================================
+ * FLOOR PLAN INTERACTION - tooltip, room modal, and the feed's jump pill.
+ * ============================================================ */
+
+let tipRoom = null;      // schematic id the tooltip is currently describing
+let modalRoom = null;    // schematic id the room modal is currently showing
+
+function showTip(id) {
+  const info = plan[id];
+  const g = document.querySelector(`#fpRooms .fp-room[data-room="${id}"]`);
+  if (!info || !g) return;
+  tipRoom = id;
+  const tip = $("fpTip");
+
+  const when = info.lastActivity != null ? relativeTime(info.lastActivity) : null;
+  tip.innerHTML =
+    `<div class="tip-name">${escapeHtml(info.label)}</div>` +
+    `<div class="tip-state ${escapeHtml(info.monitored ? info.state.tone : "quiet")}">${
+      escapeHtml(info.monitored ? info.state.label : "No device in this room")}</div>` +
+    (info.monitored
+      ? `<div class="tip-line">${iconMarkup("camera", "sm")}<span>${escapeHtml(deviceListText(info.devices))}</span></div>`
+        + (when ? `<div class="tip-line">${iconMarkup("check-circle", "sm")}<span>Last activity ${escapeHtml(when)}</span></div>` : "")
+      : `<div class="tip-line">${iconMarkup("camera", "sm")}<span>No QNet device in this room.</span></div>`);
+
+  // Position beside the room, then pull it back inside the window rather than
+  // letting it hang off the edge of a narrow screen.
+  const r = g.getBoundingClientRect();
+  tip.classList.add("show");
+  tip.setAttribute("aria-hidden", "false");
+  const t = tip.getBoundingClientRect();
+  let left = r.left + (r.width - t.width) / 2;
+  let top = r.top - t.height - 10;
+  if (top < 8) top = r.bottom + 10;
+  left = Math.max(8, Math.min(left, window.innerWidth - t.width - 8));
+  tip.style.left = `${Math.round(left)}px`;
+  tip.style.top = `${Math.round(top)}px`;
+}
+
+function hideTip() {
+  tipRoom = null;
+  const tip = $("fpTip");
+  tip.classList.remove("show");
+  tip.setAttribute("aria-hidden", "true");
+}
+
+function fillRoomModal(id) {
+  const info = plan[id];
+  if (!info) return;
+  modalRoom = id;
+  $("rmTitle").textContent = info.label;
+
+  const st = $("rmState");
+  const tone = info.monitored ? info.state.tone : "quiet";
+  st.className = `room-modal-state ${tone}`;
+  const stateIcon = tone === "alert" ? "alert-triangle"
+    : tone === "caution" ? "magnifier"
+    : tone === "good" ? "check-circle" : "house";
+  st.innerHTML = iconMarkup(stateIcon) +
+    `<span>${escapeHtml(info.monitored ? info.state.label : "No QNet device in this room.")}</span>`;
+
+  const dev = $("rmDevices");
+  dev.innerHTML = iconMarkup(info.monitored ? "camera" : "house") +
+    `<span>${escapeHtml(deviceListText(info.devices))}${
+      info.monitored && info.lastActivity != null
+        ? " · last activity " + relativeTime(info.lastActivity) : ""}</span>`;
+
+  // The live-view slot is only meaningful where there is a camera to stand in
+  // for; an empty room gets the sentence instead of a black rectangle.
+  $("rmCam").style.display = info.monitored ? "" : "none";
+}
+
+document.querySelectorAll("#fpRooms .fp-room").forEach((g) => {
+  const id = g.getAttribute("data-room");
+  g.addEventListener("mouseenter", () => showTip(id));
+  g.addEventListener("mouseleave", hideTip);
+  g.addEventListener("focus", () => showTip(id));
+  g.addEventListener("blur", hideTip);
+  g.addEventListener("click", () => { hideTip(); fillRoomModal(id); openModal("roomModal"); });
+  g.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+      e.preventDefault();
+      hideTip();
+      fillRoomModal(id);
+      openModal("roomModal");
+    }
+  });
+});
+window.addEventListener("scroll", hideTip, { passive: true });
+window.addEventListener("resize", () => { if (tipRoom) showTip(tipRoom); });
+
+/* ---- feed autoscroll ---- */
+$("feedScroll").addEventListener("scroll", () => {
+  stick = nearBottom($("feedScroll"));
+  $("jumpPill").hidden = stick;
+}, { passive: true });
+
+$("jumpPill").addEventListener("click", () => {
+  const s = $("feedScroll");
+  s.scrollTop = s.scrollHeight;
+  stick = true;
+  $("jumpPill").hidden = true;
+});
 
 /* ---- modals ---- */
 function openModal(id) { $(id).classList.add("open"); }
@@ -1426,18 +2649,72 @@ document.addEventListener("keydown", (e) => {
 
 $("helpBtn").addEventListener("click", () => openModal("helpModal"));
 $("footerHelp").addEventListener("click", (e) => { e.preventDefault(); openModal("helpModal"); });
+/* ---- Settings: rooms & devices ----
+   One row per discovered room. The dropdown shows what is CURRENTLY resolved,
+   however it was resolved, plus a note saying whether that came from the
+   shipped defaults, a name match or a person - so nobody has to guess why a
+   room is where it is before deciding to move it. */
+function renderMappingUI() {
+  const devs = Array.from(rooms.keys()).sort();
+  const res = resolveMapping(devs, roomMapOverrides);
+  const box = $("mapRows");
+  $("mapEmpty").hidden = devs.length > 0;
+
+  const HOW = { saved: "you chose this", default: "matched by name", similar: "closest match", unassigned: "no match found" };
+  box.innerHTML = devs.map((dev) => {
+    const cur = res.assigned[dev] || "";
+    const opts = SCHEMATIC_ROOMS.map((r) =>
+      `<option value="${escapeHtml(r.id)}"${r.id === cur ? " selected" : ""}>${escapeHtml(r.label)}</option>`
+    ).join("");
+    return `<div class="maprow">
+      <span class="devname">${escapeHtml(roomLabel(dev))}</span>
+      <span class="how">${escapeHtml(HOW[res.source[dev]] || "")}</span>
+      <select data-dev="${escapeHtml(dev)}">
+        <option value=""${cur ? "" : " selected"}>Not on the plan</option>
+        ${opts}
+      </select>
+    </div>`;
+  }).join("");
+}
+
+function collectMappingUI() {
+  const next = {};
+  document.querySelectorAll("#mapRows select").forEach((sel) => {
+    next[sel.getAttribute("data-dev")] = sel.value;
+  });
+  return next;
+}
+
 $("settingsBtn").addEventListener("click", () => {
   $("hubUrl").value = hubUrl;
+  renderMappingUI();
+  openModal("settingsModal");
+});
+$("assignLink").addEventListener("click", () => {
+  $("hubUrl").value = hubUrl;
+  renderMappingUI();
   openModal("settingsModal");
 });
 $("saveSettings").addEventListener("click", () => {
+  // Every visible row becomes an explicit override, including the ones the
+  // person did not touch. That is deliberate: once someone has opened this
+  // panel and pressed Save, the plan they were looking at is the plan they
+  // agreed to, and it must not shift under a later change to the guesser.
+  roomMapOverrides = collectMappingUI();
+  saveRoomMap(roomMapOverrides);
+
   const next = $("hubUrl").value.trim() || DEFAULT_HUB;
+  const hubChanged = next !== hubUrl;
   hubUrl = next;
   saveHubUrl(next);
   closeModal("settingsModal");
-  setConnected(false);
-  client.disconnect();
-  client.connect(hubUrl);
+  renderAll();
+
+  if (hubChanged) {
+    setConnected(false);
+    client.disconnect();
+    client.connect(hubUrl);
+  }
 });
 
 /* ---- self-test surface ---- */
@@ -1461,7 +2738,7 @@ if (new URLSearchParams(window.location.search).get("selftest") === "1") {
 renderAll();
 // Relative times ("2 min ago") and the takeover clock have to move on their
 // own, not only when a message lands.
-tickTimer = setInterval(() => { renderRooms(); renderTakeover(); }, 10000);
+tickTimer = setInterval(() => { renderRooms(); renderSummary(); renderTakeover(); }, 10000);
 setConnected(false);
 client.connect(hubUrl);
 
