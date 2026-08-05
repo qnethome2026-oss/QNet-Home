@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QNet — Gemma test chat</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1a1d21; --muted: #6b7280;
+    --user: #dbeafe; --border: #e5e7eb; --accent: #2563eb; --err: #b91c1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111417; --panel: #1a1f24; --text: #e5e7eb; --muted: #9ca3af;
+      --user: #1e3a5f; --border: #2d333b; --accent: #60a5fa; --err: #f87171;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column; height: 100vh;
+  }
+  header {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  #status { font-size: 13px; color: var(--muted); }
+  #status.err { color: var(--err); }
+  #stats { font-size: 12px; color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+  #settingsToggle, #clearBtn {
+    font-size: 12px; color: var(--muted); background: none; border: 1px solid var(--border);
+    border-radius: 6px; padding: 3px 10px; cursor: pointer;
+  }
+  #settings {
+    display: none; gap: 10px; flex-wrap: wrap; align-items: center;
+    padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--border);
+    font-size: 13px; color: var(--muted);
+  }
+  #settings.open { display: flex; }
+  #settings label { display: flex; align-items: center; gap: 6px; }
+  #settings input[type=text], #settings input[type=number] {
+    background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 8px; font-size: 13px;
+  }
+  #endpoint { width: 240px; } #system { width: 320px; } #temp, #maxtok { width: 70px; }
+  #chat { flex: 1; overflow-y: auto; padding: 16px; }
+  .msg { max-width: 46rem; margin: 0 auto 12px; display: flex; }
+  .msg .bubble {
+    padding: 9px 13px; border-radius: 12px; white-space: pre-wrap;
+    overflow-wrap: anywhere; border: 1px solid var(--border);
+  }
+  .msg.user { justify-content: flex-end; }
+  .msg.user .bubble { background: var(--user); border-color: transparent; }
+  .msg.assistant .bubble { background: var(--panel); width: 100%; }
+  .msg .meta { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  details.think { margin-bottom: 6px; font-size: 13px; color: var(--muted); }
+  details.think summary { cursor: pointer; user-select: none; }
+  details.think pre {
+    white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 0;
+    padding: 8px; background: var(--bg); border-radius: 8px; font-size: 12px;
+  }
+  form {
+    display: flex; gap: 10px; padding: 12px 16px 16px; background: var(--panel);
+    border-top: 1px solid var(--border);
+  }
+  #input {
+    flex: 1; resize: none; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+    font: inherit; max-height: 140px;
+  }
+  #send {
+    background: var(--accent); color: #fff; border: none; border-radius: 10px;
+    padding: 0 22px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  #send.stop { background: var(--err); }
+  #send:disabled { opacity: .5; cursor: default; }
+</style>
+</head>
+<body>
+<header>
+  <h1>QNet · Gemma on IQ-9075</h1>
+  <span id="status">connecting…</span>
+  <button id="settingsToggle" type="button">settings</button>
+  <button id="clearBtn" type="button">clear chat</button>
+  <span id="stats"></span>
+</header>
+<div id="settings">
+  <label>endpoint <input type="text" id="endpoint" value="http://127.0.0.1:18181/v1"></label>
+  <label>system prompt <input type="text" id="system" placeholder="(none)"></label>
+  <label title="Gemma 4 reasons before answering; off = fast direct replies">thinking
+    <input type="checkbox" id="think"></label>
+  <label title="hard cap incl. thinking tokens (max_completion_tokens)">max tokens
+    <input type="number" id="maxtok" value="512" min="1" step="1"></label>
+  <label>temp <input type="number" id="temp" value="0.7" min="0" max="2" step="0.1"></label>
+  <label>top_p <input type="number" id="top_p" value="0.95" min="0" max="1" step="0.05"></label>
+  <label>top_k <input type="number" id="top_k" placeholder="–" min="0" step="1"></label>
+  <label>min_p <input type="number" id="min_p" placeholder="–" min="0" max="1" step="0.05"></label>
+  <label title="1.0 = no penalty">rep. penalty <input type="number" id="rep_pen" placeholder="–" min="0" step="0.05"></label>
+  <label>presence <input type="number" id="pres_pen" placeholder="–" min="-2" max="2" step="0.1"></label>
+  <label>frequency <input type="number" id="freq_pen" placeholder="–" min="-2" max="2" step="0.1"></label>
+  <label title="per-request silicon selection; blank = server default (NPU). Switching may reload the model — first reply after a switch is slow">compute
+    <select id="compute">
+      <option value="">default (npu)</option>
+      <option value="npu">npu</option>
+      <option value="hybrid">hybrid</option>
+      <option value="gpu">gpu</option>
+      <option value="cpu">cpu</option>
+    </select></label>
+  <label title="⚠ CRASHED the server on v0.3.18 during testing (systemd restarts it in ~10 s, but your session queue is lost) — avoid until GenieX is updated">JSON mode ⚠ <input type="checkbox" id="json"></label>
+  <label style="flex:1 1 100%" title="⚠ GBNF grammar works for THIS request (constrains the answer), but on v0.3.18 the NEXT generation crashes the server (auto-restarts in ~10 s). Test with care. Empty = off">grammar
+    <textarea id="grammar" rows="2" placeholder='e.g.  root ::= "ok" | "escalate"' style="flex:1;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font:12px monospace"></textarea></label>
+</div>
+<div id="chat"></div>
+<form id="form">
+  <textarea id="input" rows="2" placeholder="Message Gemma… (Enter to send, Shift+Enter for newline)"></textarea>
+  <button id="send" type="submit">Send</button>
+</form>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const chatEl = $("chat"), input = $("input"), sendBtn = $("send"), statusEl = $("status"), statsEl = $("stats");
+let model = null, history = [], aborter = null;
+
+$("settingsToggle").onclick = () => $("settings").classList.toggle("open");
+$("clearBtn").onclick = () => { history = []; chatEl.innerHTML = ""; statsEl.textContent = ""; };
+const base = () => $("endpoint").value.replace(/\/$/, "");
+
+async function ping() {
+  try {
+    const r = await fetch(base() + "/models");
+    const d = await r.json();
+    model = d.data[0].id;
+    statusEl.textContent = model;
+    statusEl.classList.remove("err");
+  } catch (e) {
+    model = null;
+    statusEl.textContent = "endpoint unreachable — is the tunnel up? (ssh -L 18181:127.0.0.1:18181 iq9)";
+    statusEl.classList.add("err");
+  }
+}
+ping(); setInterval(ping, 15000);
+$("endpoint").addEventListener("change", ping);
+
+// Gemma 4 via GenieX v0.3.18 leaks its thinking channel into content:
+//   <|channel>thought ...reasoning...<channel|>ANSWER
+// Split so the answer is shown and the thought is collapsible.
+function splitThinking(text) {
+  const CLOSE = "<channel|>";
+  if (!text.includes("<|channel>")) return { thought: null, answer: text, thinking: false };
+  const i = text.lastIndexOf(CLOSE);
+  if (i === -1) return { thought: text.replace(/^<\|channel>\w*\n?/, ""), answer: "", thinking: true };
+  return {
+    thought: text.slice(0, i).replace(/^<\|channel>\w*\n?/, ""),
+    answer: text.slice(i + CLOSE.length),
+    thinking: false,
+  };
+}
+
+function addBubble(role) {
+  const wrap = document.createElement("div");
+  wrap.className = "msg " + role;
+  const b = document.createElement("div");
+  b.className = "bubble";
+  wrap.appendChild(b);
+  chatEl.appendChild(wrap);
+  chatEl.scrollTop = chatEl.scrollHeight;
+  return b;
+}
+
+function renderAssistant(bubble, raw, meta) {
+  const { thought, answer, thinking } = splitThinking(raw);
+  bubble.textContent = "";
+  if (thought) {
+    const d = document.createElement("details");
+    d.className = "think";
+    const s = document.createElement("summary");
+    // meta set = stream finished; if still "thinking" then, the model spent its
+    // whole generation in the thought channel — show it, or the bubble is empty
+    if (meta && thinking) { s.textContent = "model never left thinking — its thought:"; d.open = true; }
+    else s.textContent = thinking ? "thinking…" : "thought (hidden from answer)";
+    const pre = document.createElement("pre");
+    pre.textContent = thought.trim();
+    d.append(s, pre);
+    bubble.appendChild(d);
+  }
+  const ans = document.createElement("div");
+  ans.textContent = answer.trim() || (thinking ? "" : "…");
+  bubble.appendChild(ans);
+  if (meta) {
+    const m = document.createElement("div");
+    m.className = "meta";
+    m.textContent = meta;
+    bubble.appendChild(m);
+  }
+  return answer;
+}
+
+// Field names verified against the server's swagger spec (GET /docs/swagger.yaml):
+// enable_think + max_completion_tokens are the real knobs (OpenAI's max_tokens is ignored).
+function buildBody(messages) {
+  const num = id => { const v = $(id).value.trim(); return v === "" ? null : parseFloat(v); };
+  const body = {
+    model, messages, stream: true,
+    enable_think: $("think").checked,
+    temperature: num("temp") ?? 0.7,
+    top_p: num("top_p") ?? 0.95,
+    max_completion_tokens: parseInt($("maxtok").value) || 512,
+  };
+  const opt = { top_k: num("top_k"), min_p: num("min_p"), repetition_penalty: num("rep_pen"),
+                presence_penalty: num("pres_pen"), frequency_penalty: num("freq_pen") };
+  for (const [k, v] of Object.entries(opt)) if (v !== null) body[k] = v;
+  if ($("compute").value) body.compute = $("compute").value;
+  if ($("json").checked) body.enable_json = true;
+  if ($("grammar").value.trim()) body.grammar_string = $("grammar").value.trim();
+  return body;
+}
+
+$("form").addEventListener("submit", async e => {
+  e.preventDefault();
+  if (aborter) { aborter.abort(); return; }   // Send button doubles as Stop
+  const text = input.value.trim();
+  if (!text || !model) return;
+  input.value = "";
+  addBubble("user").textContent = text;
+  history.push({ role: "user", content: text });
+
+  const messages = [];
+  if ($("system").value.trim()) messages.push({ role: "system", content: $("system").value.trim() });
+  messages.push(...history);
+
+  const bubble = addBubble("assistant");
+  bubble.textContent = "…";
+  sendBtn.textContent = "Stop"; sendBtn.classList.add("stop");
+  aborter = new AbortController();
+  const t0 = performance.now();
+  let ttft = null, chunks = 0, raw = "";
+
+  try {
+    const resp = await fetch(base() + "/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: aborter.signal,
+      body: JSON.stringify(buildBody(messages)),
+    });
+    if (!resp.ok) throw new Error("HTTP " + resp.status + ": " + await resp.text());
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop();
+      for (const line of lines) {
+        const s = line.trim();
+        if (!s.startsWith("data:")) continue;
+        const payload = s.slice(5).trim();
+        if (payload === "[DONE]") continue;
+        let delta;
+        try { delta = JSON.parse(payload).choices?.[0]?.delta?.content; } catch { continue; }
+        if (!delta) continue;
+        if (ttft === null) ttft = (performance.now() - t0) / 1000;
+        chunks++; raw += delta;
+        renderAssistant(bubble, raw);
+        chatEl.scrollTop = chatEl.scrollHeight;
+      }
+    }
+  } catch (err) {
+    if (err.name !== "AbortError") {
+      raw += (raw ? "\n\n" : "") + "[error: " + err.message + "]";
+    }
+  }
+
+  const total = (performance.now() - t0) / 1000;
+  const tps = ttft !== null && total > ttft ? (chunks / (total - ttft)).toFixed(1) : "–";
+  const meta = ttft === null ? "no response" :
+    `TTFT ${ttft.toFixed(2)} s · ${chunks} chunks · ${tps} tok/s`;
+  const answer = renderAssistant(bubble, raw, meta);
+  statsEl.textContent = meta;
+  // history carries only the clean answer — keeps the next turn's prompt small
+  history.push({ role: "assistant", content: (answer || raw).trim() });
+  sendBtn.textContent = "Send"; sendBtn.classList.remove("stop");
+  aborter = null;
+  input.focus();
+});
+
+input.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("form").requestSubmit(); }
+});
+</script>
+</body>
+</html>
