@@ -16,6 +16,11 @@ Everything between the phase block and ``## Guidance`` is commentary for the
 human editing the file; the loader ignores it, which is why DESIGN §7's file can
 be copied in verbatim.
 
+**T6.1 adds a second shape: ``mode: interrupt``** (``skills/responder-brief.md``,
+DESIGN §12) - no phases, no urgency, one ``goal``. It is not a session, so it is
+not a ``Skill``; ``load_interrupt_skill`` returns an ``InterruptSkill`` and the
+phase loader still refuses a file with no ``## Phases`` block.
+
 **Validation is load-time and loud.** A skill file is data, but it is data that
 decides whether a caregiver gets called - so a typo must fail when the agent
 starts, not silently do the wrong thing at 3am mid-incident:
@@ -106,6 +111,31 @@ class Phase:
     def allows_exit(self, name: str) -> bool:
         """Only the exits the phase declares. Anything else is a refusal."""
         return name in self.exits
+
+
+@dataclass(frozen=True)
+class InterruptSkill:
+    """A skill file with ``mode: interrupt`` - content, not rails (T6.1, DESIGN §12).
+
+    ``skills/responder-brief.md`` has no phases, no urgency and no timers,
+    because the responder brief is not a session: the engine pauses the comfort
+    loop, reads the room's latest fall file, makes **one** LLM call to word the
+    timeline, speaks it and resumes. All this file carries is the *content* of
+    that one call - its ``goal`` and the prose guidance underneath.
+
+    It is a separate type rather than a ``Skill`` with an empty phase list on
+    purpose: everything ``Skill`` guarantees (a first phase, exits that resolve,
+    a validated tool allowlist) is meaningless here, and a phase engine handed
+    one of these should fail loudly rather than walk zero phases.
+    """
+
+    name: str
+    trigger: str
+    goal: str
+    mode: str = "interrupt"
+    guidance: str = ""
+    meta: Mapping[str, Any] = field(default_factory=dict)
+    source_path: str = "<memory>"
 
 
 @dataclass(frozen=True)
@@ -350,3 +380,64 @@ def load_skill(path: str | Path, tools: Mapping[str, Any] | None | Any = AUTO) -
     except OSError as exc:
         raise SkillError(f"{path}: cannot read skill file: {exc}") from exc
     return load_skill_text(text, source=str(path), tools=tools)
+
+
+# --- interrupt-mode skills (T6.1) ----------------------------------------
+
+
+def load_interrupt_skill_text(text: str, source: str = "<memory>") -> InterruptSkill:
+    """Parse a ``mode: interrupt`` skill file - frontmatter, one goal, prose.
+
+    Same three-part markdown shape as a phased skill, minus the phases: the
+    ``goal`` (and any other keys DESIGN §12 shows, such as ``reads``) live in
+    the first ```yaml fenced block of the body, and everything under
+    ``## Guidance`` is prose handed to the model as-is.
+
+    Validated as loudly as a phased file, for the same reason: this is what the
+    engine says out loud to a first responder, so a typo must fail at startup.
+    """
+    match = _FRONTMATTER_RE.match(text)
+    if not match:
+        raise SkillError(f"{source}: no YAML frontmatter - the file must start with a '---' line")
+    try:
+        meta = yaml.safe_load(match.group("meta")) or {}
+    except yaml.YAMLError as exc:
+        raise SkillError(f"{source}: frontmatter is not valid YAML: {exc}") from exc
+    if not isinstance(meta, dict):
+        raise SkillError(f"{source}: frontmatter must be a mapping, got {type(meta).__name__}")
+    for key in ("name", "trigger", "mode"):
+        if not meta.get(key):
+            raise SkillError(f"{source}: frontmatter needs a {key!r}")
+    if meta["mode"] != "interrupt":
+        raise SkillError(f"{source}: mode must be 'interrupt' for an interrupt skill, got {meta['mode']!r}")
+
+    body = match.group("body")
+    fence = _YAML_FENCE_RE.search(body)
+    if not fence:
+        raise SkillError(f"{source}: an interrupt skill needs one ```yaml block carrying its goal")
+    try:
+        block = yaml.safe_load(fence.group("yaml"))
+    except yaml.YAMLError as exc:
+        raise SkillError(f"{source}: the goal block is not valid YAML: {exc}") from exc
+    if not isinstance(block, dict) or not str(block.get("goal") or "").strip():
+        raise SkillError(f"{source}: the goal block must be a mapping with a non-empty 'goal'")
+
+    return InterruptSkill(
+        name=str(meta["name"]),
+        trigger=str(meta["trigger"]),
+        goal=" ".join(str(block["goal"]).split()),
+        mode=str(meta["mode"]),
+        guidance=_sections(body).get("guidance", "").strip(),
+        meta=meta,
+        source_path=source,
+    )
+
+
+def load_interrupt_skill(path: str | Path) -> InterruptSkill:
+    """Load ``skills/responder-brief.md`` from disk (T6.1, DESIGN §12)."""
+    path = Path(path)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise SkillError(f"{path}: cannot read skill file: {exc}") from exc
+    return load_interrupt_skill_text(text, source=str(path))

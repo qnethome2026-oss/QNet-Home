@@ -139,7 +139,8 @@ MQTT is the only coupling between devices. Broker: Mosquitto on the IQ-9075 (`ap
 // qnet/kitchen/looked  → { "qid": "q7", "room": "kitchen", "found": true,
 //                          "answer": "on the counter next to the kettle" }
 
-// say      → { "text": "...", "prio": "safety|comfort" }
+// say      → { "text": "...", "prio": "safety|comfort|routine" }
+//            routine (T6.2): a find answer, or a brief with no live fall session
 // heard    → { "text": "i'm fine", "silence": false }
 // session  → { "id": "...", "room": "kitchen", "skill": "fall-response",
 //              "urgency": "safety|routine", "phase": "escalate",

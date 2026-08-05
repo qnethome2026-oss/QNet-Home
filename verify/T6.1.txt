@@ -1,0 +1,214 @@
+T6.1 - Responder-brief interrupt (lane A; DESIGN §12, IMPLEMENTATION Phase 6)
+Run 2026-08-05 on the Snapdragon X Elite laptop (win32), Git Bash,
+cwd = C:\Users\QCWorkshop26\Workspace\QNet-Home-impl (worktree, branch implementation),
+Python 3.12.10 from .venv. Live half: the already-running demo broker on
+127.0.0.1:1883 (REUSED, never killed) and the SSH tunnel to the IQ-9075's GenieX
+on 127.0.0.1:18181 (real Gemma 4 E2B).
+
+What landed
+-----------
+skills/responder-brief.md   new: frontmatter name/trigger/mode: interrupt, plus
+                            §12's goal text and the guidance prose. No phases and
+                            no urgency - it is not a session.
+qnet/agent/phases.py        load_interrupt_skill / InterruptSkill - a second file
+                            shape, validated as loudly as a phased one. The phase
+                            loader still refuses a file with no ## Phases block.
+qnet/agent/engine.py        on_responder_brief: pause the comfort loop -> read the
+                            room's latest fall file -> one LLM call -> speak ->
+                            resume -> one `brief` line. Never a session.
+qnet/agent/llm.py           word_line(kind="brief", facts, goal): same
+                            ask/strip/validate/one-retry recipe, brief-shaped
+                            prompt, 180-token cap, 20 s per-request timeout.
+contracts/mqtt.md           the `brief` log line is now FROZEN (see below).
+
+Verify block from docs/IMPLEMENTATION.md, run verbatim
+------------------------------------------------------
+$ .venv/Scripts/python -m pytest tests/test_responder_brief.py -q
+......                                                                   [100%]
+6 passed in 4.10s
+exit=0
+
+$ .venv/Scripts/python -m pytest tests/test_responder_brief.py --no-header -v
+tests/test_responder_brief.py::test_brief_mid_escalation PASSED          [ 16%]
+tests/test_responder_brief.py::test_brief_mid_escalation_without_gemma PASSED [ 33%]
+tests/test_responder_brief.py::test_brief_after_close PASSED             [ 50%]
+tests/test_responder_brief.py::test_brief_reads_the_latest_file_live PASSED [ 66%]
+tests/test_responder_brief.py::test_brief_no_history PASSED              [ 83%]
+tests/test_responder_brief.py::test_brief_ignores_a_find_session_in_the_room PASSED [100%]
+============================== 6 passed in 4.21s ==============================
+exit=0
+  -> the block asks for 3 named tests; all three are here and pass:
+     test_brief_mid_escalation  - fall session ACTIVE; the brief speaks a timeline
+       naming the room, the words the person actually said ("my hip hurts"), the
+       contact who was actually messaged (Sarah) and the stage it is actually at
+       (escalate) - four logged facts, block asks for >= 3. Afterwards the fall
+       session's phase, its phase-transition list and its tool-call list are all
+       byte-identical to before, it is still `active`, and escalate's timer still
+       fires on its own schedule (asserted after the brief).
+     test_brief_after_close     - detection, the replies, the actions and the final
+       state ("closed when Margaret said they were not hurt") are all in it.
+     test_brief_no_history      - a fresh room says exactly "No fall has been
+       recorded in this room." and does nothing else: no session, no file, no
+       dashboard document, no tool call (asserted on the whole bus).
+  PASS
+
+Whole suite still green (previous 44 + the new 20):
+$ .venv/Scripts/python -m pytest tests/ -q
+................................................................         [100%]
+64 passed, 7 deselected in 17.01s
+exit=0
+
+The live GenieX suite (T3.3) still passes with the llm.py changes:
+$ .venv/Scripts/python -m pytest tests/test_llm_replay.py -m live -q
+.......                                                                  [100%]
+7 passed in 20.46s
+exit=0
+  NOTE, recorded honestly: the first attempt of this run had
+  test_the_double_check_survives_the_model fail on an asyncio TimeoutError while
+  the device was busy serving the live brief requests from the round trip below.
+  Re-run alone: 1 passed in 2.58 s; re-run of all seven: 7 passed. Device
+  contention on a serialized single-model endpoint (§10: "requests serialize"),
+  not a regression - no code changed between the two runs.
+
+Comfort-loop pause: proved by mutation
+--------------------------------------
+The pause is one boolean, so the test that claims to prove it was checked by
+breaking the engine on purpose (`safety.comfort_paused = True` -> `= False`) and
+re-running:
+
+  FAILED tests/test_responder_brief.py::test_brief_mid_escalation
+  E  assert ... [('comfort', [...]), ('comfort', [...]), ('comfort', [...])] and 'comfort' == 'brief'
+  1 failed, 5 passed
+
+  -> with the pause removed, three comfort updates land inside the 250 ms the
+     brief takes to be worded. With it, zero. The engine file was restored
+     immediately (git diff confirms only the intended changes).
+
+Live check - the real broker, the real Gemma, mid-escalation
+------------------------------------------------------------
+One agent started by us (pid noted, killed by us on the way out) against the
+running demo broker; the tunnel and the broker were left alone. Driver published
+the same fixtures dev/inject.py publishes.
+
+    7.4s  qnet/kitchen/event  {"kind": "fall.detected", "conf": 0.87, ...}
+    7.4s  qnet/kitchen/say    {"text": "I saw you fall. Take a breath — are you okay?", "prio": "safety"}
+    9.4s  qnet/kitchen/heard  {"text": "my hip hurts", "silence": false}
+   10.0s  qnet/kitchen/say    {"text": "It's okay — I'm getting you help. ...", "prio": "safety"}
+   25.0s  qnet/kitchen/say    {"text": "You haven't answered, so I'm calling emergency services now.", "prio": "safety"}
+   32.0s  qnet/kitchen/ask    {"text": "", "kind": "responder_brief"}      <- the phrase
+   38.6s  qnet/kitchen/say    {"prio": "safety", "text":
+     "A fall was detected in the kitchen with 87 percent confidence twenty-five
+      seconds ago. Moments after the fall, Margaret said "my hip hurts." Five
+      seconds after the fall, the contact Sarah was messaged. Twenty seconds
+      after the fall, emergency services were called. Twenty seconds after the
+      fall, the contact Sarah was messaged. The response is still open at the
+      call_help stage, and the total elapsed time is twenty-five seconds."}
+   -> brief composed and spoken in 6.6 s [M] (one live Gemma call, 180-token cap)
+   -> comfort lines published DURING the brief: 0 (the loop is paused)
+   60.9s  qnet/kitchen/say    {"prio": "comfort", "text": "Sarah has been messaged,
+                               emergency services are on the way, and it has been
+                               about 50 seconds since I saw you fall."}
+   -> the comfort loop resumed by itself, one full interval after the brief spoke
+      (last_say_at is reset when the brief finishes, so it does not talk over it)
+
+  Honest note on what the live run does and does not prove: no comfort update was
+  *due* during those 6.6 s (the interval is 20 s and call_help had just spoken),
+  so the live evidence is the clean resumption, not the suppression. The
+  suppression is proved by the mutation test above, at 100 ms intervals.
+
+  Then, after the session was cancelled ("false alarm"), the same phrase again:
+   71.2s  qnet/kitchen/say    {"prio": "routine", "text":
+     "A fall was detected in the kitchen with 87 percent confidence 55 seconds
+      ago. Moments after the fall, Margaret said "my hip hurts." ... and 55
+      seconds after the fall, Margaret said "false alarm." The incident was
+      cancelled as a false alarm, and the total elapsed time is 55 seconds."}
+   -> 7.3 s [M]. prio dropped to `routine` because no fall session is live any
+      more; the whole arc including the cancellation is in it, read live off the
+      same file the session had been writing - no "finalize the log" step.
+
+  And a room with no fall on file:
+   71.2s  qnet/bedroom/say    {"text": "No fall has been recorded in this room.",
+                               "prio": "routine"}
+
+The session file afterwards (data/live-t6/sessions/kitchen__fall-response__*.jsonl),
+one `brief` line per brief, in the file each one summarised:
+   {"ts": ..., "event": "brief", "ask_id": "01LIVE1785968133923", "spoken": true,
+    "text": "A fall was detected in the kitchen with 87 percent confidence ..."}
+   {"ts": ..., "event": "brief", "ask_id": "01LIVE1785968165814", "spoken": true, ...}
+
+Degraded mode - no model at all (the fallback build must never break)
+---------------------------------------------------------------------
+engine.brief_line(agent.brief_facts(summary)) over that same live file, with no
+LLM in the loop at all:
+
+  "Here's what happened. A fall was detected in the kitchen, with 87 percent
+   confidence, 2 minutes and 10 seconds ago. The resident here is Margaret.
+   Moments after the fall Margaret said "my hip hurts". 5 seconds after the fall
+   the contact Sarah was messaged. 20 seconds after the fall emergency services
+   were called (simulated). 20 seconds after the fall the contact Sarah was
+   messaged. 55 seconds after the fall Margaret said "false alarm". 55 seconds
+   after the fall the contact Sarah was messaged. It was cancelled as a false
+   alarm. Total elapsed time is 1 minute and 5 seconds."
+
+  -> same facts, plainer wording. LLM unavailable, timed out, or unusable is
+     never silence and never a crash (test_brief_mid_escalation_without_gemma).
+
+Contract change made in this task
+---------------------------------
+contracts/mqtt.md: the `brief` log line, left explicitly unfrozen by T0.1 ("§6
+gives no shape for it... it is settled in T6.1"), is now FROZEN:
+
+  { "ts": <float>, "event": "brief", "ask_id": <string|null>,
+    "spoken": <bool>, "text": <string, optional> }
+
+  ask_id  the id of the `ask` that requested it - the only link back, since the
+          brief is not a session and never appears on qnet/session/<id> as one
+  spoken  true when the summary really was published to qnet/<room>/say
+  text    the summary as spoken; optional, present whenever there was one
+  Exactly one line per brief, only into a file that already existed (a no-history
+  room is spoken to and nothing is written). The read itself
+  (get_session_summary) deliberately logs no `tool` line: §12 allows the
+  interrupt one line in the file it summarised, and this is it.
+
+Also: dashboard/index.html's describeEntry now renders `brief` as e.text (it fell
+through to e.note || e.state, which the frozen shape does not carry) - one line,
+no behaviour change anywhere else.
+
+Design ambiguities found and how they were resolved
+---------------------------------------------------
+1. §12's skill file has no `urgency` and no phases, but the T2.1 loader requires
+   both. Resolved by a second loader (load_interrupt_skill -> InterruptSkill)
+   rather than by weakening the phase loader: everything Skill guarantees (a
+   first phase, resolvable exits, a validated allowlist) is meaningless for an
+   interrupt, and a phase engine handed one should fail loudly.
+2. §12 says "prio safety if a session is live". Refined to *a live **safety**
+   session*: a find session in the room is not something the brief must speak
+   over, and §12 is scoped to fall response. Everything else gets `routine`.
+3. `say.prio` had no value for "neither safety nor the fall comfort loop", so
+   T6.2 added `routine` (see verify/T6.2.txt). The brief uses it.
+4. The brief line's home when the summarised file is not the agent's current
+   session for that room (a restart, or a find session since opened in the same
+   room): the line is appended straight to the file, because the file is the
+   record. When it *is* the live session, it goes through the normal record path
+   so the dashboard sees it too.
+5. Names. The first live run produced "Sarah said my hip hurts" - the 2B model
+   blurring the resident and the contact, from a fact that read 'they said "..."'.
+   Fixed at the source (the facts now say 'Margaret said "..."' and 'the contact
+   Sarah was messaged'), not by post-processing, plus one prompt rule. Re-run
+   live: correct in both briefs. This is exactly the class of error the
+   "facts in, wording out" seam is meant to make fixable.
+
+Left for hardware / other tasks
+--------------------------------
+- The live check drove the brief with dev/inject-shaped `ask` messages, not a
+  spoken phrase: the responder-phrase match is node-side (voice.py, §9), and
+  saying it out loud is part of the G6 checklist once the speech service is up.
+- notify_contacts' own log line carries no `kind`, so a brief cannot yet tell
+  "escalate ping" from "false-alarm ping" when the *shipped* tool wrote the line
+  (the engine's own line does carry it). brief_facts already reads `kind` when
+  present; adding it to the tool is a one-line follow-up owned by that tool.
+- BRIEF_MAX_TOKENS/BRIEF_TIMEOUT_S (180 / 20 s) were set from §10's measured
+  15.7-16.2 tok/s and confirmed at 6.6-7.3 s live [M]. Re-check on the board
+  itself (no SSH tunnel in the path) at rehearsal.
+
+RESULT: T6.1 PASS.

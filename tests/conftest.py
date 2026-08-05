@@ -108,8 +108,11 @@ def recorder_tools(recorder: Recorder) -> dict[str, StubSpec]:
         return {"SIMULATED": True, "number": "911", "room": ctx.room}
 
     async def look_in_rooms(ctx, object: str, mode: str = "find", room: str | None = None) -> dict:
+        # The shipped tool's shape (T6.2): who answered, who didn't. Tests that
+        # care about the answer replace this entry; the default is "nobody is
+        # home", which is a real case the engine has to word correctly.
         recorder.calls.append(("look_in_rooms", {"object": object, "mode": mode, "room": room}))
-        return {"found": False, "rooms": []}
+        return {"replies": [], "unreachable": [], "qid": "stub"}
 
     return {
         "notify_contacts": StubSpec(notify_contacts, engine_only=True),

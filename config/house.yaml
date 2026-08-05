@@ -9,8 +9,15 @@ contacts:
 telegram_bot_token: "TODO"
 emergency_number: "911"
 rooms:
+  # Every room listed here is a node the agent expects to answer a `look`
+  # broadcast (§13) - which is how "I couldn't reach the bedroom" is possible
+  # at all. Add a room when its node exists; remove one and the house simply
+  # stops expecting it.
   kitchen:
     node: kitchen-01
+    source: "v4l2src device=/dev/video2"
+  bedroom:
+    node: bedroom-01
     source: "v4l2src device=/dev/video2"
 vision:  { conf_floor: 0.6, fire_on: "5/8", rearm_after_s: 60 }
 voice:
@@ -24,6 +31,15 @@ llm:
   # Optional - drop the block and this exact URL is the default. --no-llm
   # ignores it entirely: no client is built at all.
   base_url: "http://127.0.0.1:18181/v1"
+find:
+  # "Where's my stuff" (§13). No timers in the skill - these two are the only
+  # numbers the find flow has.
+  look_timeout_s: 8       # §13's CEILING, not its goal: how long to wait for
+                          # `looked` replies before answering with whatever came
+                          # back. T6.3 lowers it to measured VLM latency + 1 s so
+                          # a dead node does not make every answer slow.
+  last_find_window_s: 120 # how long "I still don't see them" keeps meaning the
+                          # last object searched for (§13's 2-minute memory).
 comfort:
   interval_s: 20        # never leave them in silence longer than this (§6, T2.4)
   # phases: [escalate, call_help]   # optional override; default = phases that

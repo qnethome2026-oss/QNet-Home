@@ -56,9 +56,26 @@ TIMEOUT_S = 6.0             # client-side; the engine's timers do not wait on us
 # long a queued request can block the next one (requests serialize on-device).
 CLASSIFY_MAX_TOKENS = 12
 WORD_LINE_MAX_TOKENS = 80
+# The responder brief is the one deliberately longer line in the system: a whole
+# spoken timeline (§12), not a status sentence. Still capped - at ~16 tok/s
+# (§10) this is a few seconds of speech, and the fall session's timers are
+# engine-owned so nothing waits on it.
+BRIEF_MAX_TOKENS = 180
+# ...and the one request that needs longer than the 6 s client timeout: 180
+# tokens at the measured 15.7-16.2 tok/s (§10) is ~11 s of decode, so a 6 s
+# timeout would mean the brief *always* fell back to the engine's own wording.
+# Nothing waits on it - the fall session's timers are engine-owned - and the
+# comfort loop is paused for the duration by design (§12).
+BRIEF_TIMEOUT_S = 20.0
 
 CHANNEL_MARK = "<channel|>"  # Gemma 4's thinking-channel terminator
 MAX_LINE_CHARS = 200         # a spoken line, not a paragraph
+BRIEF_MAX_CHARS = 900        # ...except the brief, which is a whole timeline
+
+# Per-kind caps for `word_line`. A kind that is not listed gets the one-sentence
+# defaults, so adding a new kind never needs an entry here.
+LINE_LIMITS: dict[str, tuple[int, int]] = {"brief": (BRIEF_MAX_TOKENS, BRIEF_MAX_CHARS)}
+LINE_TIMEOUTS: dict[str, float] = {"brief": BRIEF_TIMEOUT_S}
 
 _WS_RE = re.compile(r"\s+")
 _EDGE_RE = re.compile(r"^[\s\"'`*_.:,;!?()\[\]-]+|[\s\"'`*_.:,;()\[\]-]+$")
@@ -99,14 +116,19 @@ def options_for(phase: Any) -> tuple[str, ...]:
 
 
 class LlmClient:
-    """One Gemma endpoint, two jobs: classify a reply, word a status line.
+    """One Gemma endpoint, three jobs: classify a reply, word a line, name an object.
 
-    Both jobs are single-turn by construction (DESIGN §6: "small models are
-    reliable single-turn, unreliable multi-turn") and both are wrapped in the
-    same *ask -> strip -> validate -> one terser retry -> None* recipe.
+    "Word a line" covers all three places the model speaks - the fall comfort
+    update, the find answer (§13) and the responder brief (§12) - because they
+    are the same request with a different prompt and a different cap. The model
+    never chooses *what* is true in any of them; the engine hands it the facts.
+
+    Every job is single-turn by construction (DESIGN §6: "small models are
+    reliable single-turn, unreliable multi-turn") and every one is wrapped in
+    the same *ask -> strip -> validate -> one terser retry -> None* recipe.
 
     Synchronous on purpose: the ``openai`` client's sync path is the
-    well-trodden one, and the engine calls both methods through
+    well-trodden one, and the engine calls every method through
     ``asyncio.to_thread`` so the event loop keeps its timers while the device
     thinks.
     """
@@ -132,13 +154,19 @@ class LlmClient:
 
     # --- the one place a request is built --------------------------------
 
-    def ask(self, prompt: str, temperature: float, max_tokens: int) -> str | None:
+    def ask(self, prompt: str, temperature: float, max_tokens: int, timeout_s: float | None = None) -> str | None:
         """One completion, or ``None``. The only method that touches the network.
 
         ``extra_body`` is not optional garnish - see the module docstring: these
         are the field names the server actually reads.
+
+        ``timeout_s`` overrides the client's default for this one request, and
+        is only passed when a caller asks for it (the responder brief, which
+        decodes a paragraph rather than a sentence). Every other request goes
+        out exactly as it always did.
         """
         self.calls += 1
+        extra: dict[str, Any] = {"timeout": timeout_s} if timeout_s else {}
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -149,6 +177,7 @@ class LlmClient:
                     "max_completion_tokens": max_tokens,  # GenieX's name; `max_tokens` is ignored
                     "nctx": NCTX,
                 },
+                **extra,
             )
         except Exception as exc:  # noqa: BLE001 - timeouts, refused connections, 5xx: all the same to us
             log.warning("llm request failed (%s) - falling back", exc.__class__.__name__)
@@ -265,37 +294,78 @@ class LlmClient:
 
     # --- job 2: word one short line from facts we already know -----------
 
-    def word_line(self, kind: str, facts: Sequence[str]) -> str | None:
-        """Turn known-true facts into one spoken sentence, or ``None``.
+    def word_line(self, kind: str, facts: Sequence[str], goal: str = "") -> str | None:
+        """Turn known-true facts into one spoken line, or ``None``.
 
-        The facts come from the session log (what tools actually did, how long
-        it has actually been) - the model's whole job is wording, never
-        content. §6: "grounded in what tools actually returned, never filler".
+        The facts come from the engine (what tools actually did, what nodes
+        actually replied, how long it has actually been) - the model's whole job
+        is wording, never content. §6: "grounded in what tools actually
+        returned, never filler".
+
+        **Three kinds share this one method and one recipe** (T6.1, T6.2):
+        ``comfort`` is the fall loop's status line, ``find`` is the answer to
+        "where are my glasses", ``brief`` is the responder timeline. Only the
+        prompt and the caps differ - a kind with no entry in ``LINE_LIMITS``
+        gets the one-sentence defaults, so ``comfort``'s measured behaviour
+        (T3.3) is untouched, byte for byte.
+
+        ``goal`` is the skill file's own goal text, passed straight through
+        where a skill has one (``skills/responder-brief.md``) - the same rule as
+        ``_classify_prompt``: what to achieve is markdown, never Python.
         """
         facts = [f for f in (facts or []) if f]
         if not facts:
             return None
+        max_tokens, max_chars = LINE_LIMITS.get(kind, (WORD_LINE_MAX_TOKENS, MAX_LINE_CHARS))
+        timeout_s = LINE_TIMEOUTS.get(kind)
 
-        line = _clean_line(self.ask(self._word_prompt(kind, facts), temperature=0.4, max_tokens=WORD_LINE_MAX_TOKENS))
+        line = _clean_line(
+            self.ask(self._word_prompt(kind, facts, goal), 0.4, max_tokens, timeout_s),
+            max_chars,
+        )
         if line:
             return line
         log.info("llm %s line unusable - retrying once", kind)
         line = _clean_line(
-            self.ask(
-                f"Facts: {'; '.join(facts)}.\n"
-                "Write one short, calm sentence for a person lying on the floor, using only those facts. "
-                "One sentence, under 25 words, no quotes.",
-                temperature=0.4,
-                max_tokens=WORD_LINE_MAX_TOKENS,
-            )
+            self.ask(self._retry_word_prompt(kind, facts), 0.4, max_tokens, timeout_s),
+            max_chars,
         )
         if line is None:
             log.warning("llm %s line failed twice - engine words it instead", kind)
         return line
 
-    def _word_prompt(self, kind: str, facts: Sequence[str]) -> str:
-        """Facts in, one sentence out. Nothing may be added to the facts."""
+    def _word_prompt(self, kind: str, facts: Sequence[str], goal: str = "") -> str:
+        """Facts in, one line out. Nothing may be added to the facts."""
         listed = "\n".join(f"- {fact}" for fact in facts)
+        if kind == "brief":
+            return (
+                "You are a home safety system briefing a first responder who has just walked in and "
+                "knows nothing about what happened. Speak to them, not to the person who fell.\n\n"
+                f"{goal or _BRIEF_GOAL}\n\n"
+                f"These are the only facts you have, in the order they happened:\n{listed}\n\n"
+                "Speak the summary out loud. Rules:\n"
+                "- One flowing spoken summary, not a list, not bullet points, not headings.\n"
+                "- Use only the facts above, all of them, in that order. Never invent a fact, a name, "
+                "a time, a diagnosis or a reassurance.\n"
+                "- Keep the names straight: the person who fell and the contact who was messaged are "
+                "different people. Attribute every quote to whoever the facts say said it.\n"
+                "- Plain past tense, calm and factual. End with where things stand right now.\n"
+                "- No quotes around the whole answer, no emoji. Under 120 words.\n"
+                "Summary:"
+            )
+        if kind == "find":
+            return (
+                "You are a calm home assistant answering someone who asked where one of their "
+                "belongings is. Each room of the house looked with its own camera and reported back.\n\n"
+                f"These are the only facts you have:\n{listed}\n\n"
+                "Write ONE short sentence they will hear out loud. Rules:\n"
+                "- Say where it is, room first, then the landmark that was reported.\n"
+                "- Name only the rooms above, and say plainly if a room could not be reached. "
+                "Never claim to have looked somewhere that is not listed.\n"
+                "- Use only those facts. Never invent a location, a room or an object.\n"
+                "- No quotes, no emoji, no lists. Under 30 words.\n"
+                "Sentence:"
+            )
         return (
             "You are a calm home assistant staying with an older person who has fallen and is "
             "waiting for help. Speak to them directly, warmly, and briefly.\n\n"
@@ -309,6 +379,62 @@ class LlmClient:
             "Sentence:"
         )
 
+    def _retry_word_prompt(self, kind: str, facts: Sequence[str]) -> str:
+        """The terser second ask - facts and one instruction, no persona."""
+        joined = "; ".join(facts)
+        if kind == "brief":
+            return (
+                f"Facts, in order: {joined}.\n"
+                "Tell a first responder what happened, out loud, using only those facts. "
+                "One flowing summary, no list, under 120 words."
+            )
+        if kind == "find":
+            return (
+                f"Facts: {joined}.\n"
+                "Answer, in one short spoken sentence, where the object is - or which rooms were "
+                "checked and which could not be reached. Use only those facts, under 25 words, no quotes."
+            )
+        return (
+            f"Facts: {joined}.\n"
+            "Write one short, calm sentence for a person lying on the floor, using only those facts. "
+            "One sentence, under 25 words, no quotes."
+        )
+
+    # --- job 3: what are they looking for? -------------------------------
+
+    def extract_object(self, text: str) -> str | None:
+        """The thing to look for, out of a transcript, or ``None`` (T6.2, §13).
+
+        The engine's plain-string heuristic handles "where are my glasses" and
+        friends; this is only reached when that fails, and it is allowed to fail
+        too - the engine then asks the person what to look for, which is a
+        better answer than searching the house for a hallucination.
+
+        Same closed-answer discipline as ``classify_reply``: one short noun
+        phrase or the literal word ``none``, validated here, never trusted raw.
+        """
+        said = (text or "").strip()
+        if not said:
+            return None
+        answer = self.ask(
+            "Someone spoke to a home assistant that can look around the house for lost objects.\n"
+            f'They said: "{said}"\n\n'
+            "What object are they asking it to find? Answer with just the object, in one or two "
+            'words, lower case, no article. If they did not name an object, answer exactly: none\n'
+            "Object:",
+            temperature=0.0,
+            max_tokens=CLASSIFY_MAX_TOKENS,
+        )
+        return _clean_object(answer)
+
+
+# Only used if `skills/responder-brief.md` could not be loaded - the engine
+# passes that file's own `goal:` through, per DESIGN §12.
+_BRIEF_GOAL = (
+    "Give a clear, factual timeline: when the fall was detected, what the person said or did, "
+    "what actions were taken and when, current status, and total elapsed time. "
+    "One flowing summary, not a list."
+)
 
 # Only used if a skill file leaves an exit's condition blank - the loader
 # already refuses that, so this is belt-and-braces for hand-built phases.
@@ -334,11 +460,30 @@ def _match(answer: str | None, options: Sequence[str]) -> str | None:
     return word if word in options else None
 
 
-def _clean_line(answer: str | None) -> str | None:
-    """One spoken line: collapsed whitespace, unquoted, ``<= 200`` chars."""
+def _clean_line(answer: str | None, max_chars: int = MAX_LINE_CHARS) -> str | None:
+    """One spoken line: collapsed whitespace, unquoted, within the kind's cap."""
     if not answer:
         return None
     line = _WS_RE.sub(" ", answer).strip().strip('"').strip("'").strip()
-    if not line or len(line) > MAX_LINE_CHARS:
+    if not line or len(line) > max_chars:
         return None
     return line
+
+
+# A model that answers the object question with a pronoun has told us nothing:
+# "where are they" is exactly the follow-up §13 routes to `guide` by remembering
+# the last object, not by searching for the word "them".
+_PRONOUNS = frozenset(
+    {"none", "it", "them", "they", "that", "this", "these", "those", "thing", "something", "anything", "one"}
+)
+
+
+def _clean_object(answer: str | None) -> str | None:
+    """A short object phrase, or ``None`` - the same closed-answer discipline."""
+    if not answer:
+        return None
+    word = _EDGE_RE.sub("", _WS_RE.sub(" ", answer).strip().lower())
+    word = re.sub(r"^(my|the|a|an|our|his|her|their)\s+", "", word)
+    if not word or len(word.split()) > 3 or len(word) > 40:
+        return None
+    return None if word in _PRONOUNS else word

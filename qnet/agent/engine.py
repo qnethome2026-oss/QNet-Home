@@ -34,6 +34,15 @@ the model can only ever choose *between decisions the phase already allows* -
 timers, ``on_enter`` actions, the pain double-check, the refusals and the
 logging are all engine-owned either way.
 
+**T6.1 / T6.2 - the second capability set.** The responder brief (§12) is an
+engine-level *interrupt*: pause the comfort loop, read the room's latest fall
+file, one LLM call to word the timeline, speak it, resume - it never enters the
+session table, so the one-session-per-room rule cannot block it. The find flow
+(§13) is an ordinary routine session on ``skills/find.md``, plus one ``last_find``
+variable and one if-statement for the "I still don't see them" follow-up.
+Neither touched the fall path: the phases, the timers, the cancel matcher and
+the notification rules are exactly what they were.
+
 Two design ambiguities resolved here, both flagged in the code where they bite:
 
 1. **``on_enter_done`` is keyed by (phase, action), not action alone.** §6's
@@ -47,6 +56,14 @@ Two design ambiguities resolved here, both flagged in the code where they bite:
    (``active | closed | cancelled``, §4) while the exit label that ended it
    (``ok``, ``resolved``, ...) is kept on ``session.final`` and written into the
    closing ``phase`` line's ``to`` field. No contract change, no lost fact.
+3. **The engine calls ``look_in_rooms``; the model only words the answer.**
+   ``find.md`` lists it in the phase's ``tools:`` allowlist as DESIGN §13 shows,
+   and the allowlist is still checked (``phase.allows_tool``) - but SDK-native
+   tool-calling does not work on GenieX v0.3.18 (§10, measured), so a phase whose
+   entire job is one broadcast cannot depend on the model emitting a tool call.
+   The search fires on phase entry, exactly like an ``on_enter`` action, and the
+   model's job is the same as everywhere else in this system: wording facts the
+   engine already has. Same rails, same refusal path, no tool-calling risk.
 """
 
 from __future__ import annotations
@@ -71,8 +88,9 @@ from qnet.ids import new_ulid
 
 log = logging.getLogger("qnet.agent")
 
-# What the agent listens to. `looked` and `status` join in T6.2 / T4.2.
-SUBSCRIPTIONS = ("qnet/+/event", "qnet/+/ask", "qnet/+/heard")
+# What the agent listens to. `status` joins in T4.2; `looked` is T6.2's - the
+# replies to `qnet/look`, which reach `look_in_rooms` through `Agent.subscribe`.
+SUBSCRIPTIONS = ("qnet/+/event", "qnet/+/ask", "qnet/+/heard", "qnet/+/looked")
 
 FALL_TRIGGER = "fall.detected"
 DEFAULT_SESSIONS_DIR = "data/sessions"
@@ -82,6 +100,21 @@ DEFAULT_PORT = 1883
 
 # §6: "if nothing has been spoken for ~20 s the engine gives the agent a turn".
 DEFAULT_COMFORT_INTERVAL_S = 20.0
+
+# §13: "the agent remembers the last find result for 2 minutes". One variable,
+# one if-statement - no conversation history, no session linking.
+DEFAULT_LAST_FIND_WINDOW_S = 120.0
+
+# The one line §12 specifies word for word, for a room with no fall on file.
+NO_FALL_HISTORY = "No fall has been recorded in this room."
+
+# What to say when someone woke the house without naming anything to look for
+# and there is no remembered search to fall back on (§13's follow-up window).
+WHAT_TO_FIND = "What should I look for?"
+
+# `say.prio` for anything that is neither a safety line nor the fall comfort
+# loop: a find answer, and a brief asked in a room with no live fall session.
+ROUTINE_PRIO = "routine"
 
 # The pain double-check (§3, §6) - canned, so it is reachable with no model at
 # all. "I'm fine" must never close a session without passing through this.
@@ -99,6 +132,61 @@ CANCELLED = "cancelled"
 def is_cancel(text: str) -> bool:
     """Explicit-phrase cancel matching, checked before anything else (§6)."""
     return bool(CANCEL_RE.search((text or "").lower()))
+
+
+# --- "where are my glasses" -> "glasses" (§13) ----------------------------
+
+# The wake phrase is already stripped node-side (§13: it is a plain string check
+# on the transcript, and only the remainder is published), so these match the
+# question itself. Deliberately a handful of literal shapes rather than anything
+# clever: the model is the fallback, and asking the person is the fallback's
+# fallback - both better than a house-wide search for a misparse.
+_OBJECT_RES = (
+    re.compile(r"\bwhere(?:'s|s| is| are)\s+(?P<obj>.+)$"),
+    re.compile(r"\bwhere did (?:i|we) (?:leave|put)\s+(?P<obj>.+)$"),
+    re.compile(r"\b(?:have you seen|has anyone seen|can you (?:see|find)|look for|find|locate)\s+(?P<obj>.+)$"),
+    re.compile(r"\bi (?:can't|cant|cannot) find\s+(?P<obj>.+)$"),
+)
+_DETERMINER_RE = re.compile(r"^(?:my|the|a|an|our|his|her|their|some)\s+")
+_TRAILER_RE = re.compile(r"\s*\b(?:please|anywhere|again|for me|right now|now)\b\s*$")
+_EDGE_PUNCT_RE = re.compile(r"^[\s\"'`.,!?]+|[\s\"'`.,!?]+$")
+
+# A question that names only a pronoun has named nothing: "where are they" is
+# exactly the follow-up §13 routes to `guide` off the remembered object.
+_PRONOUN_OBJECTS = frozenset(
+    {"it", "them", "they", "those", "these", "that", "this", "one", "thing", "things", "something", "anything"}
+)
+
+
+def extract_object(text: str) -> str | None:
+    """The thing to look for, or ``None`` if the sentence named nothing (§13).
+
+    ``None`` is a real answer, not a failure: it is what routes an object-less
+    follow-up to `guide`, and what makes the engine ask rather than guess.
+    """
+    said = _EDGE_PUNCT_RE.sub("", (text or "").strip().lower())
+    if not said:
+        return None
+    for pattern in _OBJECT_RES:
+        match = pattern.search(said)
+        if not match:
+            continue
+        obj = _EDGE_PUNCT_RE.sub("", match.group("obj").strip())
+        obj = _EDGE_PUNCT_RE.sub("", _TRAILER_RE.sub("", _DETERMINER_RE.sub("", obj)).strip())
+        if not obj or obj in _PRONOUN_OBJECTS or len(obj.split()) > 4:
+            return None
+        return obj
+    return None
+
+
+def name_rooms(rooms: list[str], joiner: str = "and") -> str:
+    """"the kitchen and the bedroom" - what was actually checked, said out loud."""
+    named = [f"the {room}" for room in rooms]
+    if not named:
+        return ""
+    if len(named) == 1:
+        return named[0]
+    return ", ".join(named[:-1]) + f" {joiner} " + named[-1]
 
 
 @dataclass
@@ -191,6 +279,9 @@ class Session:
     contacts_notified: bool = False
     emergency_called: bool = False
     awaiting_pain_answer: bool = False
+    # The responder brief pauses the comfort loop while it speaks (§12), so the
+    # two never talk over each other. Read-only against phases and timers.
+    comfort_paused: bool = False
     final: str = ""
     detected_at: float = 0.0
     last_say_at: float = 0.0
@@ -226,6 +317,19 @@ def session_path(sessions_dir: Path, room: str, skill: str, started_at: float) -
     """
     stamp = datetime.fromtimestamp(started_at).strftime("%Y-%m-%dT%H-%M-%S")
     return sessions_dir / f"{room}__{skill}__{stamp}.jsonl"
+
+
+def brief_line(facts: list[str]) -> str:
+    """The engine's own responder brief - the timeline as one spoken paragraph.
+
+    What gets said when Gemma is unavailable or unusable (§12's one LLM call is
+    wording, not content), and the floor under every brief: every clause here
+    came off the session's own JSONL.
+    """
+    if not facts:
+        return NO_FALL_HISTORY
+    body = ". ".join(fact[0].upper() + fact[1:] if fact else fact for fact in facts)
+    return f"Here's what happened. {body}."
 
 
 def elapsed_phrase(seconds: float) -> str:
@@ -269,6 +373,13 @@ class Agent:
         self.sessions: dict[str, Session] = {}
         self.client = client
         self._pending: set[asyncio.Task] = set()
+        # Topic-filter -> queue, for tools that have to listen as well as speak
+        # (T6.2's `look_in_rooms`). See `subscribe`.
+        self._listeners: list[tuple[re.Pattern[str], asyncio.Queue]] = []
+        # §13's whole follow-up mechanism: {object, results, ts}, or nothing.
+        find_cfg = self.config.get("find") or {}
+        self.last_find: dict | None = None
+        self.last_find_window_s = float(find_cfg.get("last_find_window_s", DEFAULT_LAST_FIND_WINDOW_S))
 
         # Tests inject a recorder registry; production resolves qnet.tools lazily
         # so this module never hard-depends on another lane's task landing.
@@ -286,6 +397,26 @@ class Agent:
             set(comfort["phases"]) if isinstance(comfort.get("phases"), list) else None
         )
         self.skill = phaselib.load_skill(self.skills_dir / "fall.md", tools=self.tools)
+        self.find_skill = self._load_optional("find.md")
+        self.brief_skill = self._load_optional("responder-brief.md", interrupt=True)
+
+    def _load_optional(self, filename: str, interrupt: bool = False) -> Any:
+        """A second-capability skill file, or ``None`` - never a dead agent (T6.1/T6.2).
+
+        ``fall.md`` is load-or-die: a house whose fall response will not start is
+        broken, and §6's rails are the whole safety argument. These two are not:
+        a missing or malformed ``find.md`` costs the house its search feature and
+        nothing else, so it is logged loudly and the fall path is untouched -
+        "degraded, not broken", the same rule the LLM gets (§6).
+        """
+        path = self.skills_dir / filename
+        try:
+            if interrupt:
+                return phaselib.load_interrupt_skill(path)
+            return phaselib.load_skill(path, tools=self.tools)
+        except phaselib.SkillError as exc:
+            log.error("skill file %s rejected (%s) - that capability is off, the fall path is not", filename, exc)
+            return None
 
     def _build_llm(self) -> Any:
         """The Gemma client, or ``None`` - never an exception at startup (T3.4).
@@ -360,13 +491,52 @@ class Agent:
         assert self.client is not None
         await self.client.publish(topic, json.dumps(payload), qos=1)
 
+    def subscribe(self, topic_filter: str):
+        """Listen to a topic filter for as long as the ``async with`` block lasts.
+
+        The one capability T6.2 had to add to ``ToolContext``: ``look_in_rooms``
+        broadcasts ``qnet/look`` and then has to *hear* the ``looked`` replies
+        (§13). Rather than give tools their own MQTT client - a second
+        connection, a second subscription, a second thing to fail - the engine
+        fans its own already-dispatched messages out to whoever is listening.
+
+        Yields an ``asyncio.Queue`` of ``(topic, payload)``. Registration
+        happens before the caller publishes anything, and deregistration is in a
+        ``finally``, so a fast node cannot answer into a queue nobody holds and
+        a timed-out search cannot leak a listener.
+        """
+        agent = self
+        pattern = _topic_pattern(topic_filter)
+
+        @contextlib.asynccontextmanager
+        async def _listen():
+            queue: asyncio.Queue = asyncio.Queue()
+            entry = (pattern, queue)
+            agent._listeners.append(entry)
+            try:
+                yield queue
+            finally:
+                with contextlib.suppress(ValueError):
+                    agent._listeners.remove(entry)
+
+        return _listen()
+
+    def fanout(self, topic: str, msg: dict) -> None:
+        """Hand one already-parsed message to every matching listener."""
+        for pattern, queue in list(self._listeners):
+            if pattern.match(topic):
+                queue.put_nowait((topic, msg))
+
     async def on_message(self, topic: str, payload: bytes) -> None:
         """Route one message by topic. `<room>` is the node's identity (§4)."""
+        msg = json.loads(payload)
+        # Listeners first, and for every topic: a `looked` reply belongs to
+        # whichever tool is waiting on it, not to the room-and-kind router.
+        self.fanout(topic, msg)
         parts = topic.split("/")
         if len(parts) != 3:
             return
         _, room, kind = parts
-        msg = json.loads(payload)
         if kind == "event":
             await self.on_event(room, msg)
         elif kind == "ask":
@@ -470,32 +640,406 @@ class Agent:
         if session:
             log.info("[%s] ask kind=query ignored - session %s already live (one per room)", room, session.id)
             return
-        # The find skill is T6.2; until then a query with no session is a no-op
-        # rather than a fake answer.
-        log.info("[%s] ask kind=query %r - no find skill yet (T6.2), ignored", room, msg.get("text", ""))
+        if self.find_skill is None:
+            log.warning("[%s] ask kind=query %r - no find skill loaded, ignored", room, msg.get("text", ""))
+            return
+
+        text = msg.get("text", "")
+        obj, mode = extract_object(text), "find"
+        if obj is None and self.find_is_remembered():
+            # §13's deliberately dumb rule: an ask that names no object, inside
+            # the window, is "I still don't see them" - the remembered object,
+            # and the room they are speaking from *now*.
+            obj, mode = self.last_find["object"], "guide"  # type: ignore[index]
+            log.info("[%s] object-less ask inside the window -> guide for %r", room, obj)
+        elif obj is None and self.llm is not None:
+            # The heuristic missed; give the model one short, closed-answer turn
+            # before falling back to asking the person (§13).
+            obj = await asyncio.to_thread(self.llm.extract_object, text)
+            log.info("[%s] heuristic found no object in %r - llm said %r", room, text, obj)
+        if obj is None:
+            log.info("[%s] no object named and nothing remembered - asking", room)
+            await self.publish(f"qnet/{room}/say", {"text": WHAT_TO_FIND, "prio": ROUTINE_PRIO})
+            return
+
+        await self.start_find(room, msg, obj, mode)
+
+    # --- "where's my stuff" (§13) ----------------------------------------
+
+    def find_is_remembered(self) -> bool:
+        """Is there a find result inside §13's two-minute follow-up window?
+
+        House-wide on purpose, not per room: the whole point of the follow-up is
+        that they walked into the *other* room and still can't see it.
+        """
+        if not self.last_find:
+            return False
+        return (time.time() - float(self.last_find.get("ts") or 0)) <= self.last_find_window_s
+
+    async def start_find(self, room: str, msg: dict, obj: str, mode: str) -> Session:
+        """Open a routine session on ``find.md`` and hand it to ``run_find``.
+
+        A session like any other - one per room, logged to its own file, on the
+        dashboard's feed - but ``routine``, so it never takes the screen over
+        from a fall (§14), and with no timers and no ``on_enter`` actions,
+        which §13 says is the whole difference between the two skills.
+        """
+        skill = self.find_skill
+        phase = skill.phase("search" if mode == "find" else "guide")
+        self.sessions_dir.mkdir(parents=True, exist_ok=True)
+        session = Session(
+            id=new_ulid(),
+            room=room,
+            skill=skill.name,
+            urgency=skill.urgency,
+            phase=phase.id,
+            path=session_path(self.sessions_dir, room, skill.name, time.time()),
+            detected_at=float(msg.get("ts") or time.time()),
+            last_say_at=time.monotonic(),
+        )
+        self.sessions[room] = session
+        log.info("[%s] session %s open (%s/%s, looking for %r) -> %s",
+                 room, session.id, session.skill, phase.id, obj, session.path.name)
+        # The question itself is the first line of the timeline. It is a
+        # transcript, so it is a `heard` line - no new log event kind, and the
+        # dashboard renders it with no change (contracts/mqtt.md).
+        await self.append(session, {"event": "heard", "text": msg.get("text", ""), "silence": False})
+        session.task = asyncio.ensure_future(self.run_find(session, phase, obj, mode))
+        return session
+
+    async def run_find(self, session: Session, phase: phaselib.Phase, obj: str, mode: str) -> None:
+        """One search or one guide: look, say what was found, close. No timers.
+
+        The search fires on phase entry rather than on a model's tool call - see
+        the module docstring, ambiguity 3 - and the phase's allowlist is still
+        what authorises it.
+        """
+        try:
+            result = await self.look(session, phase, obj, mode)
+            facts, spoken, outcome = self.find_facts(session, obj, mode, result)
+            await self.say(session, await self.find_text(session, facts, spoken), ROUTINE_PRIO)
+            self.remember_find(obj, result)
+            await self.append(session, {"event": "phase", "from": phase.id, "to": outcome})
+            await self.close(session, "closed", outcome)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # a broken search must not strand the session silently
+            log.exception("[%s] find session %s failed in phase %s", session.room, session.id, phase.id)
+            await self.close(session, "closed", "error")
+
+    async def look(self, session: Session, phase: phaselib.Phase, obj: str, mode: str) -> dict:
+        """Call ``look_in_rooms`` - through the phase's allowlist, like any tool."""
+        if not phase.allows_tool("look_in_rooms", self.tools):
+            await self.append(
+                session, {"event": "refusal", "tool": "look_in_rooms", "phase": phase.id, "kind": "tool"}
+            )
+            log.warning("[%s] look_in_rooms is not allowed in phase %s", session.room, phase.id)
+            return {}
+        result = await self.run_tool(
+            session,
+            "look_in_rooms",
+            phase=phase,
+            object=obj,
+            mode=mode,
+            room=session.room if mode == "guide" else None,
+        )
+        return result if isinstance(result, dict) else {}
+
+    def find_facts(self, session: Session, obj: str, mode: str, result: dict) -> tuple[list[str], str, str]:
+        """§13's three-row table: the facts, the engine's own sentence, the exit.
+
+        | replies | what it says |
+        |---|---|
+        | all answered, one found it | "They're in the bedroom, on the nightstand." |
+        | all answered, none found it | "I looked in the kitchen and the bedroom and I don't see them." |
+        | some didn't answer | "I looked in the kitchen and don't see them - I couldn't reach the bedroom." |
+
+        The third row is the one worth building, and it is why the tool returns
+        ``unreachable`` separately: a "not found" that only checked half the
+        house must not sound like a "not found" that checked all of it.
+        """
+        replies = [r for r in (result.get("replies") or []) if isinstance(r, dict)]
+        unreachable = [str(r) for r in (result.get("unreachable") or [])]
+        searched = [str(r.get("room")) for r in replies]
+        found = [r for r in replies if r.get("found")]
+
+        if mode == "guide":
+            return self.guide_facts(session, obj, replies)
+
+        if found:
+            # No "is"/"are": one wording that is right for both "my phone" and
+            # "my glasses", with no pluralisation guess about a spoken noun.
+            where = " and ".join(
+                f"in the {r['room']}" + (f", {r['answer']}" if r.get("answer") else "") for r in found
+            )
+            facts = [f"the {obj} were found {where}"]
+            if unreachable:
+                facts.append(f"{name_rooms(unreachable)} did not answer")
+            return facts, f"I found your {obj} {where}.", "found"
+
+        if searched and unreachable:
+            facts = [
+                f"I looked in {name_rooms(searched)} and did not see the {obj}",
+                f"I could not reach {name_rooms(unreachable, joiner='or')}",
+            ]
+            spoken = (f"I looked in {name_rooms(searched)} and don't see your {obj} — "
+                      f"I couldn't reach {name_rooms(unreachable, joiner='or')}.")
+            return facts, spoken, "not_found"
+
+        if searched:
+            facts = [f"I looked in {name_rooms(searched)} and did not see the {obj}"]
+            return facts, f"I looked in {name_rooms(searched)} and I don't see your {obj}.", "not_found"
+
+        if unreachable:
+            facts = [f"no room answered - I could not reach {name_rooms(unreachable, joiner='or')}"]
+            spoken = (f"I couldn't reach {name_rooms(unreachable, joiner='or')}, "
+                      f"so I wasn't able to look for your {obj}.")
+            return facts, spoken, "not_found"
+
+        return ([f"there are no rooms I can look in for the {obj}"],
+                f"I don't have any rooms I can look in for your {obj}.", "not_found")
+
+    def guide_facts(self, session: Session, obj: str, replies: list[dict]) -> tuple[list[str], str, str]:
+        """They are in the right room and still can't see it (§13's `guide`)."""
+        mine = next((r for r in replies if r.get("room") == session.room), None) or (replies[0] if replies else None)
+        if mine and mine.get("found") and mine.get("answer"):
+            facts = [
+                f"the person is in the {session.room} and cannot see their {obj}",
+                f"the {mine['room']} camera says the {obj} are {mine['answer']}",
+            ]
+            return facts, f"Look {mine['answer']}.", "done"
+        if mine and mine.get("found"):
+            facts = [f"the {obj} are somewhere in the {session.room}, with no more detail than that"]
+            return facts, f"They should be there in the {session.room} — have another look around.", "done"
+        facts = [f"I looked again in the {session.room} and still cannot see the {obj}"]
+        return facts, f"I looked again and I still can't see your {obj} in the {session.room}.", "done"
+
+    async def find_text(self, session: Session, facts: list[str], fallback: str) -> str:
+        """Gemma words the answer; the engine chose the facts (same seam as comfort).
+
+        Identical contract to ``comfort_text``: the model may only rearrange
+        what the nodes actually reported, and anything unusable falls back to
+        the engine's own sentence - so an answer is never silence and never a
+        room that was not checked.
+        """
+        if self.llm is None:
+            return fallback
+        started = time.monotonic()
+        line = await asyncio.to_thread(self.llm.word_line, "find", facts)
+        await self.append(
+            session,
+            {
+                "event": "llm",
+                "phase": session.phase,
+                "kind": "find",
+                "facts": facts,
+                "source": "gemma" if line else "fallback",
+                "ms": round((time.monotonic() - started) * 1000),
+            },
+        )
+        return line or fallback
+
+    def remember_find(self, obj: str, result: dict) -> None:
+        """§13's ``last_find``: one object, its results, and when (2-minute life)."""
+        self.last_find = {"object": obj, "results": result, "ts": time.time()}
+
+    # --- the responder brief (§12) ---------------------------------------
 
     async def on_responder_brief(self, room: str, msg: dict) -> None:
         """Not a session - an engine-level interrupt, exempt from both rules (§12).
 
-        Still acknowledged only: composing the summary is one LLM call over the
-        room's latest fall file, which is T6.1. The stub line goes into the
-        session it *would* summarise, because that is where §12 says the real
-        ``brief`` line lands.
+        The sequence, exactly as §12 writes it: pause the comfort loop -> read
+        the room's latest fall file -> one LLM call to word the timeline ->
+        speak it -> resume. The fall session's phases and timers never notice:
+        nothing here touches ``session.phase``, its inbox or its deadline, and
+        the pause is one boolean the comfort loop checks.
+
+        It is exempt from the one-session-per-room rule because it never enters
+        the session table - which matters, since a responder arriving
+        mid-escalation is exactly when the brief is needed.
         """
-        session = self.live_session(room)
-        if session is None:
-            log.info("[%s] responder brief - no live session to summarise (stub, T6.1)", room)
-            return
-        log.info("[%s] responder brief acknowledged against session %s (stub, T6.1)", room, session.id)
-        await self.append(
-            session,
-            {
-                "event": "brief",
-                "ask_id": msg.get("id"),
-                "state": "acknowledged",
-                "note": "responder brief is an interrupt, not a session; composed in T6.1",
-            },
+        live = self.live_session(room)
+        # A find session in the room is not something to speak over carefully -
+        # only a live *safety* session owns the comfort loop and the safety
+        # priority (§12 is scoped to fall response).
+        safety = live if (live is not None and live.urgency == "safety") else None
+        if safety is not None:
+            safety.comfort_paused = True
+            log.info("[%s] responder brief - comfort loop paused for session %s", room, safety.id)
+        try:
+            summary = await self.session_summary(room)
+            if not summary or summary.get("no_history"):
+                log.info("[%s] responder brief - no fall on file", room)
+                await self.speak_brief(room, NO_FALL_HISTORY, safety)
+                return
+            text = await self.brief_text(summary)
+            await self.speak_brief(room, text, safety)
+            await self.log_brief(room, summary, msg, text)
+        finally:
+            if safety is not None:
+                # Resume with a fresh interval: the room has just been spoken
+                # to, so an immediate comfort line would talk over the brief.
+                safety.last_say_at = time.monotonic()
+                safety.comfort_paused = False
+                log.info("[%s] responder brief done - comfort loop resumed", room)
+
+    async def speak_brief(self, room: str, text: str, safety: Session | None) -> None:
+        """Speak into the asking room. `safety` prio only if a fall is live there.
+
+        Published directly rather than through ``say``: the brief is not the
+        session's line, and §12 gives it exactly one log line of its own.
+        """
+        await self.publish(f"qnet/{room}/say", {"text": text, "prio": "safety" if safety else ROUTINE_PRIO})
+
+    async def session_summary(self, room: str) -> dict | None:
+        """``get_session_summary`` - engine-invoked, the LLM only words it (§11)."""
+        spec = self.tools.get("get_session_summary")
+        fn = getattr(spec, "fn", None)
+        if fn is None:
+            try:
+                from qnet.tools.get_session_summary import get_session_summary as fn  # type: ignore[no-redef]
+            except Exception:  # noqa: BLE001 - no summary tool at all
+                log.warning("[%s] responder brief - get_session_summary is not available", room)
+                return None
+        try:
+            return await fn(self.brief_context(room), **_supported(fn, {"room": room}))
+        except Exception:  # noqa: BLE001 - a tool never raises, but a brief never crashes either
+            log.exception("[%s] get_session_summary failed", room)
+            return None
+
+    def brief_context(self, room: str):
+        """A ``ToolContext`` for the interrupt - it logs nowhere, by design.
+
+        §12 allows the brief exactly one line in the file it summarised, so the
+        summary read must not append a `tool` line to a session that is still
+        running. Everything else is the ordinary context.
+        """
+        try:
+            from qnet.tools import ToolContext
+        except Exception:  # noqa: BLE001 - keep the engine runnable without T2.3
+            from types import SimpleNamespace as ToolContext  # type: ignore[assignment]
+        live = self.live_session(room)
+        return ToolContext(
+            room=room,
+            session_id=live.id if live else "",
+            config=self.config,
+            publish=self.publish,
+            log=lambda event: None,
+            subscribe=self.subscribe,
         )
+
+    async def brief_text(self, summary: dict) -> str:
+        """One LLM call over the timeline, with the engine's own summary underneath.
+
+        The same rule as everywhere else: the model words facts it is handed and
+        may invent none of them, and if it is unavailable, slow or unusable the
+        engine speaks its own assembled timeline. A first responder standing in
+        the room gets an answer either way - never silence, never a crash.
+        """
+        facts = self.brief_facts(summary)
+        fallback = brief_line(facts)
+        if self.llm is None:
+            return fallback
+        goal = getattr(self.brief_skill, "goal", "") or ""
+        line = await asyncio.to_thread(self.llm.word_line, "brief", facts, goal)
+        log.info("brief worded by %s", "gemma" if line else "the engine")
+        return line or fallback
+
+    def brief_facts(self, summary: dict) -> list[str]:
+        """The timeline §12 asks for, as facts, out of the file's own log lines.
+
+        Detection, what the person said, what was done and when, current status,
+        total elapsed - and nothing that is not on disk.
+        """
+        room = summary.get("room") or "this room"
+        events = summary.get("events") or []
+        started = summary.get("started_at")
+        now = time.time()
+        resident = self.resident_name()
+
+        def when(entry: dict) -> str:
+            offset = float(entry.get("offset_s") or 0.0)
+            # "after 0 seconds" is what a formatter says; "moments after the
+            # fall" is what a person says, and both are equally true.
+            return "moments after the fall" if offset < 2.5 else f"{elapsed_phrase(offset)} after the fall"
+
+        facts: list[str] = []
+        detected = next((e for e in events if e.get("event") == "detected"), None)
+        ago = elapsed_phrase(now - float(started)) if started else None
+        opening = f"a fall was detected in the {room}"
+        if detected and detected.get("conf") is not None:
+            opening += f", with {int(round(float(detected['conf']) * 100))} percent confidence"
+        facts.append(opening + (f", {ago} ago" if ago else ""))
+        if (self.config.get("resident") or {}).get("name"):
+            facts.append(f"the resident here is {resident}")
+
+        silences, quoted = 0, 0
+        for entry in events:
+            kind = entry.get("event")
+            if kind == "heard":
+                said = (entry.get("text") or "").strip()
+                if entry.get("silence") or not said:
+                    silences += 1
+                elif quoted < 4:
+                    quoted += 1
+                    facts.append(f'{when(entry)} {resident} said "{said}"')
+            elif kind == "tool":
+                tool, result = entry.get("tool"), entry.get("result")
+                if tool == "notify_contacts":
+                    if entry.get("kind") == "false_alarm":
+                        facts.append(f"{when(entry)} the contact {self.contact_name()} was told it was a false alarm")
+                    else:
+                        facts.append(f"{when(entry)} the contact {self.contact_name()} was messaged")
+                elif tool == "call_emergency":
+                    facts.append(f"{when(entry)} emergency services were called (simulated)")
+                elif tool:
+                    facts.append(f"{when(entry)} {tool} ran ({result})")
+        if silences:
+            facts.append(f"{resident} did not answer {silences} time{'s' if silences > 1 else ''}")
+
+        state, phase = summary.get("state"), summary.get("phase")
+        if state == "active":
+            facts.append(f"right now the response is still open, at the {phase} stage")
+        elif state == "ok":
+            facts.append(f"it closed when {resident} said they were not hurt")
+        elif state == "cancelled":
+            facts.append("it was cancelled as a false alarm")
+        elif state == "resolved":
+            facts.append("it was closed as resolved")
+        else:
+            facts.append(f"it ended ({state})")
+
+        elapsed = (now - float(started)) if (state == "active" and started) else summary.get("elapsed_s")
+        if elapsed is not None:
+            facts.append(f"total elapsed time is {elapsed_phrase(float(elapsed))}")
+        return facts
+
+    async def log_brief(self, room: str, summary: dict, msg: dict, text: str) -> None:
+        """The one ``brief`` line, into the file it summarised (§12).
+
+        If that file belongs to a session this agent still holds, the line goes
+        through ``record`` so the dashboard sees it live too; otherwise (a
+        session closed before a restart, or closed and replaced in the table) it
+        is appended straight to the file, because the file is the record.
+        """
+        line = {
+            "ts": round(time.time(), 1),
+            "event": "brief",
+            "ask_id": msg.get("id"),
+            "spoken": True,
+            "text": text,
+        }
+        path = self.sessions_dir / str(summary.get("file") or "")
+        session = self.sessions.get(room)
+        if session is not None and session.path.name == path.name:
+            self.record(session, line)
+            await self.publish(f"qnet/session/{session.id}", session.wire())
+            return
+        try:
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(line, ensure_ascii=False) + "\n")
+        except OSError:
+            log.warning("[%s] could not append the brief line to %s", room, path)
 
     async def on_heard(self, room: str, msg: dict) -> None:
         """`qnet/<room>/heard` - hand the transcript to the phase that is listening.
@@ -566,7 +1110,10 @@ class Agent:
         comfort = self.comforts(phase)
 
         while True:
-            timeout = self._next_wake(session, deadline, comfort)
+            # The responder brief pauses the loop while it speaks (§12). Dropped
+            # from the wake calculation as well as from `comfort`, so a paused
+            # loop waits on the phase timer instead of spinning on a due update.
+            timeout = self._next_wake(session, deadline, comfort and not session.comfort_paused)
             try:
                 text, silence = await asyncio.wait_for(session.inbox.get(), timeout)
             except (TimeoutError, asyncio.TimeoutError):
@@ -636,6 +1183,10 @@ class Agent:
         and how long it has actually been. Positioning guidance is said once in
         the opening and never repeated here (fall.md's Guidance).
         """
+        if session.comfort_paused:
+            # A responder brief has the floor (§12). Not a missed update - the
+            # loop resumes with a fresh interval the moment the brief is spoken.
+            return
         quiet_for = time.monotonic() - session.last_say_at
         if quiet_for < self.comfort_interval_s * self.timer_scale:
             # Something else just spoke - drop this update rather than overlap
@@ -693,6 +1244,17 @@ class Agent:
         contacts = self.config.get("contacts") or []
         first = contacts[0] if contacts else {}
         return (first or {}).get("name") or "your contact"
+
+    def resident_name(self) -> str:
+        """Whose house this is - the person who fell, never the contact.
+
+        Both names appear in a responder brief, and a 2B model *will* blur them
+        if the facts leave the speaker implicit: the first live run produced
+        "Sarah said my hip hurts" from a fact that read 'they said "my hip
+        hurts"'. Naming the resident in the fact itself fixes it at the source,
+        which is the right place - the model may only rearrange what it is given.
+        """
+        return ((self.config.get("resident") or {}).get("name") or "the person").strip()
 
     # --- the agent's turn -------------------------------------------------
 
@@ -860,7 +1422,21 @@ class Agent:
             config=self.config,
             publish=self.publish,
             log=_log,
+            subscribe=self.subscribe,
         )
+
+
+def _topic_pattern(topic_filter: str) -> re.Pattern[str]:
+    """An MQTT topic filter as a regex: ``+`` is one level, ``#`` is the rest."""
+    parts = []
+    for level in topic_filter.split("/"):
+        if level == "+":
+            parts.append("[^/]+")
+        elif level == "#":
+            parts.append(".*")
+        else:
+            parts.append(re.escape(level))
+    return re.compile("^" + "/".join(parts) + "$")
 
 
 def _supported(fn, args: dict) -> dict:

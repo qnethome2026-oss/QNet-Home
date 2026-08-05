@@ -34,13 +34,23 @@ from typing import Any
 
 @dataclass
 class ToolContext:
-    """What every tool is handed - never more than this (T2.3 interface)."""
+    """What every tool is handed - never more than this (T2.3 interface).
+
+    **T6.2 added exactly one field, optional and last.** ``look_in_rooms`` is
+    the first tool that has to *listen* as well as speak: it broadcasts
+    ``qnet/look`` and then waits for ``qnet/<room>/looked`` replies (§13). Every
+    other tool ignores ``subscribe``, every existing call site still constructs
+    a context the same way, and a context built without it (an older caller, a
+    test) leaves it ``None`` - which ``look_in_rooms`` treats as "I can publish
+    but I cannot hear", not as a crash.
+    """
 
     room: str
     session_id: str
     config: dict                      # parsed house.yaml
     publish: Any                      # async (topic: str, payload: dict) -> None
     log: Any                          # (event: dict) -> None - appends to session log
+    subscribe: Any = None             # (topic_filter: str) -> async ctx mgr -> Queue[(topic, dict)]
 
 
 @dataclass

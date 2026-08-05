@@ -90,7 +90,15 @@ The responder phrase is checked before the wake phrase, in any state.
 | Field | Type | Notes |
 |---|---|---|
 | `text` | string | The line to speak |
-| `prio` | string | `safety` \| `comfort` |
+| `prio` | string | `safety` \| `comfort` \| `routine` |
+
+`routine` was added in **T6.2**, for the lines that belong to neither the fall
+ladder (`safety`) nor its comfort loop (`comfort`): a find answer (§13), the
+"what should I look for?" question, and a responder brief asked in a room with no
+live fall session (§12). A brief asked *during* an escalation is `safety`, like
+everything else that speaks over a live fall. Nothing consumes `prio` as an enum
+today — the node adapter and the dashboard both pass it through — so this is an
+addition, not a change: `safety` and `comfort` mean exactly what they meant.
 
 Room identity comes for free: the `ask` arrived on `qnet/<room>/ask`, so the
 answer goes back on `qnet/<same room>/say`. No person tracking, no speaker
@@ -121,8 +129,13 @@ localisation, no cross-room correlation.
 | `room` | string \| null | `null` broadcasts to every node; guide mode targets one room |
 
 Broadcast on a single unqualified topic — every node subscribes. Replies come
-back per-room on `looked`; the agent waits up to the configured timeout (~8 s
-ceiling, §13) and answers with whatever arrived, naming what it actually checked.
+back per-room on `looked`; the agent waits up to the configured timeout
+(`find.look_timeout_s`, default 8 s — §13's ceiling, not its goal) and answers
+with whatever arrived, naming what it actually checked. It returns as soon as
+every room in `house.yaml`'s `rooms:` map has answered, so the timeout is only
+ever paid for a room that is actually silent. A `looked` whose `qid` is not the
+one just broadcast is ignored: the reply topics are shared, and a late answer to
+the previous question must never be read as an answer to this one.
 
 ### `qnet/<room>/looked` — `contracts/fixtures/looked.json`
 
@@ -185,7 +198,31 @@ Every line carries `ts` and `event`; the rest depends on `event`:
 | `phase` | `from`, `to` |
 | `tool` | `tool`, `result` |
 | `refusal` | `tool`, `phase` |
+| `brief` | `ask_id`, `spoken` (+ optional `text`) — **frozen in T6.1**, see below |
 
-DESIGN §12 also has the responder brief append one `brief` line to the file it
-summarised. §6 gives no shape for it, so like `status` it is **not frozen here**;
-it is settled in T6.1.
+### The `brief` log line — frozen (T6.1)
+
+DESIGN §12 has the responder brief append one `brief` line to the file it
+summarised. §6 gave no shape for it, so T0.1 left it unfrozen; **T6.1 settles
+it**:
+
+```json
+{ "ts": 1785790268.4, "event": "brief", "ask_id": "01JRC4G7XPZ5M1NAKQ8VT3WEHJ",
+  "spoken": true, "text": "Here's what happened. A fall was detected in the kitchen..." }
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `ask_id` | string \| null | The `id` of the `ask` that requested the brief — the only link back, since the brief is not a session |
+| `spoken` | boolean | True when the summary was actually published to `qnet/<room>/say` |
+| `text` | string | Optional: the summary as spoken. Present whenever there was one; the dashboard renders it |
+
+**Exactly one line per brief, and only into a file that already existed.** The
+brief is an interrupt, not a session (§12): it never appears on
+`qnet/session/<id>` as a session of its own, and it appends nothing to a room
+with no fall on file — that case is spoken (*"No fall has been recorded in this
+room."*) and nothing more. The read itself (`get_session_summary`) deliberately
+logs no `tool` line: §12 allows the interrupt one line in the file it summarised,
+and this is it. If the summarised session is still live in the agent, the same
+line also goes out on `qnet/session/<id>`, like every other log line — one
+stream, two destinations.

@@ -352,17 +352,28 @@ def test_all_tools_async_and_registered():
         assert inspect.iscoroutinefunction(spec.fn), f"{name} must be an async fn"
 
 
-# --- look_in_rooms (stub) ----------------------------------------------------
+# --- look_in_rooms (T6.2 made it real; the behaviour tests live in test_find) ---
 
 
-def test_look_in_rooms_stub_shape():
+def test_look_in_rooms_without_the_subscribe_capability(monkeypatch):
+    """T6.2 added ``ToolContext.subscribe``; a context built without it still works.
+
+    ``make_ctx`` above is the T2.3 five-field context, unchanged - which is the
+    point: the new field is optional and last, so every existing caller compiles
+    and runs. A tool that cannot hear the replies still broadcasts and still
+    reports honestly - every room unreachable, nobody claimed as checked.
+    """
     config = {"rooms": {"kitchen": {}, "bedroom": {}}}
-    logged = []
-    ctx = make_ctx(config, room="kitchen", logged=logged)
+    logged, published = [], []
+    ctx = make_ctx(config, room="kitchen", logged=logged, published=published)
+    assert ctx.subscribe is None
 
     result = run(look_in_rooms(ctx, object="glasses", mode="find"))
 
-    assert result["stub"] is True
     assert result["replies"] == []
     assert set(result["unreachable"]) == {"kitchen", "bedroom"}
+    assert result["qid"]
+    # It still asked - the broadcast is one publish on the unqualified topic.
+    assert [topic for topic, _ in published] == ["qnet/look"]
+    assert published[0][1]["object"] == "glasses" and published[0][1]["mode"] == "find"
     assert any(e.get("tool") == "look_in_rooms" for e in logged)

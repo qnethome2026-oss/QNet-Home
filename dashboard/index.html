@@ -946,7 +946,8 @@ function describeEntry(e) {
     case "tool": return `${e.tool}${e.result ? " — " + e.result : ""}`;
     case "refusal": return `${e.tool} (outside phase ${e.phase || "?"})`;
     case "llm": return e.text || e.summary || JSON.stringify(e);
-    case "brief": return e.note || e.state || "";
+    // T6.1 froze the line: ts / event / ask_id / spoken, plus the summary as `text`.
+    case "brief": return e.text || e.note || e.state || "";
     default: return JSON.stringify(e);
   }
 }
