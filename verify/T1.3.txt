@@ -1,0 +1,126 @@
+T1.3 - Agent skeleton - VERIFY (docs/IMPLEMENTATION.md, Phase 1)
+Run on: 2026-08-05 13:13:33 PDT  host: windows 11 arm64  python: Python 3.12.10
+mosquitto_sub has no Windows build, so dev/spy.py stands in for it:
+  python dev/spy.py                ==  mosquitto_sub -t 'qnet/#' -v
+Terminal 1: python dev/broker.py   (amqtt: tcp 127.0.0.1:1883 + ws 127.0.0.1:9001)
+Terminal 2: python -m qnet.agent --config config/house.yaml
+Terminal 3: python dev/spy.py
+Terminal 4: the injections below.  data/sessions/ emptied first.
+
+$ python dev/spy.py                       # terminal 3
+$ python -m qnet.agent --config config/house.yaml   # terminal 2
+13:13:34 INFO connected 127.0.0.1:1883 - subscribed qnet/+/event qnet/+/ask qnet/+/heard
+13:13:34 INFO sessions dir C:\Users\QCWorkshop26\Workspace\QNet-Home-impl\data\sessions
+
+=== 1. fall -> say + session(open) within 2 s ===========================
+$ python dev/inject.py fall --room kitchen
+qnet/kitchen/event {"id": "01KZ9RYRBX56Y8M60TPTAM45XH", "ts": 1785960817.0, "room": "kitchen", "kind": "fall.detected", "conf": 0.87, "meta": {"cls": "Fallen", "frames": "5/8"}}
+--- bus (dev/spy.py -t 'qnet/#') ---
+13:13:37.024 qnet/kitchen/event {"id": "01KZ9RYRBX56Y8M60TPTAM45XH", "ts": 1785960817.0, "room": "kitchen", "kind": "fall.detected", "conf": 0.87, "meta": {"cls": "Fallen", "frames": "5/8"}}
+13:13:37.026 qnet/session/01KZ9RYRC080PRASKQY2WGD6J6 {"id": "01KZ9RYRC080PRASKQY2WGD6J6", "room": "kitchen", "skill": "fall-response", "urgency": "safety", "phase": "check", "state": "active", "log": [{"ts": 1785960817.0, "event": "detected", "kind": "fall.detected", "conf": 0.87}]}
+13:13:37.026 qnet/kitchen/say {"text": "I saw you fall. Take a breath \u2014 are you okay?", "prio": "safety"}
+13:13:37.027 qnet/session/01KZ9RYRC080PRASKQY2WGD6J6 {"id": "01KZ9RYRC080PRASKQY2WGD6J6", "room": "kitchen", "skill": "fall-response", "urgency": "safety", "phase": "check", "state": "active", "log": [{"ts": 1785960817.0, "event": "detected", "kind": "fall.detected", "conf": 0.87}, {"ts": 1785960817.0, "event": "say", "text": "I saw you fall. Take a breath \u2014 are you okay?"}]}
+
+$ ls data/sessions/
+kitchen__fall-response__2026-08-05T13-13-37.jsonl
+$ python -c "import json,sys; [json.loads(l) for l in open(sys.argv[1])]" data/sessions/kitchen__*.jsonl
+  exit=0   (every line valid JSON)
+
+=== 2. second fall, same room -> no new session file, no second say =====
+$ python dev/inject.py fall --room kitchen
+qnet/kitchen/event {"id": "01KZ9RYVVPSN60VZH81GN7M6CK", "ts": 1785960820.6, "room": "kitchen", "kind": "fall.detected", "conf": 0.87, "meta": {"cls": "Fallen", "frames": "5/8"}}
+--- bus (dev/spy.py -t 'qnet/#') ---
+13:13:40.620 qnet/kitchen/event {"id": "01KZ9RYVVPSN60VZH81GN7M6CK", "ts": 1785960820.6, "room": "kitchen", "kind": "fall.detected", "conf": 0.87, "meta": {"cls": "Fallen", "frames": "5/8"}}
+
+$ ls data/sessions/
+kitchen__fall-response__2026-08-05T13-13-37.jsonl
+session files: 1 before -> 1 after
+qnet/kitchen/say messages on the bus: 1 before -> 1 after
+
+=== 3. heard during the live session -> JSONL line + session event ======
+$ python dev/inject.py heard --room kitchen --text "i'm fine"
+qnet/kitchen/heard {"text": "i'm fine", "silence": false}
+--- bus (dev/spy.py -t 'qnet/#') ---
+13:13:44.114 qnet/kitchen/heard {"text": "i'm fine", "silence": false}
+13:13:44.115 qnet/session/01KZ9RYRC080PRASKQY2WGD6J6 {"id": "01KZ9RYRC080PRASKQY2WGD6J6", "room": "kitchen", "skill": "fall-response", "urgency": "safety", "phase": "check", "state": "active", "log": [{"ts": 1785960817.0, "event": "detected", "kind": "fall.detected", "conf": 0.87}, {"ts": 1785960817.0, "event": "say", "text": "I saw you fall. Take a breath \u2014 are you okay?"}, {"ts": 1785960824.1, "event": "heard", "text": "i'm fine", "silence": false}]}
+
+=== 4. safety wins: ask kind=query during the safety session -> ignored =
+$ python dev/inject.py ask --room kitchen --kind query --text "where are my glasses"
+qnet/kitchen/ask {"id": "01KZ9RZ2HQW6CT4PH8C01WG86Z", "ts": 1785960827.4, "room": "kitchen", "text": "where are my glasses", "kind": "query"}
+--- bus (dev/spy.py -t 'qnet/#') ---
+13:13:47.450 qnet/kitchen/ask {"id": "01KZ9RZ2HQW6CT4PH8C01WG86Z", "ts": 1785960827.4, "room": "kitchen", "text": "where are my glasses", "kind": "query"}
+
+=== 5. responder brief -> acknowledged stub, no new session =============
+$ python dev/inject.py ask --room kitchen --kind responder_brief
+qnet/kitchen/ask {"id": "01KZ9RZ5S1DM7AJ9HMFAWD2H87", "ts": 1785960830.8, "room": "kitchen", "text": "", "kind": "responder_brief"}
+--- bus (dev/spy.py -t 'qnet/#') ---
+13:13:50.759 qnet/kitchen/ask {"id": "01KZ9RZ5S1DM7AJ9HMFAWD2H87", "ts": 1785960830.8, "room": "kitchen", "text": "", "kind": "responder_brief"}
+13:13:50.761 qnet/session/01KZ9RYRC080PRASKQY2WGD6J6 {"id": "01KZ9RYRC080PRASKQY2WGD6J6", "room": "kitchen", "skill": "fall-response", "urgency": "safety", "phase": "check", "state": "active", "log": [{"ts": 1785960817.0, "event": "detected", "kind": "fall.detected", "conf": 0.87}, {"ts": 1785960817.0, "event": "say", "text": "I saw you fall. Take a breath \u2014 are you okay?"}, {"ts": 1785960824.1, "event": "heard", "text": "i'm fine", "silence": false}, {"ts": 1785960830.8, "event": "brief", "ask_id": "01KZ9RZ5S1DM7AJ9HMFAWD2H87", "state": "acknowledged", "note": "responder brief is an interrupt, not a session; composed in T6.1"}]}
+
+$ ls data/sessions/
+kitchen__fall-response__2026-08-05T13-13-37.jsonl
+
+=== the session file, in full ==========================================
+$ cat data/sessions/kitchen__fall-response__2026-08-05T13-13-37.jsonl
+{"ts": 1785960817.0, "event": "detected", "kind": "fall.detected", "conf": 0.87}
+{"ts": 1785960817.0, "event": "say", "text": "I saw you fall. Take a breath \u2014 are you okay?"}
+{"ts": 1785960824.1, "event": "heard", "text": "i'm fine", "silence": false}
+{"ts": 1785960830.8, "event": "brief", "ask_id": "01KZ9RZ5S1DM7AJ9HMFAWD2H87", "state": "acknowledged", "note": "responder brief is an interrupt, not a session; composed in T6.1"}
+
+$ python -c "import json,sys; [json.loads(l) for l in open(sys.argv[1])]; print('all lines valid JSON')" data/sessions/kitchen__fall-response__2026-08-05T13-13-37.jsonl
+all lines valid JSON
+
+=== the agent's own log ================================================
+13:13:34 INFO connected 127.0.0.1:1883 - subscribed qnet/+/event qnet/+/ask qnet/+/heard
+13:13:34 INFO sessions dir C:\Users\QCWorkshop26\Workspace\QNet-Home-impl\data\sessions
+13:13:37 INFO [kitchen] session 01KZ9RYRC080PRASKQY2WGD6J6 open (fall-response) -> kitchen__fall-response__2026-08-05T13-13-37.jsonl
+13:13:40 INFO [kitchen] fall ignored - session 01KZ9RYRC080PRASKQY2WGD6J6 already live (one per room)
+13:13:44 INFO [kitchen] heard "i'm fine"
+13:13:47 INFO [kitchen] ask kind=query ignored - safety session 01KZ9RYRC080PRASKQY2WGD6J6 has the floor
+13:13:50 INFO [kitchen] responder brief acknowledged against session 01KZ9RYRC080PRASKQY2WGD6J6 (stub, T6.1)
+
+=== clean Ctrl-C =======================================================
+Git Bash's `kill -INT` does not deliver a console CTRL_C_EVENT on Windows - it
+terminates the process outright, so it proves nothing about the handler. The
+handler is what a real Ctrl-C runs (console handler -> interrupt_main ->
+KeyboardInterrupt in the main thread), so it is driven directly:
+
+$ cat verify/ctrlc.tmp.py
+import _thread, threading
+from qnet.agent.__main__ import main
+threading.Timer(3.0, _thread.interrupt_main).start()   # == pressing Ctrl-C at t+3s
+rc = main(["--config", "config/house.yaml", "--no-llm"])
+print(f"exit code: {rc}")
+
+$ python verify/ctrlc.tmp.py
+13:14:35 INFO --no-llm: accepted, inert in T1.3 - the canned-openings path is T2.2
+13:14:35 INFO connected 127.0.0.1:1883 - subscribed qnet/+/event qnet/+/ask qnet/+/heard
+13:14:35 INFO sessions dir C:\Users\QCWorkshop26\Workspace\QNet-Home-impl\data\sessions
+qnet.agent: stopped
+exit code: 0
+shell exit: 0
+
+  -> no traceback, exit 0, the broker connection closed by aiomqtt's context
+     manager.  `--no-llm` accepted and inert, as specified for T1.3.
+
+=== ADDENDUM: dev/broker.py, the laptop stand-in for Mosquitto ==========
+Windows has no mosquitto package; the real broker is Mosquitto on the IQ-9075
+(verify/T1.1.txt, blocked on a port conflict there). dev/broker.py serves the
+same two listeners with amqtt so the spine is developable on the laptop.
+
+$ python dev/broker.py
+dev broker: mqtt tcp://127.0.0.1:1883  ws://127.0.0.1:9001  (Ctrl-C to stop)
+
+TCP 1883 : exercised by everything above - agent, injector and spy all use it.
+WS  9001 : the listener dev/sim.html (T1.2b) and the dashboard (T5.1) need.
+
+$ python -c "<paho, transport='websockets', connect 127.0.0.1:9001, sub qnet/#, pub a say>"
+ws connect rc: Success
+received over ws: [('qnet/kitchen/say', '{"text": "ws hello", "prio": "comfort"}')]
+
+$ python -c "<same, trying each URL path>"
+/ -> connected
+/mqtt -> connected
+/ws -> connected
+  -> any path is accepted; use ws://127.0.0.1:9001/mqtt in mqtt.js for parity
+     with Mosquitto's usual websocket path.

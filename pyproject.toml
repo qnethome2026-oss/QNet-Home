@@ -12,13 +12,16 @@ license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
 dependencies = [
     "paho-mqtt>=2.1",
+    "aiomqtt>=2.5",   # asyncio wrapper over paho, not a fifth library
     "pyyaml",
     "httpx",
     "openai",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+# amqtt is the laptop stand-in for Mosquitto (dev/broker.py) - Windows has no
+# mosquitto package, and the spine has to be developable off the hardware.
+dev = ["pytest", "amqtt>=0.11"]
 
 [tool.setuptools.packages.find]
 include = ["qnet*"]

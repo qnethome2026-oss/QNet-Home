@@ -1,0 +1,749 @@
+<!--
+  SPDX-License-Identifier: AGPL-3.0-or-later
+  QNet Home - a privacy-first, multi-device home safety system.
+  Copyright (C) 2026 QNet Home contributors. This is free software under the
+  GNU Affero General Public License v3 or later, with ABSOLUTELY NO WARRANTY.
+
+  dev/sim.html - the room simulator (T1.2b; DESIGN.md S5 "The room simulator").
+
+  A single HTML page standing in for an entire room: pick a room, type what a
+  person would have said aloud, and this page routes it exactly the way the
+  real node's adapter (qnet/node/voice.py, DESIGN.md S9) would - responder
+  phrase -> ask/responder_brief (checked first, any state), active session ->
+  heard, wake phrase -> ask/query (phrase stripped), anything else discarded
+  and shown greyed. A Fall button publishes the fall fixture for the selected
+  room. Incoming `say` for the selected room renders as the house's chat
+  bubbles, so a whole incident reads as a conversation. No build step; works
+  from file://.
+
+  Implementation choice, stated once: rather than embed a copy of mqtt.js,
+  this page talks MQTT 3.1.1 to the broker's :9001 WebSocket listener with a
+  small hand-rolled client (see "MINI MQTT CLIENT" below) covering exactly
+  CONNECT / SUBSCRIBE / PUBLISH / PINGREQ / PUBACK at QoS 0 publish. That
+  keeps the file dependency-free and auditable in one read, at the accepted
+  cost of not implementing QoS 1/2 delivery guarantees on our own publishes -
+  fine for a dev tool per the task brief ("QoS 0 is fine for the sim").
+  Incoming messages (session updates, `say`) are still acknowledged with
+  PUBACK when the broker sends them at QoS 1, so nothing here misbehaves as a
+  citizen on the bus.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QNet Home — Room Simulator</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #171a23;
+    --panel-2: #1c2029;
+    --border: #2a2f3d;
+    --text: #e6e8ee;
+    --muted: #8b90a0;
+    --accent: #5b8def;
+    --danger: #e5484d;
+    --success: #2fb344;
+    --warn: #f2b705;
+    --person-bubble: #24345c;
+    --house-bubble: #232838;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4f5f8;
+      --panel: #ffffff;
+      --panel-2: #f0f1f5;
+      --border: #d8dbe3;
+      --text: #1a1d24;
+      --muted: #656b7a;
+      --accent: #3868d6;
+      --danger: #d1373c;
+      --success: #1f8f3a;
+      --warn: #a8720a;
+      --person-bubble: #dbe6ff;
+      --house-bubble: #eceef3;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1117; --panel: #171a23; --panel-2: #1c2029; --border: #2a2f3d;
+    --text: #e6e8ee; --muted: #8b90a0; --accent: #5b8def; --danger: #e5484d;
+    --success: #2fb344; --warn: #f2b705; --person-bubble: #24345c; --house-bubble: #232838;
+  }
+  :root[data-theme="light"] {
+    --bg: #f4f5f8; --panel: #ffffff; --panel-2: #f0f1f5; --border: #d8dbe3;
+    --text: #1a1d24; --muted: #656b7a; --accent: #3868d6; --danger: #d1373c;
+    --success: #1f8f3a; --warn: #a8720a; --person-bubble: #dbe6ff; --house-bubble: #eceef3;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.4 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .app { max-width: 920px; margin: 0 auto; padding: 18px 18px 28px; }
+  h1 { font-size: 1.25em; margin: 0 0 2px; }
+  h1 .subtitle { color: var(--muted); font-weight: 400; }
+  .topbar { border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 12px; }
+  .broker-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .broker-row label { color: var(--muted); font-size: 0.85em; }
+  input[type="text"] {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 10px; font: inherit;
+  }
+  #brokerUrl { min-width: 220px; flex: 1 1 220px; }
+  button {
+    font: inherit; cursor: pointer; border: none; border-radius: 8px;
+    padding: 8px 14px; font-weight: 600;
+  }
+  #connectBtn { background: var(--accent); color: #fff; }
+  #connectBtn:hover { filter: brightness(1.08); }
+  .status { display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; color: var(--muted); font-size: 0.85em; }
+  .dot { width: 0.65em; height: 0.65em; border-radius: 50%; display: inline-block; background: var(--muted); }
+  .dot-disconnected { background: var(--muted); }
+  .dot-connecting { background: var(--warn); animation: pulse 1s ease-in-out infinite; }
+  .dot-connected { background: var(--success); }
+  .dot-error { background: var(--danger); }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  .controls { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; flex-wrap: wrap; }
+  .control-group { display: flex; align-items: center; gap: 6px; }
+  .control-group label { color: var(--muted); font-size: 0.85em; }
+  #roomInput { width: 140px; }
+  .fall-btn { background: var(--danger); color: #fff; padding: 10px 18px; font-size: 1em; }
+  .fall-btn:hover { filter: brightness(1.1); }
+  .fall-btn:active { transform: translateY(1px); }
+  .session-chip {
+    padding: 5px 12px; border-radius: 999px; border: 1px solid var(--border);
+    font-size: 0.82em; color: var(--muted);
+  }
+  .session-chip.active {
+    background: rgba(229, 72, 77, 0.14); border-color: var(--danger);
+    color: var(--danger); font-weight: 700;
+  }
+  #clearBtn { background: transparent; color: var(--muted); border: 1px solid var(--border); font-weight: 500; }
+
+  .chat {
+    height: 52vh; min-height: 320px; overflow-y: auto;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .chat:empty::before {
+    content: "No messages yet in this room. Type below, or hit Fall.";
+    color: var(--muted); font-style: italic; margin: auto;
+  }
+  .bubble-row { display: flex; gap: 8px; align-items: flex-end; max-width: 78%; }
+  .bubble-row.person { align-self: flex-end; flex-direction: row-reverse; }
+  .bubble-row.house { align-self: flex-start; }
+  .avatar { font-size: 1.25em; line-height: 1; }
+  .bubble {
+    padding: 9px 13px; border-radius: 16px; word-wrap: break-word; white-space: pre-wrap;
+  }
+  .bubble-row.person .bubble { background: var(--person-bubble); border-bottom-right-radius: 4px; }
+  .bubble-row.house .bubble { background: var(--house-bubble); border-bottom-left-radius: 4px; }
+  .meta {
+    display: block; margin-top: 3px; font-size: 0.68em; letter-spacing: 0.04em;
+    text-transform: uppercase; opacity: 0.6;
+  }
+  .line.discard {
+    align-self: center; display: flex; gap: 8px; align-items: center;
+    opacity: 0.55; font-style: italic; font-size: 0.88em; max-width: 90%;
+  }
+  .line.discard .hint {
+    font-size: 0.75em; font-style: normal; border: 1px dashed var(--border);
+    border-radius: 999px; padding: 1px 9px; white-space: nowrap;
+  }
+  .line.system {
+    align-self: center; color: var(--muted); font-size: 0.82em; opacity: 0.8;
+  }
+
+  .composer { display: flex; gap: 8px; margin-top: 12px; }
+  #textInput { flex: 1; padding: 11px 13px; }
+  #sendBtn { background: var(--accent); color: #fff; padding: 0 20px; }
+  #sendBtn:hover { filter: brightness(1.08); }
+
+  .footer {
+    margin-top: 16px; color: var(--muted); font-size: 0.8em;
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  .footer code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+  #selftestBtn { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); font-size: 0.85em; padding: 6px 10px; }
+
+  .selftest-output {
+    margin-top: 10px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px; font: 12px/1.5 ui-monospace, Consolas, monospace;
+    white-space: pre-wrap; max-height: 40vh; overflow-y: auto;
+  }
+</style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <h1>QNet Home <span class="subtitle">— Room Simulator</span></h1>
+      <div class="broker-row">
+        <label for="brokerUrl">Broker</label>
+        <input id="brokerUrl" type="text" value="ws://127.0.0.1:9001" spellcheck="false">
+        <button id="connectBtn">Connect</button>
+        <span class="status"><span id="statusDot" class="dot dot-disconnected"></span><span id="statusText">disconnected</span></span>
+      </div>
+    </header>
+
+    <section class="controls">
+      <div class="control-group">
+        <label for="roomInput">Room</label>
+        <input id="roomInput" list="roomList" value="kitchen" spellcheck="false">
+        <datalist id="roomList">
+          <option value="kitchen"></option>
+          <option value="bedroom"></option>
+        </datalist>
+      </div>
+      <button id="fallBtn" class="fall-btn" title="Publish qnet/&lt;room&gt;/event, kind=fall.detected">🔴 Fall</button>
+      <div class="session-chip idle" id="sessionChip">idle</div>
+      <button id="clearBtn" title="Clear this room's transcript (local only, publishes nothing)">Clear</button>
+    </section>
+
+    <section class="chat" id="chat" aria-live="polite"></section>
+
+    <section class="composer">
+      <input id="textInput" type="text" placeholder='Say something in the room… e.g. "hey home, where are my glasses"' autocomplete="off">
+      <button id="sendBtn">Send</button>
+    </section>
+
+    <footer class="footer">
+      <span>dev tool — DESIGN.md §5. Routing mirrors <code>qnet/node/voice.py</code>. Try <code>?selftest=1</code>.</span>
+      <button id="selftestBtn" title="Run the routing self-test (also callable as runSelfTest() from the console)">Run self-test</button>
+    </footer>
+
+    <pre id="selftestOutput" class="selftest-output" hidden></pre>
+  </div>
+
+<script>
+"use strict";
+
+/* ============================================================
+ * MINI MQTT CLIENT
+ * A minimal MQTT 3.1.1 client over a raw WebSocket, hand-rolled instead of
+ * embedding mqtt.js (see the file-header comment for why). Implements just
+ * enough of the spec for this page: CONNECT/CONNACK, SUBSCRIBE/SUBACK,
+ * PUBLISH in both directions, PINGREQ/PINGRESP, and PUBACK for QoS 1
+ * messages the broker sends us. We always PUBLISH at QoS 0 ourselves —
+ * accepted for a dev tool (see file header) — but SUBSCRIBE at QoS 1 and
+ * acknowledge inbound QoS 1 PUBLISHes properly, so we're a well-behaved
+ * subscriber even though contracts/mqtt.md specifies QoS 1 for these topics.
+ * ============================================================ */
+
+function encodeRemainingLength(n) {
+  const out = [];
+  do {
+    let b = n % 128;
+    n = Math.floor(n / 128);
+    if (n > 0) b |= 0x80;
+    out.push(b);
+  } while (n > 0);
+  return out;
+}
+
+function decodeRemainingLength(buf, start) {
+  let multiplier = 1, value = 0, i = start, b;
+  do {
+    if (i >= buf.length) return null; // not enough data yet
+    b = buf[i++];
+    value += (b & 0x7f) * multiplier;
+    multiplier *= 128;
+    if (multiplier > 128 * 128 * 128) throw new Error("MQTT: malformed remaining length");
+  } while (b & 0x80);
+  return { value, used: i - start };
+}
+
+function encodeUtf8Str(str) {
+  const utf8 = new TextEncoder().encode(str);
+  const out = new Uint8Array(2 + utf8.length);
+  out[0] = (utf8.length >> 8) & 0xff;
+  out[1] = utf8.length & 0xff;
+  out.set(utf8, 2);
+  return out;
+}
+
+function decodeUtf8Str(buf, start) {
+  const len = (buf[start] << 8) | buf[start + 1];
+  const bytes = buf.slice(start + 2, start + 2 + len);
+  return { str: new TextDecoder().decode(bytes), used: 2 + len };
+}
+
+function concatBytes(arrays) {
+  const total = arrays.reduce((n, a) => n + a.length, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const a of arrays) { out.set(a, off); off += a.length; }
+  return out;
+}
+
+function buildConnectPacket(clientId, keepAliveSec) {
+  const varAndPayload = concatBytes([
+    encodeUtf8Str("MQTT"),               // protocol name
+    new Uint8Array([4]),                 // protocol level (3.1.1)
+    new Uint8Array([0x02]),              // connect flags: clean session
+    new Uint8Array([(keepAliveSec >> 8) & 0xff, keepAliveSec & 0xff]),
+    encodeUtf8Str(clientId),
+  ]);
+  return concatBytes([new Uint8Array([0x10, ...encodeRemainingLength(varAndPayload.length)]), varAndPayload]);
+}
+
+function buildSubscribePacket(packetId, topicsWithQos) {
+  const parts = [new Uint8Array([(packetId >> 8) & 0xff, packetId & 0xff])];
+  for (const [topic, qos] of topicsWithQos) {
+    parts.push(encodeUtf8Str(topic));
+    parts.push(new Uint8Array([qos & 0x03]));
+  }
+  const body = concatBytes(parts);
+  return concatBytes([new Uint8Array([0x82, ...encodeRemainingLength(body.length)]), body]);
+}
+
+function buildPublishPacket(topic, payloadStr) {
+  // QoS 0 only: no packet id in the variable header. See file header for why.
+  const body = concatBytes([encodeUtf8Str(topic), new TextEncoder().encode(payloadStr)]);
+  return concatBytes([new Uint8Array([0x30, ...encodeRemainingLength(body.length)]), body]);
+}
+
+function buildPubAckPacket(packetId) {
+  return new Uint8Array([0x40, 0x02, (packetId >> 8) & 0xff, packetId & 0xff]);
+}
+
+function buildPingReqPacket() { return new Uint8Array([0xc0, 0x00]); }
+function buildDisconnectPacket() { return new Uint8Array([0xe0, 0x00]); }
+
+function tryParsePacket(buf) {
+  if (buf.length < 2) return null;
+  const first = buf[0];
+  const type = (first >> 4) & 0x0f;
+  const flags = first & 0x0f;
+  const lenInfo = decodeRemainingLength(buf, 1);
+  if (!lenInfo) return null;
+  const headerLen = 1 + lenInfo.used;
+  const total = headerLen + lenInfo.value;
+  if (buf.length < total) return null; // wait for more bytes
+  return { type, flags, body: buf.slice(headerLen, total), total };
+}
+
+function parsePublishBody(flags, body) {
+  const qos = (flags >> 1) & 0x03;
+  const { str: topic, used } = decodeUtf8Str(body, 0);
+  let offset = used;
+  let packetId = null;
+  if (qos > 0) {
+    packetId = (body[offset] << 8) | body[offset + 1];
+    offset += 2;
+  }
+  return { topic, payload: new TextDecoder().decode(body.slice(offset)), qos, packetId };
+}
+
+class MiniMQTT {
+  constructor() {
+    this.ws = null;
+    this.buf = new Uint8Array(0);
+    this.nextPacketId = 1;
+    this.connected = false;
+    this.pingTimer = null;
+    this.onMessage = null;   // (topic, payloadStr) => void
+    this.onStatus = null;    // (kind, text) => void   kind: disconnected|connecting|connected|error
+  }
+
+  connect(url) {
+    this.disconnect();
+    this._status("connecting", `connecting to ${url}…`);
+    let ws;
+    try {
+      ws = new WebSocket(url, ["mqtt"]);
+    } catch (err) {
+      this._status("error", `bad broker URL: ${err.message}`);
+      return;
+    }
+    ws.binaryType = "arraybuffer";
+    this.ws = ws;
+    ws.onopen = () => {
+      const clientId = "sim-" + Math.random().toString(36).slice(2, 10);
+      this._send(buildConnectPacket(clientId, 60));
+    };
+    ws.onmessage = (ev) => this._feed(new Uint8Array(ev.data));
+    ws.onerror = () => this._status("error", "WebSocket error — check the broker URL and that Mosquitto's :9001 listener is up");
+    ws.onclose = () => {
+      this.connected = false;
+      clearInterval(this.pingTimer);
+      this._status("disconnected", "disconnected");
+    };
+  }
+
+  disconnect() {
+    if (this.ws) {
+      try { if (this.connected) this._send(buildDisconnectPacket()); } catch (_e) { /* best effort */ }
+      try { this.ws.close(); } catch (_e) { /* best effort */ }
+    }
+    clearInterval(this.pingTimer);
+    this.ws = null;
+    this.connected = false;
+    this.buf = new Uint8Array(0);
+  }
+
+  subscribe(topic, qos) {
+    if (!this.connected) return;
+    this._send(buildSubscribePacket(this.nextPacketId++, [[topic, qos == null ? 1 : qos]]));
+  }
+
+  publish(topic, payloadObj) {
+    if (!this.connected) { console.warn("MiniMQTT: publish while disconnected, dropped:", topic, payloadObj); return; }
+    this._send(buildPublishPacket(topic, JSON.stringify(payloadObj)));
+  }
+
+  _send(bytes) { if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(bytes); }
+  _status(kind, text) { if (this.onStatus) this.onStatus(kind, text); }
+
+  _feed(chunk) {
+    const merged = new Uint8Array(this.buf.length + chunk.length);
+    merged.set(this.buf);
+    merged.set(chunk, this.buf.length);
+    this.buf = merged;
+    for (;;) {
+      let pkt;
+      try { pkt = tryParsePacket(this.buf); }
+      catch (e) { console.error("MiniMQTT: parse error, dropping buffer", e); this.buf = new Uint8Array(0); return; }
+      if (!pkt) return;
+      this.buf = this.buf.slice(pkt.total);
+      this._handlePacket(pkt);
+    }
+  }
+
+  _handlePacket(pkt) {
+    if (pkt.type === 2) { // CONNACK
+      const returnCode = pkt.body[1];
+      if (returnCode === 0) {
+        this.connected = true;
+        this._status("connected", "connected");
+        this.pingTimer = setInterval(() => this._send(buildPingReqPacket()), 20000);
+      } else {
+        this._status("error", `broker refused CONNECT (return code ${returnCode})`);
+      }
+    } else if (pkt.type === 3) { // PUBLISH
+      const { topic, payload, qos, packetId } = parsePublishBody(pkt.flags, pkt.body);
+      if (qos === 1 && packetId != null) this._send(buildPubAckPacket(packetId));
+      if (this.onMessage) this.onMessage(topic, payload);
+    }
+    // SUBACK(9) / PINGRESP(13) / others: nothing to do for this dev tool.
+  }
+}
+
+/* ============================================================
+ * ROUTING CORE — mirrors the §9 adapter loop (DESIGN.md §9, §13).
+ * This block is deliberately pure (no `window`, `document` or WebSocket
+ * calls) so verify/T1.2b.txt's `node -e` check can extract and eval it
+ * standalone, byte-identical to what runs in the page.
+ * ============================================================ */
+
+const CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+function newUlid(tsSeconds) {
+  // Same layout as qnet/ids.py: 48-bit ms timestamp << 80 | 80 random bits,
+  // Crockford base32, 26 chars, most-significant first — so an id minted
+  // here is byte-for-byte indistinguishable from one the agent or
+  // dev/inject.py mints.
+  const ms = BigInt(Math.floor((tsSeconds === undefined ? Date.now() / 1000 : tsSeconds) * 1000));
+  const randBytes = new Uint8Array(10);
+  globalThis.crypto.getRandomValues(randBytes);
+  let rand = 0n;
+  for (const b of randBytes) rand = (rand << 8n) | BigInt(b);
+  const value = (ms << 80n) | rand;
+  let out = "";
+  for (let shift = 125n; shift >= 0n; shift -= 5n) out += CROCKFORD32[Number((value >> shift) & 0x1fn)];
+  return out;
+}
+
+function nowTs() {
+  // Unix epoch seconds, fractional — matches dev/inject.py's
+  // round(time.time(), 1) in spirit. Deliberately NOT rounded to a clean
+  // 1-decimal value: JSON has one number type, so a value that lands on an
+  // exact integer serializes without a decimal point (e.g. `1785960730`
+  // instead of `1785960730.0`), which a strict consumer could read back as
+  // a Python int instead of a float. Using full millisecond precision
+  // makes that landing-on-a-whole-second collision astronomically rare
+  // instead of ~1-in-10.
+  return Date.now() / 1000;
+}
+
+function normalize(text) {
+  return text.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+}
+
+const RESPONDER_PHRASE_NORM = normalize("i'm the first responder");
+const WAKE_PHRASES_NORM = ["hey home", "hi home"]; // "hey, home" already collapses to "hey home" via normalize()
+
+function matchesResponderPhrase(norm) {
+  return norm.includes(RESPONDER_PHRASE_NORM);
+}
+
+function stripWakePhrase(norm) {
+  for (const phrase of WAKE_PHRASES_NORM) {
+    if (norm === phrase) return "";
+    if (norm.startsWith(phrase + " ")) return norm.slice(phrase.length).trim();
+  }
+  return null; // doesn't start with a wake phrase
+}
+
+function buildAsk(room, text, kind) {
+  return { id: newUlid(), ts: nowTs(), room, text, kind };
+}
+
+function buildHeard(text) {
+  return { text, silence: text === "" };
+}
+
+function buildFallEvent(room) {
+  return {
+    id: newUlid(),
+    ts: nowTs(),
+    room,
+    kind: "fall.detected",
+    conf: Math.round((0.8 + Math.random() * 0.15) * 100) / 100,
+    meta: { cls: "Fallen", frames: "5/8" },
+  };
+}
+
+// routing duplicated in qnet/node/voice.py — change both
+function routeInput(rawText, room, sessionActive) {
+  const norm = normalize(rawText);
+  if (matchesResponderPhrase(norm)) {                      // checked first, in ANY state (§9, §12)
+    return { topic: `qnet/${room}/ask`, payload: buildAsk(room, "", "responder_brief") };
+  }
+  if (sessionActive) {                                      // the agent just asked something
+    return { topic: `qnet/${room}/heard`, payload: buildHeard(rawText.trim()) };
+  }
+  const stripped = stripWakePhrase(norm);                    // idle — "Hey Home…"
+  if (stripped !== null) {
+    return { topic: `qnet/${room}/ask`, payload: buildAsk(room, stripped, "query") };
+  }
+  return null;                                                // idle small talk — not for the house
+}
+
+/* ============================================================
+ * END ROUTING CORE
+ * ============================================================ */
+
+/* ---------------- Self-test ---------------- */
+
+function runSelfTest() {
+  const cases = [
+    {
+      name: "responder phrase, idle → ask/responder_brief",
+      room: "kitchen", sessionActive: false,
+      input: "I'm the first responder, can you tell me what happened?",
+      expect: (r) => !!r && r.topic === "qnet/kitchen/ask" && r.payload.kind === "responder_brief" && r.payload.text === "",
+    },
+    {
+      name: "responder phrase, mid-session → still ask/responder_brief (checked first)",
+      room: "kitchen", sessionActive: true,
+      input: "i'm the first responder what happened",
+      expect: (r) => !!r && r.topic === "qnet/kitchen/ask" && r.payload.kind === "responder_brief",
+    },
+    {
+      name: "active session, ordinary reply → heard, raw text preserved",
+      room: "kitchen", sessionActive: true,
+      input: "i'm fine",
+      expect: (r) => !!r && r.topic === "qnet/kitchen/heard" && r.payload.text === "i'm fine" && r.payload.silence === false,
+    },
+    {
+      name: "idle, wake phrase → ask/query, phrase stripped",
+      room: "bedroom", sessionActive: false,
+      input: "Hey Home, where are my keys?",
+      expect: (r) => !!r && r.topic === "qnet/bedroom/ask" && r.payload.kind === "query" && r.payload.text === "where are my keys",
+    },
+    {
+      name: 'idle, wake tolerance "hi home" → ask/query, phrase stripped',
+      room: "bedroom", sessionActive: false,
+      input: "hi home, where are my keys?",
+      expect: (r) => !!r && r.payload.kind === "query" && r.payload.text === "where are my keys",
+    },
+    {
+      name: "idle, small talk → nothing published (null)",
+      room: "kitchen", sessionActive: false,
+      input: "nice weather today",
+      expect: (r) => r === null,
+    },
+  ];
+
+  const results = cases.map((c) => {
+    let route = null, error = null;
+    try { route = routeInput(c.input, c.room, c.sessionActive); }
+    catch (e) { error = e; }
+    const pass = !error && c.expect(route);
+    return { name: c.name, pass, got: route, error: error && error.message };
+  });
+
+  const passed = results.filter((r) => r.pass).length;
+  console.log(`QNet sim self-test: ${passed}/${results.length} passed`);
+  if (typeof console.table === "function") console.table(results.map((r) => ({ test: r.name, pass: r.pass })));
+  return { passed, total: results.length, allPass: passed === results.length, results };
+}
+
+if (typeof window !== "undefined") window.runSelfTest = runSelfTest;
+
+/* ---------------- UI wiring (DOM-dependent; not part of ROUTING CORE) ---------------- */
+
+const $ = (id) => document.getElementById(id);
+const brokerUrlInput = $("brokerUrl");
+const connectBtn = $("connectBtn");
+const statusDot = $("statusDot");
+const statusText = $("statusText");
+const roomInput = $("roomInput");
+const fallBtn = $("fallBtn");
+const clearBtn = $("clearBtn");
+const sessionChip = $("sessionChip");
+const chatEl = $("chat");
+const textInput = $("textInput");
+const sendBtn = $("sendBtn");
+const selftestBtn = $("selftestBtn");
+const selftestOutput = $("selftestOutput");
+
+const client = new MiniMQTT();
+const sessionsByRoom = Object.create(null); // room -> latest qnet/session/<id> payload
+const transcript = [];                       // {room, dir: 'person'|'house'|'discard', text, meta}
+
+function currentRoom() {
+  return (roomInput.value || "kitchen").trim() || "kitchen";
+}
+
+function isSessionActive(room) {
+  const s = sessionsByRoom[room];
+  return !!(s && s.state === "active");
+}
+
+function updateSessionChip() {
+  const s = sessionsByRoom[currentRoom()];
+  if (s && s.state === "active") {
+    sessionChip.textContent = `ACTIVE · ${s.phase}`;
+    sessionChip.className = "session-chip active";
+  } else {
+    sessionChip.textContent = "idle";
+    sessionChip.className = "session-chip idle";
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function entryHtml(entry) {
+  if (entry.dir === "discard") {
+    return `<div class="line discard"><span>${escapeHtml(entry.text)}</span><span class="hint">not for the house</span></div>`;
+  }
+  if (entry.dir === "system") {
+    return `<div class="line system">${escapeHtml(entry.text)}</div>`;
+  }
+  const cls = entry.dir === "person" ? "person" : "house";
+  const who = entry.dir === "person" ? "🧑" : "🏠";
+  const meta = entry.meta ? `<span class="meta">${escapeHtml(entry.meta)}</span>` : "";
+  return `<div class="bubble-row ${cls}"><div class="avatar">${who}</div><div class="bubble">${escapeHtml(entry.text)}${meta}</div></div>`;
+}
+
+function renderTranscript() {
+  const room = currentRoom();
+  chatEl.innerHTML = transcript.filter((e) => e.room === room).map(entryHtml).join("");
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+client.onStatus = (kind, text) => {
+  statusDot.className = `dot dot-${kind}`;
+  statusText.textContent = text;
+  connectBtn.textContent = kind === "connected" ? "Disconnect" : "Connect";
+  if (kind === "connected") {
+    client.subscribe("qnet/session/#", 1);
+    client.subscribe("qnet/+/say", 1);
+  }
+};
+
+client.onMessage = (topic, payloadStr) => {
+  let payload;
+  try { payload = JSON.parse(payloadStr); }
+  catch (_e) { console.warn("sim: non-JSON payload on", topic, payloadStr); return; }
+
+  if (topic.startsWith("qnet/session/")) {
+    if (payload && payload.room) {
+      sessionsByRoom[payload.room] = payload; // "the latest session event for that room"
+      if (payload.room === currentRoom()) updateSessionChip();
+    }
+    return;
+  }
+
+  const m = topic.match(/^qnet\/([^/]+)\/say$/);
+  if (m) {
+    transcript.push({ room: m[1], dir: "house", text: payload.text, meta: payload.prio });
+    renderTranscript();
+  }
+};
+
+connectBtn.addEventListener("click", () => {
+  if (client.connected) client.disconnect();
+  else client.connect(brokerUrlInput.value.trim());
+});
+
+roomInput.addEventListener("input", () => { updateSessionChip(); renderTranscript(); });
+roomInput.addEventListener("change", () => { updateSessionChip(); renderTranscript(); });
+
+fallBtn.addEventListener("click", () => {
+  const room = currentRoom();
+  const payload = buildFallEvent(room);
+  client.publish(`qnet/${room}/event`, payload);
+  transcript.push({ room, dir: "system", text: `🔴 fall.detected published for ${room} (id ${payload.id})` });
+  renderTranscript();
+});
+
+clearBtn.addEventListener("click", () => {
+  const room = currentRoom();
+  for (let i = transcript.length - 1; i >= 0; i--) if (transcript[i].room === room) transcript.splice(i, 1);
+  renderTranscript();
+});
+
+function sendCurrentInput() {
+  const raw = textInput.value;
+  if (!raw.trim()) return;
+  const room = currentRoom();
+  const route = routeInput(raw, room, isSessionActive(room));
+  if (route) {
+    client.publish(route.topic, route.payload);
+    transcript.push({ room, dir: "person", text: raw.trim() });
+  } else {
+    transcript.push({ room, dir: "discard", text: raw.trim() });
+  }
+  renderTranscript();
+  textInput.value = "";
+  textInput.focus();
+}
+
+sendBtn.addEventListener("click", sendCurrentInput);
+textInput.addEventListener("keydown", (e) => { if (e.key === "Enter") sendCurrentInput(); });
+
+selftestBtn.addEventListener("click", () => {
+  const res = runSelfTest();
+  selftestOutput.hidden = false;
+  selftestOutput.textContent = renderSelfTestText(res);
+  selftestOutput.scrollIntoView({ behavior: "smooth", block: "nearest" });
+});
+
+function renderSelfTestText(res) {
+  const lines = [`QNet sim self-test — ${res.passed}/${res.total} passed`, ""];
+  for (const r of res.results) {
+    lines.push(`[${r.pass ? "PASS" : "FAIL"}] ${r.name}${r.error ? " — ERROR: " + r.error : ""}`);
+    lines.push(`        got: ${JSON.stringify(r.got)}`);
+  }
+  return lines.join("\n");
+}
+
+// Auto-run with ?selftest=1, logging to both console and the page.
+if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("selftest") === "1") {
+  const res = runSelfTest();
+  selftestOutput.hidden = false;
+  selftestOutput.textContent = renderSelfTestText(res);
+}
+
+updateSessionChip();
+renderTranscript();
+</script>
+</body>
+</html>
