@@ -28,3 +28,11 @@ include = ["qnet*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The default suite is hermetic - no broker, no device, no model - so it runs on
+# a laptop with nothing plugged in. The T3.3 replay harness needs the real
+# IQ-9075 endpoint, so it is opt-in: `pytest tests/test_llm_replay.py -m live`
+# (SSH tunnel up first). Everything else still runs by default.
+addopts = "-m \"not live\""
+markers = [
+    "live: needs the live GenieX/Gemma endpoint on 127.0.0.1:18181 (T3.3) - skipped by default",
+]

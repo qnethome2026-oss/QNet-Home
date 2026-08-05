@@ -18,6 +18,12 @@ voice:
   wake_phrase: "hey home"
   responder_phrase: "i'm the first responder"    # checked before wake_phrase, any state
   idle_listen_timeout_s: 30
+llm:
+  # GenieX serving Gemma 4 E2B on the IQ-9075 (§10). The agent runs on that same
+  # board, so this is localhost; from a laptop, SSH-tunnel port 18181 first.
+  # Optional - drop the block and this exact URL is the default. --no-llm
+  # ignores it entirely: no client is built at all.
+  base_url: "http://127.0.0.1:18181/v1"
 comfort:
   interval_s: 20        # never leave them in silence longer than this (§6, T2.4)
   # phases: [escalate, call_help]   # optional override; default = phases that

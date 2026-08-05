@@ -1,0 +1,116 @@
+T3.4 - LLM into the engine - VERIFY (docs/IMPLEMENTATION.md, Phase 3)
+Run on: 2026-08-05  host: windows 11 arm64  python: 3.12.10 (.venv)
+Deliverable: qnet/agent/engine.py - decide() / llm_action() / llm_context() /
+             comfort_text() / comfort_facts(), plus config `llm.base_url`
+Flag:        --no-llm keeps the G2 behaviour; without it, Gemma is in the loop.
+
+=== 1. the regression suite is untouched (the rails' CI) ================
+$ .venv/Scripts/python -m pytest tests/ -q
+............................................                             [100%]
+44 passed, 7 deselected in 11.84s
+$ echo $?
+0
+  The 44 from tag g2-fallback, all still green, still hermetic - no broker, no
+  device, no model, no tunnel. The 7 deselected are the new live harness
+  (pyproject: addopts = -m "not live"; marker registered).
+
+  Why --no-llm is byte-for-byte the old behaviour, structurally and not just by
+  test: with use_llm=False the Agent builds NO client (self.llm is None), and
+  every new branch in the engine is guarded on `self.llm is not None`. decide()
+  falls straight into classify_reply, comfort() into comfort_line - the same two
+  functions, unedited apart from comfort_line's fact list moving into
+  comfort_facts() so both modes assemble their claims from one place.
+
+=== 2. the seam, against the live model ================================
+$ .venv/Scripts/python -m pytest tests/test_llm_replay.py -m live -q -s
+  (full transcript in verify/T3.3.txt - 7 passed)
+
+  engine seam: heard 'my hip hurts a bit' -> escalate in 625 ms
+  double-check: [("i'm fine", 'ok'), ('no', 'ok')]
+
+  test_engine_escalates_on_the_models_decision - fall -> heard -> Gemma decides
+    -> engine escalates -> caregiver messaged, and the {"event":"llm",...} audit
+    line is on disk with decision="escalate", source="gemma".
+  test_the_double_check_survives_the_model - the G3 headline with the model
+    making both calls: "i'm fine" -> ok (which does NOT close: the canned pain
+    question is asked) -> "no" -> ok -> session closed `ok`, nobody messaged.
+    This is test_im_fine_double_check's walk, with Gemma instead of the regex.
+
+=== 3. end-to-end smoke: broker + agent, no --no-llm ====================
+Broker: the running demo broker on 127.0.0.1:1883 (dashboard attached), reused.
+Config: config/house.yaml with comfort.interval_s 8 (so the comfort loop lands
+        inside the smoke window); real 30 s / 15 s phase timers, timer_scale 1.
+
+$ .venv/Scripts/python -m qnet.agent --config <copy of config/house.yaml>
+14:28:42 INFO llm http://127.0.0.1:18181/v1 (google/gemma-4-E2B-it-qat-q4_0-gguf) - regex classifier stays as the fallback
+14:28:42 INFO connected 127.0.0.1:1883 - subscribed qnet/+/event qnet/+/ask qnet/+/heard
+14:28:42 INFO skill fall-response: phases check -> escalate -> call_help | timer_scale 1 | comfort every 8s
+14:28:45 INFO [kitchen] session 01KZ9X8B4SFFDMP20Q1R2WKENM open (fall-response)
+14:28:48 INFO [kitchen] heard 'my hip hurts a bit'
+14:28:49 INFO HTTP Request: POST http://127.0.0.1:18181/v1/chat/completions "HTTP/1.1 200 OK"
+14:28:49 INFO [kitchen] llm check -> escalate
+14:28:49 INFO [kitchen] check -> escalate
+14:29:04 INFO [kitchen] escalate timer fired after 15s -> call_help
+
+$ .venv/Scripts/python dev/inject.py fall  --room kitchen
+$ .venv/Scripts/python dev/inject.py heard --room kitchen --text "my hip hurts a bit"
+
+data/sessions/kitchen__fall-response__2026-08-05T14-28-45.jsonl (whole file):
+{"ts": 1785965325.5, "event": "detected", "kind": "fall.detected", "conf": 0.87}
+{"ts": 1785965325.5, "event": "say", "text": "I saw you fall. Take a breath — are you okay?"}
+{"ts": 1785965328.8, "event": "heard", "text": "my hip hurts a bit", "silence": false}
+{"ts": 1785965329.9, "event": "llm", "phase": "check", "heard": "my hip hurts a bit", "decision": "escalate", "source": "gemma", "ms": 1078}
+{"ts": 1785965329.9, "event": "phase", "from": "check", "to": "escalate"}
+{"ts": 1785965329.9, "event": "say", "text": "It's okay — I'm getting you help. Try to get comfortable, and don't strain to move."}
+{"ts": 1785965329.9, "event": "tool", "tool": "notify_contacts", "result": "console"}
+{"ts": 1785965340.2, "event": "llm", "phase": "escalate", "kind": "comfort", "facts": ["Sarah has been messaged", "it's been about 10 seconds since I saw you fall"], "source": "gemma", "ms": 2313}
+{"ts": 1785965340.2, "event": "say", "text": "I am still with you, Sarah has been messaged, and it has been about 10 seconds since I saw you fall."}
+{"ts": 1785965344.9, "event": "phase", "from": "escalate", "to": "call_help"}
+{"ts": 1785965344.9, "event": "say", "text": "You haven't answered, so I'm calling emergency services now."}
+{"ts": 1785965344.9, "event": "tool", "tool": "call_emergency", "result": "SIMULATED"}
+{"ts": 1785965344.9, "event": "tool", "tool": "notify_contacts", "result": "console"}
+{"ts": 1785965355.2, "event": "llm", "phase": "call_help", "kind": "comfort", "facts": ["Sarah has been messaged", "emergency services are on the way", "it's been about 25 seconds since I saw you fall"], "source": "gemma", "ms": 2218}
+{"ts": 1785965355.2, "event": "say", "text": "Sarah has been messaged, emergency services are on the way, and it has been about 25 seconds since I saw you fall."}
+{"ts": 1785965365.9, "event": "llm", "phase": "call_help", "kind": "comfort", "facts": ["Sarah has been messaged", "emergency services are on the way", "it's been about 40 seconds since I saw you fall"], "source": "gemma", "ms": 2735}
+{"ts": 1785965365.9, "event": "say", "text": "I am still here with you, Sarah has been messaged, emergency services are on the way, and it has been about 40 seconds since I saw you fall."}
+
+  [x] session escalates on the model's decision, on a real broker, with the
+      real tools (notify_contacts fell back to console - token is still TODO;
+      call_emergency rendered SIMULATED, §14)
+  [x] every decision is auditable: one {"event":"llm", ...} line per model turn,
+      carrying the decision (or null), where it came from (gemma | fallback),
+      and how long it took. Comfort turns log the FACTS they were given, so a
+      reviewer can check a spoken sentence against what the tools actually did.
+  [x] the model never got near anything consequential: the openings, the
+      escalate timer, notify_contacts and call_emergency all fired engine-side.
+
+=== 4. the same facts, different words (the doc's mode diff) ============
+  --no-llm (assembled): "I'm still here with you. Sarah has been messaged,
+                         emergency services are on the way, and it's been about
+                         25 seconds since I saw you fall."
+  with Gemma (worded):  "Sarah has been messaged, emergency services are on the
+                         way, and it has been about 25 seconds since I saw you
+                         fall."
+  Same three facts, from the same comfort_facts() list, in different words - and
+  the fact list is on disk next to the sentence. Both under 200 chars; anything
+  longer, empty, or timed out falls back to the assembled sentence (a `source:
+  "fallback"` line in the log says so).
+
+=== notes / deviations =================================================
+* IMPLEMENTATION's T3.4 verify block suggests `pytest tests/test_scenarios.py
+  --llm`. Not added, deliberately: those four scenarios run at dev.timer_scale
+  0.05, which turns fall.md's 30 s check timer into 1.5 s - shorter than a
+  model turn plus its retry. A `--llm` run of them would be a test of whether
+  the device beats a 1.5 s timer, not of the model. The equivalent assertions
+  run at real timings in tests/test_llm_replay.py (the escalation path and the
+  pain double-check, both live), and the smoke above is the same walk on a real
+  broker. The hermetic suite stays hermetic.
+* Config: `llm: {base_url: ...}` added to config/house.yaml, optional, default
+  http://127.0.0.1:18181/v1. On the IQ-9075 that is the local GenieX server;
+  from a laptop, SSH-tunnel 18181 first.
+* Processes: the demo broker was reused, never started or stopped by this task.
+  The smoke agent was stopped afterwards. The SSH tunnel on 18181 was already
+  running when this task started (someone else's `ssh -f -N -L 18181:...`), so
+  the one started here failed to bind and was killed; the pre-existing forward
+  was used and left up rather than pulled out from under another session. Kill
+  it with `taskkill /PID <pid>` when the workshop is done with the endpoint.

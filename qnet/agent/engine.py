@@ -22,10 +22,17 @@ phase; any other name ends the session with that label as its final state.
 
 **T2.2 - the rails are real.** A fall now opens a session and hands it to
 ``run_session``, which walks ``skills/fall.md``'s phases via ``run_phase``
-(DESIGN §6's pseudocode, line for line) until an exit or a cancel. What is
-still stubbed: the LLM. ``decide`` routes every turn through ``classify_reply``,
-a small regex mapping (the ``--no-llm`` mode, and the only mode there is until
-T3.4 swaps the classifier for Gemma).
+(DESIGN §6's pseudocode, line for line) until an exit or a cancel.
+
+**T3.4 - Gemma is in the loop, behind the flag.** ``decide`` asks
+``agent/llm.py`` to classify the reply and falls back to ``classify_reply``'s
+regex mapping whenever the model returns ``None``; the comfort loop asks it to
+word the update from the engine's own facts and falls back to the assembled
+sentence. Two properties hold by construction: ``--no-llm`` is exactly the
+code path it always was (no client is built, so not one branch differs), and
+the model can only ever choose *between decisions the phase already allows* -
+timers, ``on_enter`` actions, the pain double-check, the refusals and the
+logging are all engine-owned either way.
 
 Two design ambiguities resolved here, both flagged in the code where they bite:
 
@@ -58,6 +65,7 @@ from typing import Any, Mapping
 
 import aiomqtt
 
+from qnet.agent import llm as llmlib
 from qnet.agent import phases as phaselib
 from qnet.ids import new_ulid
 
@@ -124,9 +132,9 @@ def classify_reply(phase: phaselib.Phase, session: "Session", text: str) -> Acti
 
     This is the whole of ``--no-llm`` - the mode DESIGN §15 calls the fallback
     build and IMPLEMENTATION's "Definition of done" says must never break.
-    **T3.4 swaps this one function for a Gemma call** (``agent/llm.py``); the
-    engine around it, the rails, the timers and the logging do not change,
-    which is the point of keeping the mapping in one place.
+    **T3.4 put Gemma in front of it, not in place of it** (``agent/llm.py``):
+    every turn the model declines to answer lands here unchanged, which is the
+    point of keeping the mapping in one place.
 
     It is deliberately phase-shaped rather than fall-shaped: it reads the
     phase's declared exits, so a skill with different phase names still works.
@@ -248,11 +256,13 @@ class Agent:
         use_llm: bool = True,
         tools: Mapping[str, Any] | None = None,
         client: Any = None,
+        llm: Any = None,
     ) -> None:
         self.config = config or {}
         self.broker = broker
         self.port = port
         self.use_llm = use_llm
+        self.llm = llm if llm is not None else (self._build_llm() if use_llm else None)
         storage = self.config.get("storage") or {}
         self.sessions_dir = Path(storage.get("sessions_dir", DEFAULT_SESSIONS_DIR))
         self.skills_dir = Path(storage.get("skills_dir", DEFAULT_SKILLS_DIR))
@@ -276,6 +286,23 @@ class Agent:
             set(comfort["phases"]) if isinstance(comfort.get("phases"), list) else None
         )
         self.skill = phaselib.load_skill(self.skills_dir / "fall.md", tools=self.tools)
+
+    def _build_llm(self) -> Any:
+        """The Gemma client, or ``None`` - never an exception at startup (T3.4).
+
+        ``llm.base_url`` in house.yaml is optional; the default is the
+        on-device GenieX endpoint. Constructing the client opens no socket, so
+        a brain that is down costs nothing here - it shows up as a ``None``
+        decision at the first turn and the regex classifier takes over.
+        """
+        base_url = (self.config.get("llm") or {}).get("base_url", llmlib.BASE_URL)
+        try:
+            client = llmlib.LlmClient(base_url=base_url)
+        except Exception as exc:  # noqa: BLE001 - e.g. openai not installed
+            log.warning("no LLM client (%s) - running on the canned classifier", exc)
+            return None
+        log.info("llm %s (%s) - regex classifier stays as the fallback", base_url, llmlib.MODEL)
+        return client
 
     @property
     def tools(self) -> Mapping[str, Any]:
@@ -614,16 +641,47 @@ class Agent:
             # Something else just spoke - drop this update rather than overlap
             # it. There is exactly one speaker per session by construction.
             return
-        await self.say(session, self.comfort_line(session), "comfort")
+        await self.say(session, await self.comfort_text(session), "comfort")
 
-    def comfort_line(self, session: Session) -> str:
-        """Assemble the update from facts the session log actually holds."""
+    async def comfort_text(self, session: Session) -> str:
+        """Gemma words the update; the engine chooses the facts (T3.4).
+
+        The model gets the *same* facts the ``--no-llm`` sentence is assembled
+        from - what the tool log actually holds - so the wording differs
+        between modes but the claims cannot. Anything unusable (too long,
+        empty, timed out) falls back to the assembled sentence.
+        """
+        if self.llm is None:
+            return self.comfort_line(session)
+        facts = self.comfort_facts(session)
+        started = time.monotonic()
+        line = await asyncio.to_thread(self.llm.word_line, "comfort", facts)
+        await self.append(
+            session,
+            {
+                "event": "llm",
+                "phase": session.phase,
+                "kind": "comfort",
+                "facts": facts,
+                "source": "gemma" if line else "fallback",
+                "ms": round((time.monotonic() - started) * 1000),
+            },
+        )
+        return line or self.comfort_line(session)
+
+    def comfort_facts(self, session: Session) -> list[str]:
+        """What the session log actually holds - the only claims either mode may make."""
         facts = []
         if session.contacts_notified:
             facts.append(f"{self.contact_name()} has been messaged")
         if session.emergency_called:
             facts.append("emergency services are on the way")
         facts.append(f"it's been about {elapsed_phrase(time.time() - session.detected_at)} since I saw you fall")
+        return facts
+
+    def comfort_line(self, session: Session) -> str:
+        """Assemble the update from facts the session log actually holds."""
+        facts = self.comfort_facts(session)
         if len(facts) > 1:
             body = ", ".join(facts[:-1]) + ", and " + facts[-1]
         else:
@@ -639,13 +697,91 @@ class Agent:
     # --- the agent's turn -------------------------------------------------
 
     async def decide(self, phase: phaselib.Phase, session: Session, text: str) -> Action:
-        """One action per turn. Gemma lands here in T3.4; today it is regexes."""
-        if self.use_llm:
-            # DESIGN §6: "If Gemma is unavailable, the engine still walks the
-            # phases on their timers using the canned openings." Until T3.4
-            # there is no client at all, so every mode is the canned one.
-            log.debug("llm mode requested but agent/llm.py is T3.3/T3.4 - using the canned classifier")
+        """One action per turn: Gemma first, the regex classifier underneath (T3.4).
+
+        The seam is one call and one fallback. Gemma returns a *decision word*
+        from the phase's closed option set (``llm.options_for``) - never an
+        action - so the consequential half stays here: the pain double-check is
+        still engine-owned, the rails still refuse anything out of phase, and a
+        ``None`` (timeout, unparseable answer, brain down) simply means the
+        regex mapping runs exactly as it does under ``--no-llm``.
+
+        Every decision is logged - ``{"event": "llm", ...}`` - because a system
+        that can escalate on a model's say-so has to be auditable afterwards.
+        """
+        if self.llm is not None and (text or "").strip() and llmlib.options_for(phase):
+            started = time.monotonic()
+            decision = await asyncio.to_thread(
+                self.llm.classify_reply, phase, self.llm_context(phase, session), text
+            )
+            action = self.llm_action(phase, session, decision)
+            await self.append(
+                session,
+                {
+                    "event": "llm",
+                    "phase": phase.id,
+                    "heard": text,
+                    "decision": decision,
+                    "source": "gemma" if action is not None else "fallback",
+                    "ms": round((time.monotonic() - started) * 1000),
+                },
+            )
+            if action is not None:
+                log.info("[%s] llm %s -> %s", session.room, phase.id, decision)
+                return action
+            log.info("[%s] llm gave no usable decision - canned classifier", session.room)
         return classify_reply(phase, session, text)
+
+    def llm_context(self, phase: phaselib.Phase, session: Session) -> dict:
+        """The few session facts the prompt may mention - nothing speculative.
+
+        ``asked`` is the question actually on the table, which is the context
+        the transcript is meaningless without: mid-double-check the person is
+        answering *"any pain?"*, not *"are you okay?"*, and the same word means
+        opposite things in the two. Hence ``note``, the one sentence the model
+        cannot read off the skill file - ``fall.md``'s escalate condition says
+        "they say no", but a "no" to the pain question is the *reassuring*
+        answer. Measured worth: 24/25 with it, 20/25 without (T3.3 verify).
+
+        It lives here rather than in ``llm.py`` because the double-check is the
+        engine's ritual: ``llm_action`` owns it, so its wording belongs beside
+        it, and ``llm.py`` stays a template that renders whatever it is given.
+        """
+        return {
+            "room": session.room,
+            "asked": PAIN_QUESTION if session.awaiting_pain_answer else phase.opening,
+            "awaiting_pain_answer": session.awaiting_pain_answer,
+            "contacts_notified": session.contacts_notified,
+            "note": (
+                'Note: "no" or "nothing" here means they have no pain and did not hit their head.'
+                if session.awaiting_pain_answer
+                else ""
+            ),
+        }
+
+    def llm_action(self, phase: phaselib.Phase, session: Session, decision: str | None) -> Action | None:
+        """A decision word -> the same ``Action`` the regex would have produced.
+
+        Identical semantics to ``classify_reply``, including the one that
+        matters most: **"ok" never closes a session on its own.** The first
+        "I'm fine" asks the canned pain question (§3, §6) and only an "ok"
+        *after* that takes the exit - a headline behaviour the model is not
+        allowed to skip, however confident it sounds.
+        """
+        if decision is None or decision not in llmlib.options_for(phase):
+            return None
+        if "ok" in phase.exits and "escalate" in phase.exits:
+            if decision == "escalate":
+                session.awaiting_pain_answer = False
+                return Action("exit", exit="escalate")
+            if session.awaiting_pain_answer:
+                session.awaiting_pain_answer = False
+                return Action("exit", exit="ok")
+            session.awaiting_pain_answer = True
+            return Action("say", text=PAIN_QUESTION)
+        if decision == "wait":
+            return Action("wait")
+        return Action("exit", exit=decision)
 
     def allows(self, phase: phaselib.Phase, action: Action) -> bool:
         """The rails: the phase's allowlist and its declared exits (§6, §11)."""

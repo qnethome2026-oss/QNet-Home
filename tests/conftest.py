@@ -123,9 +123,16 @@ def make_agent(
     recorder: Recorder | None = None,
     timer_scale: float = 0.05,
     comfort_interval_s: float = 20.0,
+    llm: Any = None,
     **config_overrides: Any,
 ) -> tuple[engine.Agent, FakeBus, Recorder]:
-    """An agent wired to a fake bus and recorder tools, with scaled timers."""
+    """An agent wired to a fake bus and recorder tools, with scaled timers.
+
+    ``llm`` is how T3.3's live harness borrows this rig: hand it a client and
+    the agent runs in LLM mode with that client. Hand it nothing - every other
+    test - and the agent is built exactly as it always was (``use_llm=False``,
+    no client, not one branch of the engine different).
+    """
     recorder = recorder or Recorder()
     config = {
         "resident": {"name": "Margaret"},
@@ -137,7 +144,13 @@ def make_agent(
     }
     config.update(config_overrides)
     bus = FakeBus()
-    agent = engine.Agent(config=config, use_llm=False, tools=recorder_tools(recorder), client=bus)
+    agent = engine.Agent(
+        config=config,
+        use_llm=llm is not None,
+        tools=recorder_tools(recorder),
+        client=bus,
+        llm=llm,
+    )
     return agent, bus, recorder
 
 

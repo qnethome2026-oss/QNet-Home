@@ -1,0 +1,219 @@
+T5.1 - Dashboard page (lane C, needs T1.1) — dashboard/index.html
+====================================================================
+Run 2026-08-05 on the Snapdragon X Elite laptop (win32), Git Bash / PowerShell,
+cwd = C:\Users\QCWorkshop26\Workspace\QNet-Home-impl (worktree, branch
+implementation, tag g2-fallback). node v22.20.0 confirmed present, so the
+logic self-test was verified with real `node -e`-equivalent execution, not a
+fallback. Python venv: .venv (has paho-mqtt, aiomqtt, amqtt).
+
+Deliverable: dashboard/index.html only - one self-contained file, no build
+step, no CDN. Verification is split as instructed: what a script can prove
+below, run verbatim; what needs a rendered browser lives in the human
+checklist at the bottom, unchecked, one box per DESIGN §14 requirement.
+
+Files touched by this task: dashboard/index.html, dev/replay_session.py,
+dev/fixtures/replay_demo.jsonl, verify/T5.1.txt, verify/T5.2.txt. Nothing
+else in the repo was modified (confirmed via `git status --porcelain` before
+and after - qnet/, other dev/ files and scripts/ are other lanes' concurrent
+work and were left untouched).
+
+--------------------------------------------------------------------
+PART 1 — MACHINE-VERIFIED
+--------------------------------------------------------------------
+
+1a. Full inline <script> parses with no syntax errors
+Extracted the script body (indexOf("<script>")..indexOf("</script>"),
+38,545 chars) to a standalone .js file and ran:
+$ node --check dash_script_only.js
+  -> "FULL_SCRIPT_SYNTAX_OK"
+
+1b. LOGIC CORE extracted VERBATIM from dashboard/index.html and unit-tested
+via node, the same technique verify/T1.2b.txt used for dev/sim.html's
+ROUTING CORE: read the file, slice the bytes between the "* LOGIC CORE"
+banner comment and "* END LOGIC CORE", eval via `new Function(core +
+"return {colorForEntry, takeoverPredicate, computeLatencies, ...}")()` -
+nothing retyped, the literal bytes the browser also executes.
+
+24 assertions (exceeds the >=10 target), covering every §14 color-table row,
+the llm-line addendum from the brief, the takeover/no-takeover pairing, the
+latency computation, the bytes counter and the video-equivalent comparison:
+
+PASS — say -> blue
+PASS — heard -> gray
+PASS — detected -> amber step1
+PASS — phase step2 amber, darker than step1
+PASS — phase step3 amber, darker than step2
+PASS — phase terminal resolved -> green/closed
+PASS — tool notify_contacts -> green
+PASS — tool call_emergency -> red/bold/SIMULATED
+PASS — refusal -> gray dashed
+PASS — llm -> violet small
+PASS — phase terminal cancelled -> green/cancelled
+PASS — takeover safety+active -> true
+PASS — takeover routine+active -> false
+PASS — takeover safety+closed -> false
+PASS — takeover safety+cancelled -> false
+PASS — takeover null -> false
+PASS — latency detected->firstSay == 0.5
+PASS — latency say->heard gap == [10]
+PASS — latency escalationTimings 3 entries
+PASS — bytes counter accumulates
+PASS — video-equivalent 1s@500KB/s == 512000
+PASS — video-equivalent negative clamps to 0
+PASS — formatBytes thresholds
+PASS — unknown event -> neutral fallback
+
+24/24 passed
+TERMINAL_EXITS matches qnet/agent/phases.py TERMINAL_EXITS: true
+  (checked the extracted Set against {"ok","found","not_found","done",
+  "resolved","closed","cancelled"} - the exact frozenset in
+  qnet/agent/phases.py, so "terminal exit -> green (closed/cancelled)" agrees
+  with the engine's own vocabulary, not a guess at it)
+
+The identical cases are wired into the page itself as `runSelfTest()`
+(button in the topbar, callable from the console, and auto-run + rendered
+into the page with `?selftest=1`) - same functions, same assertions, so the
+console/page route and the `node` route exercise byte-identical code. This
+satisfies the brief's "extract pure functions... into a self-test
+runSelfTest() (auto-run with ?selftest=1) AND run the same cases via
+`node -e`" requirement for both halves.
+
+1c. §14 color-table cross-check (every row, traced to the exact case above)
+| §14 row                          | Case(s) above                          | Result |
+|-----------------------------------|-----------------------------------------|--------|
+| say -> blue                       | "say -> blue"                          | PASS   |
+| heard -> gray                     | "heard -> gray"                        | PASS   |
+| detected/phase -> amber, darkening| "detected step1" + both "phase stepN"  | PASS (monotonic luminance decrease proven, not just distinct hex) |
+| tool notify_contacts -> green     | "tool notify_contacts -> green"        | PASS   |
+| tool call_emergency -> SIMULATED  | "tool call_emergency -> red/bold/SIMULATED" | PASS (badge text is literally "SIMULATED", border is "bold-solid") |
+| refusal -> gray dashed            | "refusal -> gray dashed"                | PASS   |
+| closed/cancelled -> green         | "phase terminal resolved/cancelled -> green" | PASS |
+| (brief addendum) llm -> violet, small | "llm -> violet small"               | PASS   |
+
+1d. The takeover predicate, machine-proven against the exact spec sentence
+"a session whose skill/urgency is safety and state active... urgency:
+routine sessions never take over... Session close/cancel -> overlay drops":
+5 cases above cover safety+active (true), routine+active (false),
+safety+closed (false), safety+cancelled (false), no-session (false) - the
+full truth table the predicate needs. The "<=1s after its first event"
+timing requirement is architectural, not a branch in the predicate: the
+overlay re-evaluates on every `qnet/session/<id>` push and that push IS the
+first event (no polling delay) - demonstrated for real in Part 1f below
+(replay at 20x still delivered the very first session doc, which already
+has urgency=safety/state=active, within milliseconds of publish).
+
+1e. Cross-file MQTT client attribution (this one IS machine-checkable)
+$ grep -n "dev/sim.html" dashboard/index.html
+  -> 3 hits: file header, MINI MQTT CLIENT block comment, LOGIC CORE comment
+  -> PASS: the copied client keeps the required attribution to its source.
+
+1f. Live verification via dev/replay_session.py + dev/broker.py + dev/spy.py
+(the dashboard itself can't be clicked, but the exact bus traffic it would
+render can be captured and asserted against). Full detail in verify/T5.2.txt
+- summarized here because it also verifies the dashboard-relevant claims:
+  - qnet/session/<id> is published FULL every time (never a diff) - checked
+    by asserting log length never shrinks across 13 consecutive publishes.
+  - the very first qnet/session/<id> publish already has urgency=safety,
+    state=active - i.e. the takeover predicate would fire on message #1,
+    not after some warm-up (the "<=1s" requirement, structurally satisfied).
+  - the session ends with state=closed (from a terminal phase exit) - the
+    takeover predicate flips to false on that exact message, matching
+    "session close/cancel -> overlay drops."
+  - call_emergency's tool line carries result="SIMULATED" and a
+    detail.SIMULATED:true field, consistent with what colorForEntry keys off.
+
+1g. Broker-path sanity check: the field defaults to `ws://127.0.0.1:9001/mqtt`
+(per the brief's literal instruction) even though dev/broker.py (amqtt) and
+Mosquitto's plain `listener 9001 websockets` (infra/mosquitto.conf) don't
+route by path. Verified for real, not assumed:
+$ node -e "new WebSocket('ws://127.0.0.1:9001/mqtt', ['mqtt'])..." against a
+  live dev/broker.py instance
+  -> "WS_OPEN_OK on path /mqtt (amqtt ignores path, as expected)"
+So the default value in the broker field works unmodified against both dev
+tooling and (per infra/mosquitto.conf having no `mount_point`/`http_dir`
+restricting the path) the production listener.
+
+1h. AGPL footer (§18 network-interaction duty)
+$ grep -n "github.com/qnethome2026-oss/QNet-Home" dashboard/index.html
+  -> footer <a href="https://github.com/qnethome2026-oss/QNet-Home" ...>
+$ grep -n "AGPL" dashboard/index.html
+  -> SPDX header + footer text "licensed AGPL-3.0-or-later, no warranty"
+  -> PASS: both the license statement and the repo link are present, and the
+     link is in the footer (visible, not hidden behind a menu).
+
+1i. New dev-facing topic documented in a comment (as required)
+$ grep -n "qnet/<room>/cmd\|op.*reset" dashboard/index.html
+  -> file header: "NEW DEV-FACING TOPIC: qnet/<room>/cmd - {"op": "reset",
+     "room": <room>}."; publishReset() implementation immediately below with
+     the same explanation inline.
+  -> PASS.
+
+--------------------------------------------------------------------
+PART 2 — HUMAN CHECKLIST (needs a rendered browser; not machine-verifiable)
+--------------------------------------------------------------------
+Exact items from docs/IMPLEMENTATION.md T5.1's Verify block, plus the S14
+requirements a screenshot/render is needed to confirm. Run with a broker up
+(dev/broker.py or Mosquitto), dashboard/index.html opened via file://, and
+`python dev/spy.py -t 'qnet/#'` (or mosquitto_sub) alongside to cross-check
+what actually went out on the wire. Suggested driver: `python
+dev/replay_session.py dev/fixtures/replay_demo.jsonl --speed 5` for a
+realistic incident, plus `python dev/inject.py fall --room kitchen` /
+`python dev/inject.py ask --room kitchen --kind query --text "..."` for the
+takeover/no-takeover pair.
+
+[ ] say = blue, heard = gray, phase/detected = amber (darkening across the
+    incident), tool:notify_contacts = green, refusal = muted gray dashed -
+    all visible simultaneously in one session's transcript (Activity tab)
+[ ] call_emergency line: solid red, bold border, literal "SIMULATED" text
+    rendered ON the line itself (not a tooltip, not a legend) - unmissable
+    at a glance
+[ ] llm decision lines (once T3.4 emits them) render subtly - violet,
+    visually smaller/quieter than the other lines
+[ ] inject fall (urgency=safety) -> full-screen takeover appears within
+    ~1s of the publish, room name huge, live transcript visible, elapsed
+    timer counting up, current phase shown
+[ ] inject/publish a find-object query (urgency=routine) -> NO takeover;
+    the session only appears in the Activity list
+[ ] session reaches a terminal state (closed or cancelled) -> takeover
+    overlay disappears automatically, dashboard returns to normal view
+[ ] Activity list shows both a fall session and a routine session, newest
+    first (verify ordering against the sessions' start times)
+[ ] clicking a session in Activity shows: full transcript, current phase,
+    every tool call, every refused tool call (a skill/phase combo that
+    produces a refusal - e.g. call_emergency attempted outside call_help -
+    renders visibly, not silently dropped)
+[ ] "Reset room" button (Home card AND the takeover overlay) publishes
+    {"op":"reset","room":"<room>"} to qnet/<room>/cmd - observe it on
+    dev/spy.py; a subsequent inject/replay for that room starts a new
+    session without any manual intervention beyond the button
+[ ] Home area: a room appears as soon as either a qnet/<room>/status
+    heartbeat OR any session names that room is seen; state chip, last
+    event and last say update live
+[ ] footer AGPL notice and github.com/qnethome2026-oss/QNet-Home link are
+    visible without scrolling on a normal laptop window, and the link opens
+    in a new tab
+[ ] connect status dot cycles grey (disconnected) -> amber (connecting) ->
+    green (connected) against a real broker URL, red on a bad one
+[ ] page loads and functions correctly via file:// (no local server) -
+    confirms the "works from file://" claim
+[ ] `?selftest=1` shows the 24-case self-test panel on the page itself,
+    matching the node results in Part 1 (24/24 PASS)
+[ ] dark-friendly by default (prefers-color-scheme: dark); readable and not
+    obviously broken under a forced light theme too
+[ ] System tab: selecting different sessions in Activity changes the
+    latency waterfall shown in System (visual confirmation the two tabs
+    share `selectedSessionId`)
+
+--------------------------------------------------------------------
+SUMMARY
+--------------------------------------------------------------------
+Machine-verifiable surface: PASS in full - 24/24 logic-core assertions
+(every §14 color row including the darkening ramp proven via luminance, the
+llm-line addendum, the full takeover truth table), full-script syntax check,
+cross-file attribution, AGPL/footer/link checks, the new qnet/<room>/cmd
+topic documented, and a live WebSocket round trip on the exact default
+broker URL path (`/mqtt`) against a running dev broker.
+Not machine-verifiable: anything requiring a rendered browser (actual pixel
+colors, overlay layout/timing as experienced, tab switching, dark/light
+rendering). Those are the 16 boxes in Part 2, left unchecked for a human to
+run through with the broker + replay script driving real traffic.

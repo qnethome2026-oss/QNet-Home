@@ -1,0 +1,1190 @@
+<!--
+  SPDX-License-Identifier: AGPL-3.0-or-later
+  QNet Home - a privacy-first, multi-device home safety system.
+  Copyright (C) 2026 QNet Home contributors. This is free software under the
+  GNU Affero General Public License v3 or later, with ABSOLUTELY NO WARRANTY.
+
+  dashboard/index.html - the QNet Home dashboard (T5.1/T5.2; DESIGN.md S14).
+
+  One self-contained file, no build step, no CDN, works from file://. Connects
+  to Mosquitto's WebSocket listener (:9001) and renders three areas per S14:
+
+    Home     - room cards from qnet/+/status and any room seen on the bus
+    Activity - every session, newest first; click for the full transcript
+    System   - per-stage latency, bytes-on-the-wire, message counts (T5.2)
+
+  Plus the one hard rule that isn't a preference: a session whose skill
+  declares urgency:safety takes the WHOLE SCREEN the instant it's active
+  (S14's "one rule, driven by data"), with a reset-room button so back-to-back
+  demo runs don't need the 60s re-arm cooldown to elapse by itself (S16).
+
+  MQTT CLIENT ATTRIBUTION: the hand-rolled MQTT-over-WebSocket client below
+  ("MINI MQTT CLIENT") is copied, with only cosmetic renaming, from
+  dev/sim.html's client of the same name (T1.2b) - see that file's header for
+  why a ~200-line hand-rolled client beats embedding mqtt.js for a
+  dependency-free dev tool. Reused here rather than re-derived so the two
+  tools speak the wire protocol identically; if the wire handling ever needs a
+  fix, fix it in both files (same accepted duplication sim.html already
+  documents for its routing logic).
+
+  NEW DEV-FACING TOPIC: qnet/<room>/cmd - {"op": "reset", "room": <room>}.
+  Published by the "Reset room" button (S16: "give the dashboard a reset room
+  button... one MQTT message"). Not in contracts/mqtt.md yet and the engine
+  may not consume it - this file's job is only to publish it correctly so a
+  future engine handler (clear the session, re-arm the detector) has
+  something to listen for.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QNet Home — Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #171a23;
+    --panel-2: #1c2029;
+    --panel-3: #21262f;
+    --border: #2a2f3d;
+    --text: #e6e8ee;
+    --muted: #8b90a0;
+    --accent: #5b8def;
+    --danger: #e5484d;
+    --success: #2fb344;
+    --warn: #f2b705;
+    --violet: #a56bff;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4f5f8; --panel: #ffffff; --panel-2: #f0f1f5; --panel-3: #e7e9f0;
+      --border: #d8dbe3; --text: #1a1d24; --muted: #656b7a; --accent: #3868d6;
+      --danger: #d1373c; --success: #1f8f3a; --warn: #a8720a; --violet: #7c4fe0;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1117; --panel: #171a23; --panel-2: #1c2029; --panel-3: #21262f;
+    --border: #2a2f3d; --text: #e6e8ee; --muted: #8b90a0; --accent: #5b8def;
+    --danger: #e5484d; --success: #2fb344; --warn: #f2b705; --violet: #a56bff;
+  }
+  :root[data-theme="light"] {
+    --bg: #f4f5f8; --panel: #ffffff; --panel-2: #f0f1f5; --panel-3: #e7e9f0;
+    --border: #d8dbe3; --text: #1a1d24; --muted: #656b7a; --accent: #3868d6;
+    --danger: #d1373c; --success: #1f8f3a; --warn: #a8720a; --violet: #7c4fe0;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.45 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .app { max-width: 1180px; margin: 0 auto; padding: 16px 18px 32px; }
+  h1 { font-size: 1.2em; margin: 0 0 2px; }
+  h1 .subtitle { color: var(--muted); font-weight: 400; }
+  h2 { font-size: 1em; margin: 0 0 10px; }
+  h3 { font-size: 0.92em; margin: 0 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+  code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-size: 0.92em; }
+  a { color: var(--accent); }
+
+  .topbar { border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 12px; }
+  .broker-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .broker-row label { color: var(--muted); font-size: 0.85em; }
+  input[type="text"] {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 10px; font: inherit;
+  }
+  #brokerUrl { min-width: 230px; flex: 1 1 230px; }
+  button {
+    font: inherit; cursor: pointer; border: none; border-radius: 8px;
+    padding: 7px 13px; font-weight: 600; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border);
+  }
+  button:hover { filter: brightness(1.12); }
+  #connectBtn { background: var(--accent); color: #fff; border-color: transparent; }
+  .status { display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; color: var(--muted); font-size: 0.85em; }
+  .dot { width: 0.65em; height: 0.65em; border-radius: 50%; display: inline-block; background: var(--muted); }
+  .dot-disconnected { background: var(--muted); }
+  .dot-connecting { background: var(--warn); animation: pulse 1s ease-in-out infinite; }
+  .dot-connected { background: var(--success); }
+  .dot-error { background: var(--danger); }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  nav.tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+  nav.tabs button { background: var(--panel); }
+  nav.tabs button.active { background: var(--accent); color: #fff; border-color: transparent; }
+
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* ---------- Home ---------- */
+  .room-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  .room-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px;
+  }
+  .room-card.has-safety { border-color: var(--danger); box-shadow: 0 0 0 1px var(--danger) inset; }
+  .room-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .room-name { font-weight: 700; font-size: 1.05em; text-transform: capitalize; }
+  .chip { padding: 3px 10px; border-radius: 999px; font-size: 0.78em; font-weight: 700; border: 1px solid var(--border); color: var(--muted); }
+  .chip.idle { color: var(--muted); }
+  .chip.safety { background: rgba(229,72,77,0.15); border-color: var(--danger); color: var(--danger); }
+  .chip.routine { background: rgba(91,141,239,0.15); border-color: var(--accent); color: var(--accent); }
+  .room-card .row { margin: 4px 0; font-size: 0.88em; }
+  .room-card .row .k { color: var(--muted); margin-right: 4px; }
+  .room-card .actions { margin-top: 10px; display: flex; gap: 8px; }
+  .room-card .actions button { font-size: 0.82em; padding: 5px 10px; }
+  .empty-hint { color: var(--muted); font-style: italic; padding: 20px 4px; }
+
+  /* ---------- Activity ---------- */
+  .activity-layout { display: grid; grid-template-columns: 300px 1fr; gap: 14px; align-items: start; }
+  @media (max-width: 820px) { .activity-layout { grid-template-columns: 1fr; } }
+  .session-list { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; max-height: 70vh; overflow-y: auto; }
+  .session-row { padding: 10px 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .session-row:last-child { border-bottom: none; }
+  .session-row:hover { background: var(--panel-2); }
+  .session-row.selected { background: var(--panel-3); border-left: 3px solid var(--accent); }
+  .session-row .top { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+  .session-row .room { font-weight: 700; text-transform: capitalize; }
+  .session-row .meta { color: var(--muted); font-size: 0.8em; margin-top: 2px; }
+  .state-badge { font-size: 0.72em; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border); }
+  .state-badge.active { color: var(--warn); border-color: var(--warn); }
+  .state-badge.closed { color: var(--success); border-color: var(--success); }
+  .state-badge.cancelled { color: var(--muted); }
+
+  .detail { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; min-height: 200px; }
+  .detail-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 10px; }
+  .detail-head .room-name { text-transform: capitalize; }
+  .kv { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.85em; color: var(--muted); margin-bottom: 10px; }
+  .kv b { color: var(--text); }
+
+  .feed { display: flex; flex-direction: column; gap: 6px; }
+  .feed-line {
+    padding: 7px 11px; border-radius: 8px; border: 1px solid transparent; font-size: 0.88em;
+    display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
+  }
+  .feed-line .ts { color: var(--muted); font-size: 0.8em; font-variant-numeric: tabular-nums; min-width: 62px; }
+  .feed-line .txt { flex: 1; min-width: 160px; }
+  .feed-line .badge-sim {
+    background: #fff; color: #b3151a; font-weight: 800; font-size: 0.72em;
+    padding: 1px 7px; border-radius: 4px; letter-spacing: 0.03em;
+  }
+  .feed-line.dashed { border-style: dashed; }
+  .feed-line.small { font-size: 0.8em; opacity: 0.85; padding: 4px 11px; }
+  .feed-line.bold-solid { border-width: 2px; font-weight: 700; }
+
+  .subsection { margin-top: 14px; }
+  .pill-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill { font-size: 0.8em; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel-2); }
+  .pill.refusal { border-style: dashed; color: var(--muted); }
+
+  /* ---------- System ---------- */
+  .sys-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 820px) { .sys-grid { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+  .waterfall-row { margin: 8px 0; }
+  .waterfall-label { display: flex; justify-content: space-between; font-size: 0.82em; margin-bottom: 3px; }
+  .waterfall-label .secs { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .waterfall-track { background: var(--panel-2); border-radius: 6px; height: 10px; overflow: hidden; }
+  .waterfall-fill { height: 100%; border-radius: 6px; background: var(--accent); min-width: 2px; }
+
+  .bytes-stat { display: flex; align-items: baseline; gap: 10px; margin: 6px 0; }
+  .bytes-stat .num { font-size: 1.6em; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .bytes-stat .lbl { color: var(--muted); font-size: 0.85em; }
+  .compare-bar { margin-top: 10px; }
+  .compare-row { display: flex; align-items: center; gap: 8px; margin: 5px 0; font-size: 0.82em; }
+  .compare-row .name { width: 130px; color: var(--muted); flex-shrink: 0; }
+  .compare-track { flex: 1; background: var(--panel-2); border-radius: 6px; height: 12px; overflow: hidden; }
+  .compare-fill { height: 100%; border-radius: 6px; }
+  .compare-fill.qnet { background: var(--success); }
+  .compare-fill.video { background: var(--violet); }
+  .compare-row .val { min-width: 84px; text-align: right; font-variant-numeric: tabular-nums; }
+
+  table.topic-table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
+  table.topic-table th, table.topic-table td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--border); }
+  table.topic-table td.count { text-align: right; font-variant-numeric: tabular-nums; }
+  table.topic-table th { color: var(--muted); font-weight: 600; }
+
+  /* ---------- Takeover overlay ---------- */
+  #takeover {
+    position: fixed; inset: 0; z-index: 500; background: #16060699;
+    background: linear-gradient(180deg, rgba(30,4,4,0.97), rgba(10,2,2,0.99));
+    display: none; flex-direction: column; padding: 26px 32px; overflow-y: auto;
+  }
+  #takeover.showing { display: flex; }
+  .to-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 12px; border-bottom: 3px solid var(--danger); padding-bottom: 14px; margin-bottom: 16px; }
+  .to-room { font-size: 3em; font-weight: 900; color: #fff; text-transform: capitalize; letter-spacing: -0.01em; }
+  .to-badge { background: var(--danger); color: #fff; font-weight: 800; padding: 4px 12px; border-radius: 6px; font-size: 0.9em; letter-spacing: 0.04em; }
+  .to-meta { display: flex; gap: 22px; flex-wrap: wrap; color: #ffb3b3; font-size: 1em; }
+  .to-meta b { color: #fff; font-variant-numeric: tabular-nums; }
+  .to-feed { flex: 1; background: rgba(0,0,0,0.35); border-radius: 12px; padding: 14px; margin: 16px 0; max-height: 46vh; overflow-y: auto; }
+  .to-actions { display: flex; justify-content: flex-end; }
+  #resetFromTakeover { background: #fff; color: #b3151a; font-weight: 800; padding: 10px 22px; font-size: 1em; border-radius: 8px; }
+
+  footer.app-footer {
+    margin-top: 22px; padding-top: 12px; border-top: 1px solid var(--border);
+    color: var(--muted); font-size: 0.8em; display: flex; justify-content: space-between;
+    flex-wrap: wrap; gap: 8px;
+  }
+
+  .selftest-output {
+    margin-top: 10px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px; font: 12px/1.5 ui-monospace, Consolas, monospace;
+    white-space: pre-wrap; max-height: 44vh; overflow-y: auto;
+  }
+</style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <h1>QNet Home <span class="subtitle">— Dashboard</span></h1>
+      <div class="broker-row">
+        <label for="brokerUrl">Broker</label>
+        <input id="brokerUrl" type="text" value="ws://127.0.0.1:9001/mqtt" spellcheck="false">
+        <button id="connectBtn">Connect</button>
+        <span class="status"><span id="statusDot" class="dot dot-disconnected"></span><span id="statusText">disconnected</span></span>
+        <button id="selftestBtn" title="Run the self-test suite (also ?selftest=1)">Self-test</button>
+      </div>
+    </header>
+
+    <nav class="tabs">
+      <button id="tabHomeBtn" class="active" data-tab="home">Home</button>
+      <button id="tabActivityBtn" data-tab="activity">Activity</button>
+      <button id="tabSystemBtn" data-tab="system">System</button>
+    </nav>
+
+    <section id="panelHome" class="panel active">
+      <h2>Rooms</h2>
+      <div id="roomGrid" class="room-grid"><div class="empty-hint">No rooms seen yet — connect to the broker, or inject a fall/status message.</div></div>
+    </section>
+
+    <section id="panelActivity" class="panel">
+      <h2>Sessions <span style="color:var(--muted); font-weight:400;">— newest first</span></h2>
+      <div class="activity-layout">
+        <div id="sessionList" class="session-list"><div class="empty-hint">No sessions yet.</div></div>
+        <div id="sessionDetail" class="detail"><div class="empty-hint">Select a session to see its transcript, phase, tools and refusals.</div></div>
+      </div>
+    </section>
+
+    <section id="panelSystem" class="panel">
+      <h2>System</h2>
+      <div class="sys-grid">
+        <div class="card">
+          <h3>Latency waterfall — selected session</h3>
+          <div id="latencyWaterfall"><div class="empty-hint">Select a session in Activity to see its timing.</div></div>
+        </div>
+        <div class="card">
+          <h3>Bytes on the wire</h3>
+          <div id="bytesPanel"></div>
+        </div>
+        <div class="card" style="grid-column: 1 / -1;">
+          <h3>Messages per topic</h3>
+          <div id="topicTable"><div class="empty-hint">Nothing received yet.</div></div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="app-footer">
+      <span>
+        QNet Home dashboard — free software licensed <b>AGPL-3.0-or-later</b>, no warranty.
+        Source (AGPL §13 network-use clause): <a href="https://github.com/qnethome2026-oss/QNet-Home" target="_blank" rel="noopener">github.com/qnethome2026-oss/QNet-Home</a>
+      </span>
+      <span>dev tool — DESIGN.md §14. <code>?selftest=1</code> to auto-run the self-test.</span>
+    </footer>
+
+    <pre id="selftestOutput" class="selftest-output" hidden></pre>
+  </div>
+
+  <!-- ============== SAFETY TAKEOVER OVERLAY (DESIGN.md S14, S16) ============== -->
+  <div id="takeover">
+    <div class="to-head">
+      <div>
+        <span class="to-badge">SAFETY SESSION ACTIVE</span>
+        <div class="to-room" id="toRoom">—</div>
+      </div>
+      <div class="to-meta">
+        <div>elapsed <b id="toElapsed">0:00</b></div>
+        <div>phase <b id="toPhase">—</b></div>
+        <div>skill <b id="toSkill">—</b></div>
+      </div>
+    </div>
+    <div class="to-feed" id="toFeed"></div>
+    <div class="to-actions">
+      <button id="resetFromTakeover">Reset room</button>
+    </div>
+  </div>
+
+<script>
+"use strict";
+
+/* ============================================================
+ * MINI MQTT CLIENT
+ * Copied from dev/sim.html's client of the same name (T1.2b) - see that
+ * file's header comment for the full rationale (a hand-rolled MQTT 3.1.1
+ * client over a raw WebSocket instead of embedding mqtt.js, so this stays a
+ * dependency-free, auditable-in-one-read file). We always PUBLISH at QoS 0
+ * ourselves and SUBSCRIBE at QoS 1, acknowledging inbound QoS 1 PUBLISHes
+ * with PUBACK - same trade-off sim.html accepts, for the same reason.
+ * ============================================================ */
+
+function encodeRemainingLength(n) {
+  const out = [];
+  do {
+    let b = n % 128;
+    n = Math.floor(n / 128);
+    if (n > 0) b |= 0x80;
+    out.push(b);
+  } while (n > 0);
+  return out;
+}
+
+function decodeRemainingLength(buf, start) {
+  let multiplier = 1, value = 0, i = start, b;
+  do {
+    if (i >= buf.length) return null;
+    b = buf[i++];
+    value += (b & 0x7f) * multiplier;
+    multiplier *= 128;
+    if (multiplier > 128 * 128 * 128) throw new Error("MQTT: malformed remaining length");
+  } while (b & 0x80);
+  return { value, used: i - start };
+}
+
+function encodeUtf8Str(str) {
+  const utf8 = new TextEncoder().encode(str);
+  const out = new Uint8Array(2 + utf8.length);
+  out[0] = (utf8.length >> 8) & 0xff;
+  out[1] = utf8.length & 0xff;
+  out.set(utf8, 2);
+  return out;
+}
+
+function decodeUtf8Str(buf, start) {
+  const len = (buf[start] << 8) | buf[start + 1];
+  const bytes = buf.slice(start + 2, start + 2 + len);
+  return { str: new TextDecoder().decode(bytes), used: 2 + len };
+}
+
+function concatBytes(arrays) {
+  const total = arrays.reduce((n, a) => n + a.length, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const a of arrays) { out.set(a, off); off += a.length; }
+  return out;
+}
+
+function buildConnectPacket(clientId, keepAliveSec) {
+  const varAndPayload = concatBytes([
+    encodeUtf8Str("MQTT"),
+    new Uint8Array([4]),
+    new Uint8Array([0x02]),
+    new Uint8Array([(keepAliveSec >> 8) & 0xff, keepAliveSec & 0xff]),
+    encodeUtf8Str(clientId),
+  ]);
+  return concatBytes([new Uint8Array([0x10, ...encodeRemainingLength(varAndPayload.length)]), varAndPayload]);
+}
+
+function buildSubscribePacket(packetId, topicsWithQos) {
+  const parts = [new Uint8Array([(packetId >> 8) & 0xff, packetId & 0xff])];
+  for (const [topic, qos] of topicsWithQos) {
+    parts.push(encodeUtf8Str(topic));
+    parts.push(new Uint8Array([qos & 0x03]));
+  }
+  const body = concatBytes(parts);
+  return concatBytes([new Uint8Array([0x82, ...encodeRemainingLength(body.length)]), body]);
+}
+
+function buildPublishPacket(topic, payloadStr) {
+  const body = concatBytes([encodeUtf8Str(topic), new TextEncoder().encode(payloadStr)]);
+  return concatBytes([new Uint8Array([0x30, ...encodeRemainingLength(body.length)]), body]);
+}
+
+function buildPubAckPacket(packetId) {
+  return new Uint8Array([0x40, 0x02, (packetId >> 8) & 0xff, packetId & 0xff]);
+}
+
+function buildPingReqPacket() { return new Uint8Array([0xc0, 0x00]); }
+function buildDisconnectPacket() { return new Uint8Array([0xe0, 0x00]); }
+
+function tryParsePacket(buf) {
+  if (buf.length < 2) return null;
+  const first = buf[0];
+  const type = (first >> 4) & 0x0f;
+  const flags = first & 0x0f;
+  const lenInfo = decodeRemainingLength(buf, 1);
+  if (!lenInfo) return null;
+  const headerLen = 1 + lenInfo.used;
+  const total = headerLen + lenInfo.value;
+  if (buf.length < total) return null;
+  return { type, flags, body: buf.slice(headerLen, total), total };
+}
+
+function parsePublishBody(flags, body) {
+  const qos = (flags >> 1) & 0x03;
+  const { str: topic, used } = decodeUtf8Str(body, 0);
+  let offset = used;
+  let packetId = null;
+  if (qos > 0) {
+    packetId = (body[offset] << 8) | body[offset + 1];
+    offset += 2;
+  }
+  return { topic, payload: new TextDecoder().decode(body.slice(offset)), qos, packetId };
+}
+
+class MiniMQTT {
+  constructor() {
+    this.ws = null;
+    this.buf = new Uint8Array(0);
+    this.nextPacketId = 1;
+    this.connected = false;
+    this.pingTimer = null;
+    this.onMessage = null;
+    this.onStatus = null;
+  }
+
+  connect(url) {
+    this.disconnect();
+    this._status("connecting", `connecting to ${url}…`);
+    let ws;
+    try {
+      ws = new WebSocket(url, ["mqtt"]);
+    } catch (err) {
+      this._status("error", `bad broker URL: ${err.message}`);
+      return;
+    }
+    ws.binaryType = "arraybuffer";
+    this.ws = ws;
+    ws.onopen = () => {
+      const clientId = "dash-" + Math.random().toString(36).slice(2, 10);
+      this._send(buildConnectPacket(clientId, 60));
+    };
+    ws.onmessage = (ev) => this._feed(new Uint8Array(ev.data));
+    ws.onerror = () => this._status("error", "WebSocket error — check the broker URL and that the :9001 listener is up");
+    ws.onclose = () => {
+      this.connected = false;
+      clearInterval(this.pingTimer);
+      this._status("disconnected", "disconnected");
+    };
+  }
+
+  disconnect() {
+    if (this.ws) {
+      try { if (this.connected) this._send(buildDisconnectPacket()); } catch (_e) { /* best effort */ }
+      try { this.ws.close(); } catch (_e) { /* best effort */ }
+    }
+    clearInterval(this.pingTimer);
+    this.ws = null;
+    this.connected = false;
+    this.buf = new Uint8Array(0);
+  }
+
+  subscribe(topic, qos) {
+    if (!this.connected) return;
+    this._send(buildSubscribePacket(this.nextPacketId++, [[topic, qos == null ? 1 : qos]]));
+  }
+
+  publish(topic, payloadObj) {
+    if (!this.connected) { console.warn("MiniMQTT: publish while disconnected, dropped:", topic, payloadObj); return; }
+    this._send(buildPublishPacket(topic, JSON.stringify(payloadObj)));
+  }
+
+  _send(bytes) { if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(bytes); }
+  _status(kind, text) { if (this.onStatus) this.onStatus(kind, text); }
+
+  _feed(chunk) {
+    const merged = new Uint8Array(this.buf.length + chunk.length);
+    merged.set(this.buf);
+    merged.set(chunk, this.buf.length);
+    this.buf = merged;
+    for (;;) {
+      let pkt;
+      try { pkt = tryParsePacket(this.buf); }
+      catch (e) { console.error("MiniMQTT: parse error, dropping buffer", e); this.buf = new Uint8Array(0); return; }
+      if (!pkt) return;
+      this.buf = this.buf.slice(pkt.total);
+      this._handlePacket(pkt);
+    }
+  }
+
+  _handlePacket(pkt) {
+    if (pkt.type === 2) { // CONNACK
+      const returnCode = pkt.body[1];
+      if (returnCode === 0) {
+        this.connected = true;
+        this._status("connected", "connected");
+        this.pingTimer = setInterval(() => this._send(buildPingReqPacket()), 20000);
+      } else {
+        this._status("error", `broker refused CONNECT (return code ${returnCode})`);
+      }
+    } else if (pkt.type === 3) { // PUBLISH
+      const { topic, payload, qos, packetId } = parsePublishBody(pkt.flags, pkt.body);
+      if (qos === 1 && packetId != null) this._send(buildPubAckPacket(packetId));
+      if (this.onMessage) this.onMessage(topic, payload);
+    }
+  }
+}
+
+/* ============================================================
+ * LOGIC CORE — pure functions, no DOM/window dependency, so
+ * verify/T5.1.txt / T5.2.txt's `node -e` checks can extract this block
+ * verbatim (same technique dev/sim.html's ROUTING CORE established) and test
+ * it standalone, byte-identical to what runs in the page. Everything here is
+ * (payload/log) -> (data), never -> (HTML string) - rendering lives outside.
+ * ============================================================ */
+
+// DESIGN.md §6 / phases.py TERMINAL_EXITS: an exit name that is NOT one of
+// these (and not a phase id) jumps; one of these ends the session.
+const TERMINAL_EXITS = new Set(["ok", "found", "not_found", "done", "resolved", "closed", "cancelled"]);
+
+// §14's table: "detected/phase — amber, darkening at each escalation step".
+// Light -> dark, one hue (sequential magnitude ramp), five steps is plenty
+// for a fall skill's three phases plus headroom for a longer future one.
+const AMBER_SHADES = ["#fff3c4", "#ffe27a", "#f2b705", "#c98f00", "#8f6600"];
+
+function amberShade(step) {
+  const i = Math.max(1, Math.floor(step)) - 1;
+  return AMBER_SHADES[Math.min(i, AMBER_SHADES.length - 1)];
+}
+
+// Relative luminance (WCAG), used only by the self-test to PROVE the amber
+// ramp actually darkens rather than just differs.
+function hexLuminance(hex) {
+  const n = parseInt(hex.replace("#", ""), 16);
+  const r = (n >> 16) & 0xff, g = (n >> 8) & 0xff, b = n & 0xff;
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+const COLOR = {
+  blue: "#5b8def",
+  gray: "#8b90a0",
+  green: "#2fb344",
+  red: "#e5484d",
+  violet: "#a56bff",
+};
+
+/** How many "the incident is getting more serious" steps have occurred by
+ * `index` (inclusive): one for the initial `detected`, one per non-terminal
+ * `phase` transition. Terminal phase lines (closing the session) don't
+ * count - they're rendered green, not another amber step. */
+function escalationStepFor(log, index) {
+  let step = 0;
+  for (let i = 0; i <= index && i < log.length; i++) {
+    const e = log[i];
+    if (!e) continue;
+    if (e.event === "detected") step++;
+    else if (e.event === "phase" && !TERMINAL_EXITS.has(e.to)) step++;
+  }
+  return step;
+}
+
+/**
+ * The color/border/badge treatment for one session-log line, per DESIGN §14's
+ * table exactly. Returns a plain descriptor, not markup:
+ *   { kind, bg, border: "solid"|"dashed"|"bold-solid"|"thin", badge: string|null,
+ *     label, small: boolean }
+ */
+function colorForEntry(entry, log, index) {
+  if (!entry || !entry.event) {
+    return { kind: "unknown", bg: COLOR.gray, border: "solid", badge: null, label: "?", small: false };
+  }
+  switch (entry.event) {
+    case "say":
+      return { kind: "say", bg: COLOR.blue, border: "solid", badge: null, label: "say", small: false };
+    case "heard":
+      return { kind: "heard", bg: COLOR.gray, border: "solid", badge: null, label: "heard", small: false };
+    case "detected": {
+      const step = escalationStepFor(log, index);
+      return { kind: "detected", bg: amberShade(step), border: "solid", badge: null, label: "detected", small: false };
+    }
+    case "phase": {
+      if (TERMINAL_EXITS.has(entry.to)) {
+        // "session closed / cancelled -> green" (§14) - a terminal phase line
+        // IS the close/cancel event; there is no separate log line for it.
+        const label = entry.to === "cancelled" ? "cancelled" : "closed";
+        return { kind: label, bg: COLOR.green, border: "solid", badge: null, label, small: false };
+      }
+      const step = escalationStepFor(log, index);
+      return { kind: "phase", bg: amberShade(step), border: "solid", badge: null, label: `phase → ${entry.to}`, small: false };
+    }
+    case "tool": {
+      if (entry.tool === "call_emergency") {
+        // "solid red, bold border, un-missable SIMULATED badge ON the line" -
+        // a hard requirement (§14), not a preference.
+        return { kind: "call_emergency", bg: COLOR.red, border: "bold-solid", badge: "SIMULATED", label: "call_emergency", small: false };
+      }
+      if (entry.tool === "notify_contacts") {
+        return { kind: "notify_contacts", bg: COLOR.green, border: "solid", badge: null, label: "notify_contacts", small: false };
+      }
+      // Any other tool (find-skill's look_in_rooms, etc.) isn't in §14's
+      // table; treat as a neutral informational line rather than inventing a
+      // new color the spec never asked for.
+      return { kind: "tool", bg: COLOR.blue, border: "solid", badge: null, label: entry.tool || "tool", small: false };
+    }
+    case "refusal":
+      return { kind: "refusal", bg: COLOR.gray, border: "dashed", badge: null, label: "refused", small: false };
+    case "llm":
+      // Not in §14's table but named explicitly in the T5.1 brief: "render
+      // llm decision lines subtly (violet, small)".
+      return { kind: "llm", bg: COLOR.violet, border: "thin", badge: null, label: "llm", small: true };
+    case "brief":
+      return { kind: "brief", bg: COLOR.blue, border: "dashed", badge: null, label: "brief", small: true };
+    default:
+      return { kind: "unknown", bg: COLOR.gray, border: "solid", badge: null, label: entry.event, small: false };
+  }
+}
+
+/** DESIGN §14/§6: a `urgency: safety` session that is `active` takes over
+ * the whole screen; `routine` never does, and a closed/cancelled session
+ * drops the overlay. The "≤ 1s after its first event" timing requirement
+ * (IMPLEMENTATION T5.1) is satisfied structurally, not by this predicate: the
+ * dashboard re-evaluates on every `qnet/session/<id>` push, and that message
+ * IS the first event, so there is no polling delay to be within 1s of. */
+function takeoverPredicate(session) {
+  if (!session) return false;
+  return session.urgency === "safety" && session.state === "active";
+}
+
+/** Per-stage latency (T5.2): detected -> first say, each say -> the next
+ * heard after it, and the time spent in each phase (detected -> first phase
+ * line, then between consecutive phase lines) - all from the log's own `ts`
+ * fields, no wall-clock guessing. */
+function computeLatencies(log) {
+  const entries = Array.isArray(log) ? log : [];
+  const detected = entries.find((e) => e && e.event === "detected");
+  const says = entries.filter((e) => e && e.event === "say");
+  const heards = entries.filter((e) => e && e.event === "heard");
+  const phases = entries.filter((e) => e && e.event === "phase");
+
+  const detectedTs = detected ? detected.ts : null;
+  const firstSay = says[0];
+  const detectedToFirstSay =
+    detectedTs != null && firstSay ? round3(firstSay.ts - detectedTs) : null;
+
+  const sayHeardGaps = [];
+  let hi = 0;
+  for (const s of says) {
+    while (hi < heards.length && heards[hi].ts < s.ts) hi++;
+    if (hi < heards.length) {
+      sayHeardGaps.push(round3(heards[hi].ts - s.ts));
+      hi++;
+    }
+  }
+
+  const escalationTimings = [];
+  let prevTs = detectedTs;
+  for (const p of phases) {
+    if (prevTs != null) {
+      escalationTimings.push({ from: p.from || null, to: p.to, seconds: round3(p.ts - prevTs) });
+    }
+    prevTs = p.ts;
+  }
+
+  return { detectedToFirstSay, sayHeardGaps, escalationTimings };
+}
+
+function round3(n) {
+  return Math.round(n * 1000) / 1000;
+}
+
+/** Bytes-on-the-wire (T5.2): every payload's UTF-8 byte length, summed, plus
+ * a per-topic message count - a plain reducer over every message seen. */
+function byteLength(str) {
+  return new TextEncoder().encode(str == null ? "" : str).length;
+}
+
+function emptyMessageStats() {
+  return { totalBytes: 0, totalMessages: 0, perTopic: {} };
+}
+
+function addMessage(state, topic, payloadStr) {
+  const bytes = byteLength(payloadStr);
+  const perTopic = Object.assign({}, state.perTopic);
+  perTopic[topic] = (perTopic[topic] || 0) + 1;
+  return { totalBytes: state.totalBytes + bytes, totalMessages: state.totalMessages + 1, perTopic };
+}
+
+/** "video stream equivalent: ~500 KB/s" (§14/T5.2), scaled to the same
+ * elapsed wall-clock window the byte counter has been running over. */
+function videoEquivalentBytes(elapsedSeconds, kbPerSec) {
+  const rate = kbPerSec == null ? 500 : kbPerSec;
+  return Math.max(0, elapsedSeconds) * rate * 1024;
+}
+
+function formatBytes(n) {
+  if (!isFinite(n)) return "0 B";
+  if (n < 1024) return `${Math.round(n)} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(2)} MB`;
+}
+
+/* ============================================================
+ * END LOGIC CORE
+ * ============================================================ */
+
+/* ---------------- Self-test ---------------- */
+
+function runSelfTest() {
+  // A synthetic but realistic fall-response log: detected -> say -> silence
+  // -> escalate -> notify -> refusal -> call_help -> SIMULATED emergency ->
+  // say -> resolved. Exercises every §14 color row plus the darkening ramp.
+  const log = [
+    { ts: 1000.0, event: "detected", kind: "fall.detected", conf: 0.87 },
+    { ts: 1000.5, event: "say", text: "I saw you fall. Are you okay?" },
+    { ts: 1010.5, event: "heard", text: "", silence: true },
+    { ts: 1010.6, event: "phase", from: "check", to: "escalate" },
+    { ts: 1010.7, event: "tool", tool: "notify_contacts", result: "telegram" },
+    { ts: 1025.7, event: "refusal", tool: "call_emergency", phase: "escalate" },
+    { ts: 1030.0, event: "phase", from: "escalate", to: "call_help" },
+    { ts: 1030.1, event: "tool", tool: "call_emergency", result: "SIMULATED" },
+    { ts: 1035.0, event: "say", text: "Help is on the way. I'll stay with you." },
+    { ts: 1040.0, event: "phase", from: "call_help", to: "resolved" },
+  ];
+
+  const cases = [
+    { name: "say -> blue", fn: () => colorForEntry(log[1], log, 1), expect: (r) => r.kind === "say" && r.bg === COLOR.blue },
+    { name: "heard -> gray", fn: () => colorForEntry(log[2], log, 2), expect: (r) => r.kind === "heard" && r.bg === COLOR.gray },
+    { name: "detected -> amber (step 1)", fn: () => colorForEntry(log[0], log, 0), expect: (r) => r.kind === "detected" && r.bg === amberShade(1) },
+    { name: "phase (non-terminal, step 2) -> amber, darker than step 1", fn: () => colorForEntry(log[3], log, 3),
+      expect: (r) => r.kind === "phase" && r.bg === amberShade(2) && hexLuminance(amberShade(2)) < hexLuminance(amberShade(1)) },
+    { name: "phase (non-terminal, step 3) -> amber, darker than step 2", fn: () => colorForEntry(log[6], log, 6),
+      expect: (r) => r.kind === "phase" && r.bg === amberShade(3) && hexLuminance(amberShade(3)) < hexLuminance(amberShade(2)) },
+    { name: "phase (terminal 'resolved') -> green (closed)", fn: () => colorForEntry(log[9], log, 9), expect: (r) => r.kind === "closed" && r.bg === COLOR.green },
+    { name: "tool notify_contacts -> green", fn: () => colorForEntry(log[4], log, 4), expect: (r) => r.kind === "notify_contacts" && r.bg === COLOR.green },
+    { name: "tool call_emergency -> red, bold border, SIMULATED badge", fn: () => colorForEntry(log[7], log, 7),
+      expect: (r) => r.kind === "call_emergency" && r.bg === COLOR.red && r.border === "bold-solid" && r.badge === "SIMULATED" },
+    { name: "refusal -> gray, dashed border", fn: () => colorForEntry(log[5], log, 5), expect: (r) => r.kind === "refusal" && r.border === "dashed" && r.bg === COLOR.gray },
+    { name: "llm decision -> violet, small", fn: () => colorForEntry({ event: "llm", text: "chose exit=escalate" }, log, -1), expect: (r) => r.kind === "llm" && r.bg === COLOR.violet && r.small === true },
+    { name: "phase (terminal 'cancelled') -> green, labeled cancelled", fn: () => colorForEntry({ event: "phase", from: "check", to: "cancelled" }, log, -1), expect: (r) => r.kind === "cancelled" && r.bg === COLOR.green },
+    { name: "takeover: safety + active -> true", fn: () => takeoverPredicate({ urgency: "safety", state: "active" }), expect: (r) => r === true },
+    { name: "takeover: routine + active -> false (urgency respected)", fn: () => takeoverPredicate({ urgency: "routine", state: "active" }), expect: (r) => r === false },
+    { name: "takeover: safety + closed -> false (drops on close)", fn: () => takeoverPredicate({ urgency: "safety", state: "closed" }), expect: (r) => r === false },
+    { name: "takeover: safety + cancelled -> false (drops on cancel)", fn: () => takeoverPredicate({ urgency: "safety", state: "cancelled" }), expect: (r) => r === false },
+    { name: "takeover: no session -> false", fn: () => takeoverPredicate(null), expect: (r) => r === false },
+    { name: "latency: detected -> first say", fn: () => computeLatencies(log).detectedToFirstSay, expect: (r) => r === 0.5 },
+    { name: "latency: say -> heard gap", fn: () => computeLatencies(log).sayHeardGaps, expect: (r) => Array.isArray(r) && r.length === 1 && r[0] === 10 },
+    { name: "latency: escalation timings, 3 phase gaps in order", fn: () => computeLatencies(log).escalationTimings,
+      expect: (r) => Array.isArray(r) && r.length === 3 && r[0].to === "escalate" && r[0].seconds === 10.6 && r[2].to === "resolved" && r[2].seconds === 10 },
+    { name: "bytes counter: totals and per-topic accumulate", fn: () => {
+        let s = emptyMessageStats();
+        s = addMessage(s, "qnet/kitchen/say", '{"text":"hi"}');
+        s = addMessage(s, "qnet/kitchen/say", '{"text":"hi again"}');
+        s = addMessage(s, "qnet/kitchen/heard", '{"text":"","silence":true}');
+        return s;
+      }, expect: (r) => r.totalMessages === 3 && r.perTopic["qnet/kitchen/say"] === 2 && r.perTopic["qnet/kitchen/heard"] === 1 && r.totalBytes === byteLength('{"text":"hi"}') + byteLength('{"text":"hi again"}') + byteLength('{"text":"","silence":true}') },
+    { name: "video-equivalent: 1s @ 500KB/s = 512000 bytes", fn: () => videoEquivalentBytes(1), expect: (r) => r === 500 * 1024 },
+    { name: "video-equivalent: 0s / negative elapsed clamps to 0", fn: () => videoEquivalentBytes(-5), expect: (r) => r === 0 },
+    { name: "formatBytes: B / KB / MB thresholds", fn: () => [formatBytes(500), formatBytes(2048), formatBytes(3 * 1024 * 1024)],
+      expect: (r) => r[0] === "500 B" && r[1] === "2.0 KB" && r[2] === "3.00 MB" },
+    { name: "unknown event kind -> neutral fallback, not a crash", fn: () => colorForEntry({ event: "mystery" }, [], 0), expect: (r) => r.kind === "unknown" && !!r.bg },
+  ];
+
+  const results = cases.map((c) => {
+    let got = null, error = null;
+    try { got = c.fn(); }
+    catch (e) { error = e; }
+    let pass = false;
+    try { pass = !error && c.expect(got); } catch (e2) { error = e2; }
+    return { name: c.name, pass, got, error: error && error.message };
+  });
+
+  const passed = results.filter((r) => r.pass).length;
+  console.log(`QNet dashboard self-test: ${passed}/${results.length} passed`);
+  if (typeof console.table === "function") console.table(results.map((r) => ({ test: r.name, pass: r.pass })));
+  return { passed, total: results.length, allPass: passed === results.length, results };
+}
+
+if (typeof window !== "undefined") window.runSelfTest = runSelfTest;
+
+/* ---------------- UI wiring (DOM-dependent; not part of LOGIC CORE) ---------------- */
+
+const $ = (id) => document.getElementById(id);
+const brokerUrlInput = $("brokerUrl");
+const connectBtn = $("connectBtn");
+const statusDot = $("statusDot");
+const statusText = $("statusText");
+const selftestBtn = $("selftestBtn");
+const selftestOutput = $("selftestOutput");
+
+const client = new MiniMQTT();
+
+// ---- state ----
+const sessions = new Map();     // session id -> latest wire payload (qnet/session/<id>)
+const rooms = new Map();        // room -> { status, lastSay, lastHeard }
+let selectedSessionId = null;
+let msgStats = emptyMessageStats();
+let connectedAt = null;
+let takeoverTimer = null;
+
+function ensureRoom(room) {
+  if (!rooms.has(room)) rooms.set(room, { status: null, lastSay: null, lastHeard: null });
+  return rooms.get(room);
+}
+
+function newestSessionForRoom(room) {
+  let best = null;
+  for (const s of sessions.values()) {
+    if (s.room !== room) continue;
+    if (!best || s.id > best.id) best = s; // ULID lexicographic order == time order
+  }
+  return best;
+}
+
+function activeTakeoverSession() {
+  let best = null;
+  for (const s of sessions.values()) {
+    if (!takeoverPredicate(s)) continue;
+    if (!best || s.id > best.id) best = s;
+  }
+  return best;
+}
+
+// ---- MQTT wiring ----
+client.onStatus = (kind, text) => {
+  statusDot.className = `dot dot-${kind}`;
+  statusText.textContent = text;
+  connectBtn.textContent = kind === "connected" ? "Disconnect" : "Connect";
+  if (kind === "connected") {
+    connectedAt = Date.now() / 1000;
+    // One broad subscription: this is a dashboard, it wants everything on
+    // the fabric (for the per-topic counter and the bytes-on-the-wire total
+    // to be honest numbers, not a curated subset).
+    client.subscribe("qnet/#", 1);
+  }
+};
+
+client.onMessage = (topic, payloadStr) => {
+  msgStats = addMessage(msgStats, topic, payloadStr);
+
+  let payload = null;
+  try { payload = JSON.parse(payloadStr); }
+  catch (_e) { renderSystem(); return; } // still counted; nothing else to do with a non-JSON body
+
+  const sessionMatch = topic.match(/^qnet\/session\/([^/]+)$/);
+  if (sessionMatch) {
+    sessions.set(sessionMatch[1], payload);
+    if (payload && payload.room) ensureRoom(payload.room);
+    renderAll();
+    return;
+  }
+  const roomMatch = topic.match(/^qnet\/([^/]+)\/(status|say|heard|event)$/);
+  if (roomMatch) {
+    const [, room, kind] = roomMatch;
+    const r = ensureRoom(room);
+    const now = Date.now() / 1000;
+    if (kind === "status") r.status = { ts: now, raw: payload };
+    else if (kind === "say") r.lastSay = { ts: now, text: payload.text };
+    else if (kind === "heard") r.lastHeard = { ts: now, text: payload.silence ? "(silence)" : payload.text };
+    renderHome();
+    renderSystem();
+    return;
+  }
+  renderSystem(); // qnet/look, qnet/+/looked, qnet/+/ask, qnet/+/cmd echoes, etc. - counted, not rendered elsewhere
+};
+
+connectBtn.addEventListener("click", () => {
+  if (client.connected) client.disconnect();
+  else client.connect(brokerUrlInput.value.trim());
+});
+
+// qnet/<room>/cmd - see the file header for why this topic exists.
+function publishReset(room) {
+  client.publish(`qnet/${room}/cmd`, { op: "reset", room });
+}
+
+// ---- tabs ----
+const tabButtons = { home: $("tabHomeBtn"), activity: $("tabActivityBtn"), system: $("tabSystemBtn") };
+const panels = { home: $("panelHome"), activity: $("panelActivity"), system: $("panelSystem") };
+function showTab(name) {
+  for (const key of Object.keys(tabButtons)) {
+    tabButtons[key].classList.toggle("active", key === name);
+    panels[key].classList.toggle("active", key === name);
+  }
+}
+tabButtons.home.addEventListener("click", () => showTab("home"));
+tabButtons.activity.addEventListener("click", () => showTab("activity"));
+tabButtons.system.addEventListener("click", () => showTab("system"));
+
+// ---- rendering helpers ----
+function escapeHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function fmtTs(ts) {
+  if (ts == null) return "—";
+  const d = new Date(ts * 1000);
+  return d.toLocaleTimeString([], { hour12: false });
+}
+
+function fmtElapsed(seconds) {
+  const total = Math.max(0, Math.floor(seconds));
+  const m = Math.floor(total / 60), s = total % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/** Render one log line to HTML using colorForEntry's descriptor (LOGIC CORE
+ * stays markup-free; this is the one place a descriptor becomes a DOM string). */
+function feedLineHtml(entry, log, index) {
+  const c = colorForEntry(entry, log, index);
+  const classes = ["feed-line"];
+  if (c.border === "dashed") classes.push("dashed");
+  if (c.border === "bold-solid") classes.push("bold-solid");
+  if (c.small) classes.push("small");
+  const borderStyle = c.border === "bold-solid" ? `3px solid ${c.bg}` : c.border === "dashed" ? `1px dashed ${c.bg}` : `1px solid ${c.bg}`;
+  const bgTint = c.bg + "22"; // ~13% alpha tint of the semantic color as the line background
+  const badge = c.badge ? `<span class="badge-sim">${escapeHtml(c.badge)}</span>` : "";
+  let text = describeEntry(entry);
+  return `<div class="${classes.join(" ")}" style="border-color:${c.bg}; border:${borderStyle}; background:${bgTint};">` +
+         `<span class="ts">${fmtTs(entry.ts)}</span>` +
+         `<span class="txt"><b style="color:${c.bg}">${escapeHtml(c.label)}</b> ${escapeHtml(text)}</span>` +
+         badge + `</div>`;
+}
+
+function describeEntry(e) {
+  switch (e.event) {
+    case "say": return e.text || "";
+    case "heard": return e.silence ? "(silence)" : (e.text || "");
+    case "detected": return `kind=${e.kind || "?"} conf=${e.conf != null ? e.conf : "?"}`;
+    case "phase": return `${e.from || "?"} → ${e.to}`;
+    case "tool": return `${e.tool}${e.result ? " — " + e.result : ""}`;
+    case "refusal": return `${e.tool} (outside phase ${e.phase || "?"})`;
+    case "llm": return e.text || e.summary || JSON.stringify(e);
+    case "brief": return e.note || e.state || "";
+    default: return JSON.stringify(e);
+  }
+}
+
+function renderFeed(log) {
+  if (!log || !log.length) return `<div class="empty-hint">No log lines yet.</div>`;
+  return `<div class="feed">${log.map((e, i) => feedLineHtml(e, log, i)).join("")}</div>`;
+}
+
+// ---- Home ----
+function renderHome() {
+  const grid = $("roomGrid");
+  const names = Array.from(rooms.keys()).sort();
+  if (!names.length) {
+    grid.innerHTML = `<div class="empty-hint">No rooms seen yet — connect to the broker, or inject a fall/status message.</div>`;
+    return;
+  }
+  grid.innerHTML = names.map((room) => {
+    const r = rooms.get(room);
+    const session = newestSessionForRoom(room);
+    const live = session && session.state === "active";
+    const chipClass = !session ? "idle" : session.urgency === "safety" ? "safety" : "routine";
+    const chipText = live ? `${session.skill} · ${session.phase}` : "idle";
+    const lastEvent = session && session.log && session.log.length
+      ? describeEntry(session.log[session.log.length - 1])
+      : (r.lastHeard ? r.lastHeard.text : "—");
+    const lastSay = r.lastSay ? r.lastSay.text : (session && session.log ? (session.log.filter((e) => e.event === "say").slice(-1)[0] || {}).text : null);
+    const cardClass = live && session.urgency === "safety" ? "room-card has-safety" : "room-card";
+    return `<div class="${cardClass}">
+      <div class="room-card-head">
+        <span class="room-name">${escapeHtml(room)}</span>
+        <span class="chip ${chipClass}">${escapeHtml(chipText)}</span>
+      </div>
+      <div class="row"><span class="k">last event</span>${escapeHtml(lastEvent || "—")}</div>
+      <div class="row"><span class="k">last say</span>${escapeHtml(lastSay || "—")}</div>
+      <div class="row"><span class="k">status</span>${r.status ? "heartbeat @ " + fmtTs(r.status.ts) : "no status seen"}</div>
+      <div class="actions">
+        <button data-reset-room="${escapeHtml(room)}">Reset room</button>
+        <button data-view-room="${escapeHtml(room)}">View activity</button>
+      </div>
+    </div>`;
+  }).join("");
+
+  grid.querySelectorAll("[data-reset-room]").forEach((btn) => {
+    btn.addEventListener("click", () => publishReset(btn.getAttribute("data-reset-room")));
+  });
+  grid.querySelectorAll("[data-view-room]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const room = btn.getAttribute("data-view-room");
+      const s = newestSessionForRoom(room);
+      if (s) selectedSessionId = s.id;
+      showTab("activity");
+      renderActivity();
+    });
+  });
+}
+
+// ---- Activity ----
+function sortedSessions() {
+  return Array.from(sessions.values()).sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0)); // ULID desc = newest first
+}
+
+function renderActivity() {
+  const list = $("sessionList");
+  const all = sortedSessions();
+  if (!all.length) {
+    list.innerHTML = `<div class="empty-hint">No sessions yet.</div>`;
+  } else {
+    if (!selectedSessionId) selectedSessionId = all[0].id;
+    list.innerHTML = all.map((s) => {
+      const selected = s.id === selectedSessionId ? " selected" : "";
+      return `<div class="session-row${selected}" data-session-id="${escapeHtml(s.id)}">
+        <div class="top">
+          <span class="room">${escapeHtml(s.room)}</span>
+          <span class="state-badge ${escapeHtml(s.state)}">${escapeHtml(s.state)}</span>
+        </div>
+        <div class="meta">${escapeHtml(s.skill)} · ${escapeHtml(s.urgency)} · phase ${escapeHtml(s.phase)} · ${(s.log || []).length} lines</div>
+      </div>`;
+    }).join("");
+    list.querySelectorAll("[data-session-id]").forEach((row) => {
+      row.addEventListener("click", () => {
+        selectedSessionId = row.getAttribute("data-session-id");
+        renderActivity();
+        renderSystem();
+      });
+    });
+  }
+  renderSessionDetail();
+}
+
+function renderSessionDetail() {
+  const detail = $("sessionDetail");
+  const s = selectedSessionId ? sessions.get(selectedSessionId) : null;
+  if (!s) {
+    detail.innerHTML = `<div class="empty-hint">Select a session to see its transcript, phase, tools and refusals.</div>`;
+    return;
+  }
+  const log = s.log || [];
+  const tools = log.filter((e) => e.event === "tool");
+  const refusals = log.filter((e) => e.event === "refusal");
+  detail.innerHTML = `
+    <div class="detail-head">
+      <span class="room-name" style="font-weight:700; font-size:1.05em;">${escapeHtml(s.room)}</span>
+      <span class="state-badge ${escapeHtml(s.state)}">${escapeHtml(s.state)}</span>
+    </div>
+    <div class="kv">
+      <span>skill <b>${escapeHtml(s.skill)}</b></span>
+      <span>urgency <b>${escapeHtml(s.urgency)}</b></span>
+      <span>phase <b>${escapeHtml(s.phase)}</b></span>
+      <span>id <b>${escapeHtml(s.id)}</b></span>
+    </div>
+    <h3>Transcript</h3>
+    ${renderFeed(log)}
+    <div class="subsection">
+      <h3>Tools called (${tools.length})</h3>
+      <div class="pill-list">${tools.length ? tools.map((t) => `<span class="pill">${escapeHtml(t.tool)} — ${escapeHtml(t.result || "?")}</span>`).join("") : '<span class="empty-hint">none</span>'}</div>
+    </div>
+    <div class="subsection">
+      <h3>Refused tool calls (${refusals.length})</h3>
+      <div class="pill-list">${refusals.length ? refusals.map((r) => `<span class="pill refusal">${escapeHtml(r.tool)} (phase ${escapeHtml(r.phase)})</span>`).join("") : '<span class="empty-hint">none</span>'}</div>
+    </div>`;
+}
+
+// ---- System ----
+function renderSystem() {
+  renderLatencyWaterfall();
+  renderBytesPanel();
+  renderTopicTable();
+}
+
+function renderLatencyWaterfall() {
+  const el = $("latencyWaterfall");
+  const s = selectedSessionId ? sessions.get(selectedSessionId) : null;
+  if (!s) {
+    el.innerHTML = `<div class="empty-hint">Select a session in Activity to see its timing.</div>`;
+    return;
+  }
+  const lat = computeLatencies(s.log || []);
+  const rows = [];
+  if (lat.detectedToFirstSay != null) rows.push({ label: "detected → first say", seconds: lat.detectedToFirstSay });
+  lat.sayHeardGaps.forEach((g, i) => rows.push({ label: `say → heard (#${i + 1})`, seconds: g }));
+  lat.escalationTimings.forEach((t) => rows.push({ label: `→ ${t.to}`, seconds: t.seconds }));
+
+  if (!rows.length) {
+    el.innerHTML = `<div class="empty-hint">Not enough log lines yet to compute timing.</div>`;
+    return;
+  }
+  const max = Math.max(...rows.map((r) => r.seconds), 0.001);
+  el.innerHTML = rows.map((r) => `
+    <div class="waterfall-row">
+      <div class="waterfall-label"><span>${escapeHtml(r.label)}</span><span class="secs">${r.seconds.toFixed(1)}s</span></div>
+      <div class="waterfall-track"><div class="waterfall-fill" style="width:${Math.max(2, (r.seconds / max) * 100)}%"></div></div>
+    </div>`).join("");
+}
+
+function renderBytesPanel() {
+  const el = $("bytesPanel");
+  const elapsed = connectedAt ? (Date.now() / 1000 - connectedAt) : 0;
+  const videoBytes = videoEquivalentBytes(elapsed);
+  const ratio = videoBytes > 0 ? (msgStats.totalBytes / videoBytes) * 100 : 0;
+  const maxBar = Math.max(msgStats.totalBytes, videoBytes, 1);
+  el.innerHTML = `
+    <div class="bytes-stat"><span class="num">${formatBytes(msgStats.totalBytes)}</span><span class="lbl">on the wire · ${msgStats.totalMessages} messages</span></div>
+    <div class="row" style="font-size:0.82em; color:var(--muted);">elapsed since connect: ${fmtElapsed(elapsed)}</div>
+    <div class="compare-bar">
+      <div class="compare-row"><span class="name">QNet (actual)</span><div class="compare-track"><div class="compare-fill qnet" style="width:${Math.max(2, (msgStats.totalBytes / maxBar) * 100)}%"></div></div><span class="val">${formatBytes(msgStats.totalBytes)}</span></div>
+      <div class="compare-row"><span class="name">video @ ~500 KB/s</span><div class="compare-track"><div class="compare-fill video" style="width:${Math.max(2, (videoBytes / maxBar) * 100)}%"></div></div><span class="val">${formatBytes(videoBytes)}</span></div>
+    </div>
+    <div class="row" style="font-size:0.82em; color:var(--muted); margin-top:6px;">QNet has used about <b style="color:var(--text)">${ratio < 0.01 ? "<0.01" : ratio.toFixed(2)}%</b> of what an equivalent video stream would have, over the same window.</div>`;
+}
+
+function renderTopicTable() {
+  const el = $("topicTable");
+  const topics = Object.entries(msgStats.perTopic).sort((a, b) => b[1] - a[1]);
+  if (!topics.length) {
+    el.innerHTML = `<div class="empty-hint">Nothing received yet.</div>`;
+    return;
+  }
+  el.innerHTML = `<table class="topic-table"><thead><tr><th>Topic</th><th style="text-align:right;">Messages</th></tr></thead><tbody>` +
+    topics.map(([t, n]) => `<tr><td><code>${escapeHtml(t)}</code></td><td class="count">${n}</td></tr>`).join("") +
+    `</tbody></table>`;
+}
+
+// ---- Takeover overlay ----
+function renderTakeover() {
+  const s = activeTakeoverSession();
+  const overlay = $("takeover");
+  if (!s) {
+    overlay.classList.remove("showing");
+    if (takeoverTimer) { clearInterval(takeoverTimer); takeoverTimer = null; }
+    return;
+  }
+  overlay.classList.add("showing");
+  $("toRoom").textContent = s.room;
+  $("toPhase").textContent = s.phase;
+  $("toSkill").textContent = s.skill;
+  $("toFeed").innerHTML = renderFeed(s.log || []);
+  $("resetFromTakeover").onclick = () => publishReset(s.room);
+
+  const firstEntry = (s.log || [])[0];
+  const startTs = firstEntry ? firstEntry.ts : Date.now() / 1000;
+  const updateElapsed = () => { $("toElapsed").textContent = fmtElapsed(Date.now() / 1000 - startTs); };
+  updateElapsed();
+  if (takeoverTimer) clearInterval(takeoverTimer);
+  takeoverTimer = setInterval(updateElapsed, 1000);
+}
+
+function renderAll() {
+  renderHome();
+  renderActivity();
+  renderSystem();
+  renderTakeover();
+}
+
+// ---- self-test wiring ----
+function renderSelfTestText(res) {
+  const lines = [`QNet dashboard self-test — ${res.passed}/${res.total} passed`, ""];
+  for (const r of res.results) {
+    lines.push(`[${r.pass ? "PASS" : "FAIL"}] ${r.name}${r.error ? " — ERROR: " + r.error : ""}`);
+    lines.push(`        got: ${JSON.stringify(r.got)}`);
+  }
+  return lines.join("\n");
+}
+
+selftestBtn.addEventListener("click", () => {
+  const res = runSelfTest();
+  selftestOutput.hidden = false;
+  selftestOutput.textContent = renderSelfTestText(res);
+  selftestOutput.scrollIntoView({ behavior: "smooth", block: "nearest" });
+});
+
+if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("selftest") === "1") {
+  const res = runSelfTest();
+  selftestOutput.hidden = false;
+  selftestOutput.textContent = renderSelfTestText(res);
+}
+
+renderAll();
+</script>
+</body>
+</html>

@@ -1,0 +1,128 @@
+T3.3 - LLM client + prompt - VERIFY (docs/IMPLEMENTATION.md, Phase 3)
+Run on: 2026-08-05  host: windows 11 arm64  python: 3.12.10 (.venv)  openai: 2.53.0
+Deliverable: qnet/agent/llm.py  (LlmClient.classify_reply / .word_line)
+Harness:     tests/test_llm_replay.py  (marked `live`, skipped by default)
+Endpoint:    http://127.0.0.1:18181/v1 -> SSH tunnel -> IQ-9075 localhost
+             model google/gemma-4-E2B-it-qat-q4_0-gguf:Q4_0, GenieX v0.3.18
+
+  ssh -o BatchMode=yes -N -L 18181:127.0.0.1:18181 iq9 &
+  curl -s http://127.0.0.1:18181/v1/models
+  -> {"data":[{"id":"google/gemma-4-E2B-it-qat-q4_0-gguf:Q4_0",...}],"object":"list"}
+
+Server bookkeeping (the setup log's crash counter, checked either side of the work):
+  before:  systemctl show geniex-serve -p NRestarts  ->  NRestarts=0
+  after:   systemctl show geniex-serve -p NRestarts  ->  NRestarts=0     delta 0
+  ~900 requests sent across prompt calibration + 7 suite runs + the T3.4 smoke.
+  No crash, no restart, no wedged NPU queue. The four crashers of Finding 3
+  (response_format / enable_json / grammar / grammar_string) were never sent -
+  and the harness asserts that on every captured request body, not in review.
+
+=== the Verify block, verbatim =========================================
+$ .venv/Scripts/python -m pytest tests/test_llm_replay.py -m live -q -s
+
+  T3.3 replay scoreboard - live Gemma 4 E2B on the IQ-9075 (http://127.0.0.1:18181/v1)
+  [x] i'm fine           expected ok                got ok                 0.44s
+  [x] i am okay thanks   expected ok                got ok                 0.45s
+  [x] my hip hurts       expected escalate          got escalate           0.50s
+  [x] no                 expected escalate          got escalate           0.50s
+  [x] help me please     expected escalate          got escalate           0.52s
+  [x] i can't get up     expected escalate          got escalate           0.52s
+  [x] yes i hit my head  expected escalate          got escalate           0.52s
+  [x] asdf gwqk          expected escalate          got escalate           0.52s
+  [x] what time is it    expected escalate          got escalate           0.50s
+  [x] (silence)          expected engine handles it got no request         0.00s
+  score 10/10   per-call max 0.52s mean 0.49s   requests 9
+..
+  per-call latency: max 1.75s, mean 0.74s over 5 calls (bar 6.0s)
+...
+  engine seam: heard 'my hip hurts a bit' -> escalate in 625 ms
+  comfort line: Sarah has been messaged and it has been about 0 seconds since I saw you fall,
+                and I am still here with you.
+.
+  double-check: [("i'm fine", 'ok'), ('no', 'ok')]
+.
+7 passed in 21.49s
+$ echo $?
+0
+
+  [x] 10 scripted reply variants -> expected exits matched >= 9/10
+      7 consecutive suite runs on the shipped prompt: 10/10 five times, 9/10 twice.
+      The only variant that ever missed is "what time is it" (off-topic), which
+      lands on `ok` roughly 1 run in 5 - see "what surprised us", #3. Both "ok"
+      variants and all six explicit-trouble variants were right in every run.
+  [x] every outbound request body contains enable_think:false AND max_completion_tokens
+      test_every_request_carries_the_geniex_fields asserts it on EVERY captured
+      body (a RequestSpy wraps the SDK client, so it is the real outbound call),
+      plus: model id correct, none of the four crash-fields present at any
+      nesting, and no `tools`/`tool_choice` (Finding 2 - tool_calls comes back null).
+  [x] a deliberately-invalid model reply -> exactly one retry, then the fallback
+      test_invalid_reply_retries_once_then_gives_up: the transport is stubbed to
+      answer "Well, it rather depends on how they said it.", classify_reply
+      returns None after exactly 2 requests, and request #2 is the terser prompt
+      (asserted: shorter than #1, contains "one word"). Never raises, and the
+      engine's regex takes the turn. Also asserted: a dead endpoint
+      (http://127.0.0.1:1/v1) returns None from both public methods.
+  [x] wall time per call < 5 s against the live IQ-9075 endpoint
+      worst single call across all runs: 2.74 s (a word_line). See the table.
+
+=== measured latencies (through the tunnel, warm model) =================
+  classification (temperature 0, cap 12 tok)   0.44 - 0.72 s   mean ~0.53 s
+  comfort line   (temperature 0.4, cap 80 tok) 1.19 - 2.74 s   mean ~2.1 s
+  engine seam, heard -> decision (T3.4 path)   0.58 - 1.08 s
+  first request after a service restart        5.6 s  (model load; warm-up call,
+                                               excluded from the bar by design)
+  Client-side timeout is 6 s; the whole budget is the engine's to lose, and it
+  cannot: timers and openings are canned and engine-owned (DESIGN §10).
+
+=== prompt calibration - what was measured, not guessed ================
+Every "obviously helpful" sentence was A/B'd on the live model before shipping,
+5 replays per reply, same options, temperature 0 (see "surprised us" #1):
+
+  arm                                   first-question set   pain double-check
+  bare (role+goal+asked+exits+heard)          44/45  <-- shipped     20/25
+  + "if unsure, choose escalate" tail         41/45                    -
+  + "ok does not close anything" note      25-26/30                    -
+  + pain polarity note                          -            24/25  <-- shipped
+  restructured prompt (heard before exits)    30/36                  17/20
+  option order (escalate, ok)                 37/40         (ok, escalate) 40/40
+
+  Shipped: the bare template, plus ONE sentence during the pain double-check -
+  `Note: "no" or "nothing" here means they have no pain and did not hit their
+  head.` It exists because fall.md's escalate condition literally reads "they
+  say no", while a "no" to *"any pain?"* is the reassuring answer; without it
+  the model escalated the demo's closing line 5 times out of 5.
+
+=== the other phase the model sees: `escalate` =========================
+The scoreboard is all `check` (that is where the consequential decision lives).
+`escalate` offers one exit, so its option set is (check, wait) - "did they
+respond coherently enough to go back and reassess?". Measured, 3 replays:
+  "i'm still here" 3/3 check   "yes" 3/3 check   "i'm okay now" 3/3 check
+  "it hurts" 3/3 check   "how long will it be" 2/3 check   "asdf gwqk" 3/3 wait
+  ...but a repeat batch an hour earlier scored the same set 13/18 (see #1).
+A wrong `wait` here is mild: the comfort loop keeps talking and the 15 s timer
+still carries the session to call_help. `call_help` gets NO model call at all -
+its only exit is "a responder has arrived", which is not a claim a transcript
+can support (llm.options_for returns nothing there, so no request is made).
+
+=== what surprised us about the live model =============================
+1. Temperature 0 is NOT deterministic on this stack. The same prompt, same
+   request, minutes apart, flips on borderline replies. Everything here is
+   therefore reported as a rate over repeated runs, not a single observation -
+   and the engine treats a model answer as a suggestion, never a guarantee.
+2. More instruction made it worse, consistently. Adding the design's own
+   "ambiguity resolves toward help" sentence to the prompt dropped "I'm fine"
+   from 5/5 to 2/5 - a 2B model weights the last thing you tell it hardest, and
+   the rule was already enforced where it belongs (engine.classify_reply).
+3. Off-topic ("what time is it") is the model's genuine coin-flip: it sometimes
+   answers `ok`. Benign by construction - `ok` at the first question buys the
+   canned pain double-check, not a close, and the 30 s phase timer keeps
+   running underneath - but it is why the bar is 9/10 and not 10/10.
+4. `nctx: 16384` per request is accepted and harmless (T3.2 residual: grep nctx
+   qnet/agent/llm.py). No reload, no slowdown, no crash.
+5. Classification is far cheaper than the setup log's 16 tok/s suggests: the
+   answer is one token, so a turn is essentially TTFT + prefill (~0.5 s).
+6. Requests really do serialize. One suite run failed mid-way when the device
+   was busy with someone else's generation: the 6 s client timeout fired, the
+   retry timed out too, and the turn fell through to the regex classifier -
+   which escalated correctly. Degraded, not broken, exactly as §6 promises.
+   Live-test waits were widened to 40 s afterwards; the client timeout stayed 6 s.

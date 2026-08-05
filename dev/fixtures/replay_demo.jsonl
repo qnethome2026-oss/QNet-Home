@@ -1,0 +1,13 @@
+{"ts": 1785790200.0, "event": "detected", "kind": "fall.detected", "conf": 0.91}
+{"ts": 1785790200.6, "event": "say", "text": "I saw you fall. Take a breath — are you okay?"}
+{"ts": 1785790230.6, "event": "heard", "text": "", "silence": true}
+{"ts": 1785790230.7, "event": "phase", "from": "check", "to": "escalate"}
+{"ts": 1785790230.8, "event": "say", "text": "It's okay — I'm getting you help. Try to get comfortable, and don't strain to move."}
+{"ts": 1785790231.0, "event": "tool", "tool": "notify_contacts", "result": "telegram"}
+{"ts": 1785790245.8, "event": "phase", "from": "escalate", "to": "call_help"}
+{"ts": 1785790245.9, "event": "say", "text": "You haven't answered, so I'm calling emergency services now."}
+{"ts": 1785790246.1, "event": "tool", "tool": "call_emergency", "result": "SIMULATED", "detail": {"SIMULATED": true, "number": "911", "reason": "no_response_after_escalation"}}
+{"ts": 1785790246.2, "event": "tool", "tool": "notify_contacts", "result": "telegram"}
+{"ts": 1785790266.2, "event": "say", "text": "I'm still here with you. Sarah has been messaged, emergency services are on the way, and it's been about 1 minute since I saw you fall."}
+{"ts": 1785790310.0, "event": "heard", "text": "a responder just walked in, thank you", "silence": false}
+{"ts": 1785790310.1, "event": "phase", "from": "call_help", "to": "resolved"}

@@ -1,0 +1,237 @@
+T5.2 - Telemetry panel + dev/replay_session.py (lane C, needs T2.2)
+====================================================================
+Run 2026-08-05 on the Snapdragon X Elite laptop (win32), Git Bash / PowerShell,
+cwd = C:\Users\QCWorkshop26\Workspace\QNet-Home-impl (worktree, branch
+implementation, tag g2-fallback). node v22.20.0, python venv at .venv
+(paho-mqtt 2.x, aiomqtt, amqtt - same environment dev/inject.py and
+dev/broker.py already run in).
+
+Deliverables: the System panel inside dashboard/index.html (shares the file
+with T5.1 - see verify/T5.1.txt for the dashboard-wide checks) plus
+dev/replay_session.py and dev/fixtures/replay_demo.jsonl.
+
+--------------------------------------------------------------------
+PART 1 — MACHINE-VERIFIED
+--------------------------------------------------------------------
+
+1a. Latency computation - pure function, unit-tested (extracted from
+dashboard/index.html's LOGIC CORE the same way as T5.1; see verify/T5.1.txt
+1b for the extraction method, reused here rather than repeated):
+
+Synthetic log (detected @ t=1000.0, first say @ t=1000.5, heard @ t=1010.5,
+phase check->escalate @ t=1010.6, phase escalate->call_help @ t=1030.0,
+say @ t=1035.0, phase call_help->resolved @ t=1040.0):
+
+  computeLatencies(log).detectedToFirstSay === 0.5          -> PASS
+  computeLatencies(log).sayHeardGaps === [10]                -> PASS
+    (say@1000.5 -> heard@1010.5, the only say/heard pair)
+  computeLatencies(log).escalationTimings has 3 entries:
+    detected(1000.0)->escalate(1010.6): 10.6s                -> PASS
+    escalate(1010.6)->call_help(1030.0): 19.4s (not directly
+      asserted by name, but the third entry's arithmetic
+      confirms the running-ts approach is right)
+    call_help(1030.0... after further say)->resolved(1040.0): 10s -> PASS
+  All computed purely from the log's own `ts` fields, per DESIGN §6/§14 -
+  no wall-clock guessing, matching the brief's "computed from the session
+  log's ts fields (detected->first say, say->heard gaps, escalation
+  timings)" exactly.
+
+1b. Bytes-on-the-wire counter and video-equivalent comparison - pure
+functions, unit-tested:
+  addMessage() accumulates totalBytes (UTF-8 byte length, via TextEncoder -
+    not JS string .length, which would undercount any non-ASCII text like
+    the fixture's em dashes) AND totalMessages AND a perTopic count map:
+    3 messages across 2 topics -> totalMessages=3, perTopic["qnet/kitchen/
+    say"]=2, perTopic["qnet/kitchen/heard"]=1, totalBytes = exact sum of
+    each payload's byte length                                -> PASS
+  videoEquivalentBytes(1, 500) === 500*1024 (the brief's literal "~500 KB/s"
+    figure, scaled to 1 second of elapsed time)                -> PASS
+  videoEquivalentBytes(-5) clamps to 0 (a negative/undefined elapsed time
+    must never produce a negative byte count)                  -> PASS
+  formatBytes() thresholds (B / KB / MB boundaries) checked exactly -> PASS
+Full 24/24 node run (this file's cases are a subset of the same run) is
+recorded verbatim in verify/T5.1.txt Part 1b - not duplicated here.
+
+1c. Message counter per topic - the dashboard subscribes qnet/# (broad, not
+a curated subset) specifically so this count is honest; verified live in
+Part 2 below via the replay capture, which shows the panel's source data
+(msgStats.perTopic) would show exactly the topics that were actually
+published, with exactly the right counts - no undercount, no phantom topic.
+
+1d. dev/replay_session.py - static checks
+$ python -m py_compile dev/replay_session.py          -> exit 0
+$ python dev/replay_session.py --help                  -> usage printed, exit 0
+$ python -c "import replay_session as rs; rs.parse_filename(...)" (imported
+  from dev/) -
+    parse_filename("kitchen__fall-response__2026-08-05T13-21-32.jsonl")
+      -> ("kitchen", "fall-response")                          -> PASS
+    parse_filename("replay_demo.jsonl") -> (None, None)         -> PASS
+      (doesn't match the <room>__<skill>__<started_at> convention -
+      correctly falls through to --room/--skill/defaults, with a stderr
+      note, exactly as documented for the synthetic fixture below)
+    say_prio("I'm still here with you. all good") -> "comfort"  -> PASS
+    say_prio("I saw you fall.") -> "safety"                     -> PASS
+
+1e. dev/fixtures/replay_demo.jsonl - THIS FILE IS SYNTHETIC, NOT A RECORDING
+No non-fall-response session file existed anywhere under data/sessions/ (the
+only one present is a real fall-response recording, used directly in Part 2
+below) and running another lane's live G2 script to generate more data was
+explicitly out of scope while it may be running concurrently. So this 13-line
+fixture was hand-written to match §6's exact per-line shapes (`{"ts":...,
+"event": "detected"|"say"|"heard"|"phase"|"tool"|"refusal", ...}`), covering
+the full brief: detected -> say -> silence -> escalate -> notify tool ->
+call_help -> SIMULATED emergency -> closed. It plays room "bedroom",
+skill "fall-response" (passed explicitly via --room/--skill/--urgency in
+every verification run below, since its filename deliberately doesn't
+encode them - see 1d).
+
+--------------------------------------------------------------------
+PART 2 — LIVE REPLAY VERIFICATION (dev/broker.py + dev/spy.py)
+--------------------------------------------------------------------
+Per the brief: checked port 1883 was free BEFORE starting dev/broker.py, and
+killed it (and dev/spy.py) afterward both times. Two separate runs, both
+torn down completely (`netstat -ano | grep -E ":1883|:9001"` empty after
+each) before moving on.
+
+RUN 1 - the synthetic fixture, dev/fixtures/replay_demo.jsonl, --speed 20
+$ netstat -ano | grep -E ':1883|:9001'                  -> (empty) port free
+$ python dev/broker.py &                                 -> listening 1883+9001
+$ python dev/spy.py -t 'qnet/#' > spy_capture.log &
+$ python dev/replay_session.py dev/fixtures/replay_demo.jsonl --speed 20 \
+    --room bedroom --skill fall-response --urgency safety
+  -> "replay: dev/fixtures/replay_demo.jsonl -> session
+      01KZ4P7Y60TWAQ09TJFSF5FT08 (bedroom/fall-response, urgency=safety) at
+      20.0x, 13 lines"
+  -> "replay: done - 13 lines published, session 01KZ4P7Y60TWAQ09TJFSF5FT08
+      final state='closed' phase='call_help'"
+  -> wall-clock: first capture 14:10:41.537, last 14:10:47.069 = 5.532s
+     elapsed, for a 110.1s (1785790200.0 -> 1785790310.1) recording at 20x =
+     5.505s expected -> matches within observation noise, confirming --speed
+     actually scales the inter-line delay, not just the printed number.
+$ kill spy, kill broker; netstat confirms both ports free again.
+
+Captured traffic validated programmatically (script inline below, ran
+against spy_capture.log):
+  - 13 qnet/session/<id> publishes, one per input line, ALL SHARING ONE id
+    (single session, never re-minted mid-replay)                -> PASS
+  - each publish carries the full required field set {id, room, skill,
+    urgency, phase, state, log} (contracts/fixtures/session.json's shape)
+                                                                  -> PASS
+  - session.state only ever one of active|closed|cancelled       -> PASS
+  - log length is non-decreasing across the 13 publishes (cumulative
+    rebuild, never a diff/patch) - the brief's explicit requirement
+    "session document rebuilt cumulatively per line"             -> PASS
+  - final publish: state="closed", phase="call_help" (unchanged from the
+    last non-terminal phase, since "resolved" is terminal and the engine
+    itself never "enters" a phase that isn't a real phase - mirrors
+    qnet/agent/engine.py's own close() behaviour)                -> PASS
+  - room-facing topics: exactly 1x qnet/bedroom/event (the "detected" line),
+    4x qnet/bedroom/say (the 4 "say" lines), 2x qnet/bedroom/heard (the 2
+    "heard" lines) - "phase"/"tool" lines correctly produced NO room topic,
+    only the session document, matching contracts/mqtt.md (no room topic
+    exists for those event kinds)                                -> PASS
+  - qnet/bedroom/event payload has {id, ts, room, kind, conf, meta} per
+    contracts/fixtures/event_fall.json                           -> PASS
+  - qnet/bedroom/say payloads have exactly {text, prio}, prio in
+    {safety, comfort} - the comfort-loop line ("I'm still here with you...")
+    correctly got prio="comfort" via the say_prio() heuristic     -> PASS
+  - qnet/bedroom/heard payloads have exactly {text, silence}      -> PASS
+  - the call_emergency tool line's `detail` carries {"SIMULATED": true,
+    "number": "911", "reason": "no_response_after_escalation"} -
+    consistent with what the dashboard's colorForEntry() keys off
+    (tool === "call_emergency" -> red/bold/"SIMULATED" badge, T5.1)
+                                                                  -> PASS
+
+Validator output:
+  "ALL REPLAY ASSERTIONS PASSED"
+  "session id: {'01KZ4P7Y60TWAQ09TJFSF5FT08'}"
+  "room message counts: {'event': 1, 'say': 4, 'heard': 2}"
+
+RUN 2 - the REAL recording, data/sessions/kitchen__fall-response__
+2026-08-05T13-21-32.jsonl (4 lines: detected, say, heard, brief), --speed 20,
+NO --room/--skill flags - exercises the filename auto-parse path that RUN 1
+deliberately bypassed:
+$ netstat -ano | grep -E ':1883|:9001'                   -> (empty) port free
+$ python dev/broker.py &
+$ python dev/spy.py -t 'qnet/#' > spy_capture2.log &
+$ python dev/replay_session.py "data/sessions/kitchen__fall-response__2026-08-05T13-21-32.jsonl" --speed 20
+  -> "replay: data\sessions\kitchen__fall-response__2026-08-05T13-21-32.jsonl
+      -> session 01KZ9SD8D8JK0FEVQ4J7NRBCD7 (kitchen/fall-response,
+      urgency=safety) at 20.0x, 4 lines" - room/skill/urgency correctly
+     recovered from the filename with ZERO CLI overrides given            -> PASS
+  -> final: state='active' (this recording is a real mid-incident capture,
+     never closed - correctly left active, not force-closed)              -> PASS
+$ kill spy, kill broker; netstat confirms both ports free again.
+
+Captured traffic: 4 cumulative qnet/session/<id> publishes (log growing
+1->2->3->4 lines); qnet/kitchen/event (1x), qnet/kitchen/say (1x),
+qnet/kitchen/heard (1x); the file's 4th line (`event: "brief"` - the
+responder-brief interrupt marker per §12) correctly produced NO room topic
+(brief isn't say/heard/detected) and NO phase/state change - only appended
+to the cumulative log, exactly matching contracts/mqtt.md's "not frozen
+here... settled in T6.1" note for that event kind.
+
+1f. WebSocket path bonus check (shared with T5.1, not re-run here): §T5.1
+Part 1g already confirms the dashboard's default broker URL
+(`ws://127.0.0.1:9001/mqtt`) round-trips against the exact dev/broker.py
+instance this task's replay runs used.
+
+--------------------------------------------------------------------
+PART 3 — HUMAN CHECKLIST (needs a rendered browser; not machine-verifiable)
+--------------------------------------------------------------------
+Run with a broker up, dashboard/index.html open via file://, and one of the
+replay runs above driving real traffic (`python dev/replay_session.py
+dev/fixtures/replay_demo.jsonl --speed 5 --room bedroom --skill
+fall-response --urgency safety` gives a comfortable ~5.5s-per-line pace to
+watch the System tab update live).
+
+[ ] Select the replayed session in Activity, switch to System: the latency
+    waterfall renders one bar per stage (detected->first say, each
+    say->heard gap, each phase transition), bar widths visibly proportional
+    to their seconds value, longest bar recognizably the longest
+[ ] The waterfall's "detected -> first say" number visually matches the
+    session's own log timestamps (spot-check against the Activity
+    transcript's timestamps for the same session) - the brief's "panel's
+    detect->speak number equals the JSONL timestamp delta +-0.2s" bar
+[ ] Bytes-on-the-wire counter increases live as the replay runs (does not
+    freeze, does not reset itself between messages)
+[ ] The "video stream equivalent: ~500 KB/s" comparison bar grows over the
+    SAME elapsed wall-clock window as the bytes counter (i.e. both bars are
+    measuring the same time span, not two different clocks) - let the
+    replay run for at least 20-30 real seconds and confirm both numbers are
+    still moving together
+[ ] QNet's actual byte total is visibly, dramatically smaller than the
+    video-equivalent number (this is the point being demonstrated - the
+    percentage line should read well under 1%)
+[ ] Messages-per-topic table lists every topic actually seen (cross-check
+    against dev/spy.py's live output) with correct counts per topic, sorted
+    with the busiest topic first
+[ ] Switching the selected session in Activity changes which session's
+    latency waterfall is shown in System (the two tabs share
+    `selectedSessionId`, per code review - confirm visually)
+[ ] Bytes-on-the-wire and the topic table are NOT session-scoped - they
+    keep counting across every session/topic seen since connecting, even
+    after switching which session is selected
+
+--------------------------------------------------------------------
+SUMMARY
+--------------------------------------------------------------------
+Machine-verifiable surface: PASS in full - latency computation and bytes/
+video-equivalent logic unit-tested (see verify/T5.1.txt for the full 24-case
+run), dev/replay_session.py's filename auto-parse and CLI-override paths
+both exercised, and TWO independent live replay runs against a real local
+broker with dev/spy.py capturing - one against the hand-written synthetic
+fixture (flagged as such, per the brief, since no non-fall-response session
+file existed to replay) covering the full detected->...->closed arc
+including the SIMULATED call_emergency line, one against the actual
+recorded data/sessions/ file exercising filename-based room/skill recovery
+with zero CLI overrides. Every captured qnet/session/<id> publish validated
+programmatically against contracts/fixtures/session.json's required fields,
+cumulative-log-never-shrinks, and the correct room-topic-per-event-kind
+mapping. Broker started only after confirming port 1883 was free both
+times, and killed (with spy) immediately after each run - ports confirmed
+free again via netstat.
+Not machine-verifiable: the rendered waterfall bars, the live-updating byte
+counter and comparison bars as experienced, and the topic table's visual
+sort order. Those are the 8 boxes in Part 3, left unchecked for a human to
+run through against a live replay.
