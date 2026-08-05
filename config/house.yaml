@@ -18,5 +18,14 @@ voice:
   wake_phrase: "hey home"
   responder_phrase: "i'm the first responder"    # checked before wake_phrase, any state
   idle_listen_timeout_s: 30
+comfort:
+  interval_s: 20        # never leave them in silence longer than this (§6, T2.4)
+  # phases: [escalate, call_help]   # optional override; default = phases that
+  #                                 # fired on_enter actions in a safety skill
+dev:
+  timer_scale: 1.0      # multiply every phase timer + the comfort interval;
+                        # 0.05 replays the whole fall ladder in seconds (tests,
+                        # scripts/demo_fallback.sh). Also --timer-scale.
 storage:
   sessions_dir: "data/sessions"   # one file per session, see §6
+  skills_dir: "skills"            # where fall.md lives (§7)

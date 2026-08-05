@@ -50,6 +50,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"broker host, overriding the config's mqtt.host (default: {engine.DEFAULT_BROKER})",
     )
     parser.add_argument("--port", type=int, default=None, help=f"broker port (default: {engine.DEFAULT_PORT})")
+    parser.add_argument(
+        "--timer-scale",
+        type=float,
+        default=None,
+        metavar="X",
+        help="multiply every phase timer and the comfort interval by X, overriding "
+        "the config's dev.timer_scale - 0.05 turns the 30 s/15 s fall ladder into "
+        "1.5 s/0.75 s so a whole incident replays in seconds (default: 1.0)",
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     return parser
 
@@ -68,6 +77,9 @@ def main(argv: list[str] | None = None) -> int:
     except OSError as exc:
         print(f"qnet.agent: cannot read {args.config}: {exc}", file=sys.stderr)
         return 2
+
+    if args.timer_scale is not None:
+        config.setdefault("dev", {})["timer_scale"] = args.timer_scale
 
     # aiomqtt drives paho through the loop's reader callbacks, which the Windows
     # proactor loop does not implement - the selector loop does.

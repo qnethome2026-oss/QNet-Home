@@ -1,0 +1,134 @@
+T2.2 - Engine: phases, timers, cancel, logging - VERIFY (IMPLEMENTATION.md, Phase 2)
+Run on: 2026-08-05  host: windows 11 arm64  python: 3.12.10 (.venv)
+Deliverable: qnet/agent/engine.py (run_phase per DESIGN §6) + tests/test_scenarios.py
+
+=== the Verify block, verbatim =========================================
+$ .venv/Scripts/python -m pytest tests/test_scenarios.py -q
+..............                                                           [100%]
+14 passed in 11.47s
+
+$ .venv/Scripts/python -m pytest tests/test_scenarios.py -v
+collecting ... collected 14 items
+
+tests/test_scenarios.py::test_silence_full_escalation PASSED             [  7%]
+tests/test_scenarios.py::test_im_fine_double_check PASSED                [ 14%]
+tests/test_scenarios.py::test_false_alarm_followup PASSED                [ 21%]
+tests/test_scenarios.py::test_reentry_single_notification PASSED         [ 28%]
+tests/test_scenarios.py::test_comfort_loop_speaks_grounded_updates PASSED [ 35%]
+tests/test_scenarios.py::test_comfort_drops_rather_than_overlapping PASSED [ 42%]
+tests/test_scenarios.py::test_elapsed_phrase_is_accurate PASSED          [ 50%]
+tests/test_scenarios.py::test_cancel_phrases_only PASSED                 [ 57%]
+tests/test_scenarios.py::test_out_of_phase_tool_is_refused PASSED        [ 64%]
+tests/test_scenarios.py::test_duplicate_fall_ignored PASSED              [ 71%]
+tests/test_scenarios.py::test_safety_session_keeps_the_floor PASSED      [ 78%]
+tests/test_scenarios.py::test_pain_after_fine_escalates PASSED           [ 85%]
+tests/test_scenarios.py::test_heard_without_a_session_is_ignored PASSED  [ 92%]
+tests/test_scenarios.py::test_recorder_registry_is_the_only_tool_source PASSED [100%]
+
+============================= 14 passed in 11.47s =============================
+
+  The four named ones are the first four. What each asserts, beyond its name:
+   - silence_full_escalation: opening said instantly; escalate at 1.2-3.0 s
+     (30 s x 0.05); notify_contacts fired BEFORE any turn; call_help 0.4-2.0 s
+     later; call_emergency fired; tool order exactly
+     [notify_contacts, call_emergency, notify_contacts]; JSONL phase lines
+     [(check,escalate),(escalate,call_help)] in order; the SIMULATED payload is
+     on the emergency line; the last qnet/session/<id> document equals the log.
+   - im_fine_double_check: the pain question TEXT is on the bus before anything
+     closes; final state "ok" (state "closed"); ZERO tool calls.
+   - false_alarm_followup: state "cancelled"; notify_contacts twice, kinds
+     ["escalate", "false_alarm"]; call_emergency never.
+   - reentry_single_notification: phase lines
+     [(check,escalate),(escalate,check),(check,escalate)] and notify_contacts
+     EXACTLY once across the whole session.
+
+$ .venv/Scripts/python -m pytest -q          # "done stays done": the whole suite
+............................................                             [100%]
+44 passed in 11.55s
+  (8 contracts + 15 tools + 7 skill loader + 14 scenarios)
+
+=== the harness (why these are trustworthy) ============================
+tests/conftest.py: a fake in-process MQTT layer (FakeBus, exactly the
+publish(topic, payload, qos) surface Agent.publish uses), recorder tools shaped
+like qnet.tools.ToolSpec, and dev.timer_scale = 0.05 so fall.md's real 30 s/15 s
+timers run in 1.5 s/0.75 s. No monkeypatched clock, no faked sleep, no mocked
+engine internals. The tests never import qnet/tools - one recorder stub logs
+through ctx.log like the shipped notify_contacts does and one does not, so both
+halves of the engine's "exactly one tool line per call" rule are exercised.
+
+=== live, against the real broker + real agent + real tools =============
+  python dev/broker.py &                                              # own broker, log verified clean
+  python -m qnet.agent --config <copy> --no-llm --timer-scale 0.5 &   # check 15 s, escalate 7.5 s
+  python dev/spy.py &                                                 # == mosquitto_sub -t 'qnet/#' -v
+
+  agent startup:
+  13:51:55 INFO --no-llm: phases, timers and the canned classifier - no model in the loop
+  13:51:55 INFO connected 127.0.0.1:1883 - subscribed qnet/+/event qnet/+/ask qnet/+/heard
+  13:51:55 INFO skill fall-response: phases check -> escalate -> call_help | timer_scale 0.5 | comfort every 10s
+
+--- A. duplicate-inject check (T1.3's rule, rerun after the rewrite) ---
+  > qnet/kitchen/event {"id": "01KZ9V502P1CJ6Y6MJD4S7FYX4", ... "kind": "fall.detected" ...}
+  session files: kitchen__fall-response__2026-08-05T13-51-58.jsonl   says on bus: 1
+  > qnet/kitchen/event {"id": "01KZ9V52BPF926GXTFCNQWN1XT", ... "kind": "fall.detected" ...}
+  session files: kitchen__fall-response__2026-08-05T13-51-58.jsonl   says on bus: 1   <- unchanged
+  agent log: [kitchen] fall ignored - session 01KZ9V502VEEQ4KFP8ZC0FZPM4 already live (one per room)
+
+--- B. "i'm fine" is a REPLY: pain double-check, then close ------------
+  > qnet/kitchen/heard {"text": "i'm fine", "silence": false}
+  > qnet/kitchen/heard {"text": "no", "silence": false}
+  -- qnet/kitchen/say --
+  13:51:58.685 qnet/kitchen/say {"text": "I saw you fall. Take a breath — are you okay?", "prio": "safety"}
+  13:52:03.376 qnet/kitchen/say {"text": "Any pain? Did you hit your head?", "prio": "safety"}
+  -- session file --
+  {"ts": 1785963118.7, "event": "detected", "kind": "fall.detected", "conf": 0.87}
+  {"ts": 1785963118.7, "event": "say", "text": "I saw you fall. Take a breath — are you okay?"}
+  {"ts": 1785963123.4, "event": "heard", "text": "i'm fine", "silence": false}
+  {"ts": 1785963123.4, "event": "say", "text": "Any pain? Did you hit your head?"}
+  {"ts": 1785963126.1, "event": "heard", "text": "no", "silence": false}
+  {"ts": 1785963126.1, "event": "phase", "from": "check", "to": "ok"}
+  -- last session document on the bus --
+  13:52:06.077 qnet/session/01KZ9V502VEEQ4KFP8ZC0FZPM4 {"id": "01KZ9V502VEEQ4KFP8ZC0FZPM4", "room": "kitchen", "skill": "fall-response", "urgency": "safety", "phase": "check", "state": "closed", ...
+  agent log: [kitchen] session 01KZ9V502VEEQ4KFP8ZC0FZPM4 closed (ok)
+
+--- C. "false alarm" AFTER contacts were notified -> cancel + follow-up -
+  {"ts": 1785963129.0, "event": "detected", "kind": "fall.detected", "conf": 0.87}
+  {"ts": 1785963129.0, "event": "say", "text": "I saw you fall. Take a breath — are you okay?"}
+  {"ts": 1785963144.0, "event": "phase", "from": "check", "to": "escalate"}
+  {"ts": 1785963144.0, "event": "say", "text": "It's okay — I'm getting you help. Try to get comfortable, and don't strain to move."}
+  {"ts": 1785963144.0, "event": "tool", "tool": "notify_contacts", "result": "console"}
+  {"ts": 1785963146.2, "event": "heard", "text": "false alarm", "silence": false}
+  {"ts": 1785963146.2, "event": "tool", "tool": "notify_contacts", "result": "console"}
+  {"ts": 1785963146.2, "event": "phase", "from": "escalate", "to": "cancelled"}
+  -- data/outbox/telegram.log: exactly what the caregiver receives --
+  {"ts": 1785963144.0, "kind": "escalate", "text": "🔴 Possible fall — Margaret, bedroom. Checking on them now."}
+  {"ts": 1785963146.2, "kind": "false_alarm", "text": "✅ False alarm — Margaret confirmed they're okay (bedroom). No action needed."}
+  agent log: [bedroom] check timer fired after 15s -> escalate
+             [bedroom] cancel matched 'false alarm' - closing from escalate
+             [bedroom] session 01KZ9V5A4X6GX70GN6Z1MRXPAH cancelled (cancelled)
+
+  (Telegram itself is untested here - config/house.yaml still has TODO for the
+   token and chat id, T0.5. The tool falls back to console + outbox, which is
+   what these two lines are. The message CONTENT is DESIGN §7's, room included.)
+
+=== the two design ambiguities resolved, and where ======================
+1. on_enter_done is keyed by (phase, action), not action alone. §6's pseudocode
+   says `a not in session.on_enter_done`; taken literally, call_help's
+   notify_contacts is swallowed by escalate's and §7's second Telegram template
+   ("calling emergency services now") can never be sent - contradicting §6's
+   "up to three short pings per fall session". The (phase, action) key satisfies
+   both: escalate -> check -> escalate never re-alarms (test_reentry_single_
+   notification), and reaching call_help sends its own milestone once
+   (test_silence_full_escalation asserts kinds ["escalate", "call_help"]).
+2. Session `state` stays inside the wire contract's vocabulary (active/closed/
+   cancelled, §4); the exit label that ended it ("ok", "resolved", ...) is kept
+   on session.final and written as the closing phase line's "to" field. No
+   contract change, and get_session_summary's inference off the last phase line
+   keeps working.
+
+=== also observed, worth knowing before the demo ========================
+The phase timer is NOT reset when the person speaks (DESIGN §6: the timer starts
+once, before the listen loop). An earlier live run at timer_scale 0.2 had the
+6 s check timer fire while the person was still answering the pain question, and
+the session escalated mid-answer. That is the specified behaviour and it errs
+toward help - but at a demo it means the pain double-check has to be answered
+inside the phase's 30 s, which is the real budget, not the scaled one.

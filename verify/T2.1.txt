@@ -1,0 +1,83 @@
+T2.1 - Skill loader - VERIFY (docs/IMPLEMENTATION.md, Phase 2)
+Run on: 2026-08-05  host: windows 11 arm64  python: 3.12.10 (.venv)
+Deliverables: qnet/agent/phases.py + skills/fall.md
+
+=== the Verify block, verbatim =========================================
+$ .venv/Scripts/python -m pytest tests/test_skill_loader.py -q
+.......                                                                  [100%]
+7 passed in 0.02s
+
+$ .venv/Scripts/python -m pytest tests/test_skill_loader.py -v
+collecting ... collected 7 items
+
+tests/test_skill_loader.py::test_fall_md_loads PASSED                    [ 14%]
+tests/test_skill_loader.py::test_exit_naming_missing_phase_fails PASSED  [ 28%]
+tests/test_skill_loader.py::test_unknown_on_enter_action_fails PASSED    [ 42%]
+tests/test_skill_loader.py::test_timer_shape_validated PASSED            [ 57%]
+tests/test_skill_loader.py::test_exit_resolution_rule PASSED             [ 71%]
+tests/test_skill_loader.py::test_engine_only_tools_are_never_the_models_to_call PASSED [ 85%]
+tests/test_skill_loader.py::test_malformed_files_name_themselves PASSED  [100%]
+
+============================== 7 passed in 0.02s ==============================
+
+  -> all five required test names present and passing, plus two more.
+
+=== skills/fall.md is DESIGN §7's file, byte for byte ==================
+$ .venv/Scripts/python -c "<compare skills/fall.md with docs/DESIGN.md lines 314-372>"
+DESIGN.md lines 314-372 == skills/fall.md : True
+bytes: 3220 lines: 59
+
+  Contents confirmed by test_fall_md_loads: frontmatter (name/trigger/urgency/
+  source/emergency_number), three phases check -> escalate -> call_help, both
+  openings, all goals, exits {ok, escalate} / {check} / {resolved},
+  on_enter [notify_contacts] and [call_emergency, notify_contacts],
+  timers {after_s 30 -> escalate} and {after_s 15 -> call_help}, call_help with
+  NO timer, and the ## Guidance prose.
+
+  NOTE - one deliberate deviation from "every new file carries the AGPL header"
+  (DESIGN §18): skills/fall.md carries none, because the brief says to author it
+  verbatim from DESIGN §7 and any header would have to sit above or inside the
+  YAML frontmatter and change the file. DESIGN §5's module table classes
+  skills/*.md as "Markdown + YAML ... Not code". Every .py and .sh file added by
+  T2.1/T2.2/T2.4 does carry the header:
+$ grep -rL "GNU Affero" qnet/ --include='*.py'
+$ grep -rL "GNU Affero" tests/ dev/ scripts/ --include='*.py' --include='*.sh'
+  (both empty)
+
+=== load-time validation, with the errors it actually prints ===========
+Every check fails loudly, names the file, names the offending value, and says
+why it matters. A skill file is data, but it is data that decides whether a
+caregiver gets called - so a typo must fail at agent startup, not at 3am.
+
+$ <load a skill whose check phase says `escalat:` instead of `escalate:`>
+SkillError: skills/toy.md: phase 'check': exit 'escalat' names neither a phase (check, escalate) nor a terminal state (cancelled, closed, done, found, not_found, ok, resolved) - a typo here would silently end the session instead of jumping
+
+$ <load a skill with on_enter: [notify_the_neighbours]>
+SkillError: skills/toy.md: phase 'escalate': on_enter action 'notify_the_neighbours' is not a registered tool (have: call_emergency, look_in_rooms, notify_contacts)
+
+$ <load a skill with timer: { after_s: -5, goto: escalate }>
+SkillError: skills/toy.md: phase 'check': timer: after_s must be positive, got -5
+
+  Also covered by the tests: timer missing goto / missing after_s / non-numeric
+  after_s / unknown key / not a mapping; timer goto naming a phase that does not
+  exist; a tools: allowlist naming an unregistered tool; duplicate phase ids;
+  no frontmatter; no '## Phases'; no ```yaml block; missing name; bad urgency.
+
+=== the one judgement call in this task, written down ==================
+DESIGN §6's exit-resolution rule ("a phase id jumps, any other name ends the
+session with that label") makes EVERY exit name legal, which would make
+`escalat:` a silent session close - the single worst failure this file can
+produce. The loader therefore keeps a vocabulary of terminal states
+(ok, found, not_found, done, resolved, closed, cancelled - §6's own list plus
+the two the engine itself produces), extensible per skill with a
+`terminal_exits:` frontmatter list. A name that is neither a phase nor a known
+terminal state is a load error. The RUNTIME rule is unchanged and is tested
+directly (test_exit_resolution_rule): resolve_exit("escalate") -> ("jump",...),
+resolve_exit("ok") -> ("end", "ok").
+
+=== the registry is injected, never assumed ============================
+`load_skill(path, tools=...)` takes the registry to validate against; the
+default resolves qnet.tools.TOOLS lazily and, if it is not importable yet,
+skips tool validation with a warning instead of refusing to start. Every test
+passes its own fake registry (tests/test_skill_loader.py FAKE_TOOLS), so the
+suite is hermetic with respect to another lane's task.
