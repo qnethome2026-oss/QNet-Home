@@ -1,0 +1,46 @@
+T0.1 - Freeze the wire contract (lane A)
+Run 2026-08-05 on the Snapdragon X Elite laptop (win32), Git Bash,
+cwd = C:\Users\QCWorkshop26\Workspace\QNet-Home-impl (worktree, branch implementation),
+Python 3.12.10 from .venv.
+
+Verify block from docs/IMPLEMENTATION.md, run verbatim:
+
+$ ls contracts/fixtures/
+ask_query.json
+ask_responder_brief.json
+event_fall.json
+heard.json
+look.json
+looked.json
+say.json
+session.json
+exit=0
+  -> exactly the 8 required files: event_fall.json, ask_query.json,
+     ask_responder_brief.json, say.json, heard.json, look.json, looked.json,
+     session.json. PASS
+
+$ .venv/Scripts/python -m pytest tests/test_contracts.py -q
+........                                                                 [100%]
+8 passed in 0.01s
+exit=0
+  -> "8 passed", one test per fixture, each asserting the required fields and
+     types from DESIGN.md §4 (session log lines from §6). PASS
+
+$ grep -c "qnet/" contracts/mqtt.md
+18
+exit=0
+  -> 18 >= 8; all 8 topics documented with direction, purpose and QoS. PASS
+
+RESULT: T0.1 PASS.
+
+Notes recorded with the evidence:
+- QoS frozen as: 1 for event / ask / say / heard / look / looked, 0 for status
+  (repeating heartbeat), 1 for qnet/session/<id>.
+- qnet/<room>/status has no payload example in DESIGN §4, so its shape is
+  deliberately NOT frozen here and has no fixture; it is settled in T4.2.
+- DESIGN §12's one "brief" log line likewise has no shape in the doc; not
+  frozen, settled in T6.1.
+- contracts/fixtures/session.json carries the six §6 log lines verbatim,
+  including the final refusal line's "phase": "check" even though the
+  preceding line transitions check -> escalate. Kept as written (doc wins);
+  flagged as a probable doc typo.

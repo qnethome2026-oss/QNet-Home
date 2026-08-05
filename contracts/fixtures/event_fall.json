@@ -1,0 +1,11 @@
+{
+  "id": "01JQ7ZK9M4T8VNRXQ2C6HB3EDA",
+  "ts": 1785790153.4,
+  "room": "kitchen",
+  "kind": "fall.detected",
+  "conf": 0.87,
+  "meta": {
+    "cls": "Fallen",
+    "frames": "5/8"
+  }
+}

@@ -1,0 +1,45 @@
+T1.1 — Mosquitto broker on IQ-9075 — STATUS: install/config complete, activation BLOCKED
+==========================================================================================
+See verify/T1.1-blocked.txt for full detail. Summary:
+
+INSTALLED (device: 10.73.51.175, via ssh iq9):
+  mosquitto 2.0.18-1build3, mosquitto-clients 2.0.18-1build3, libmosquitto1 2.0.18-1build3,
+  libdlt2 2.18.10-10, libwebsockets19t64 4.3.3-1.1build3, python3-paho-mqtt 1.6.1-1
+  — all via `apt-get download <pkg> && sudo dpkg -i <pkg>.deb` (gotcha #1 respected; no
+  `apt --fix-broken install` ever run; `apt-get check` before/after shows the same
+  pre-existing qimsdk/GStreamer-qcom breakage, nothing new).
+
+CONFIGURED:
+  /etc/mosquitto/conf.d/qnet.conf deployed to the device, matches infra/mosquitto.conf in
+  this repo: listener 1883 0.0.0.0 (mqtt) + listener 9001 0.0.0.0 (websockets),
+  allow_anonymous true on both.
+
+BLOCKED: TCP/1883 on the device is already held by an unrelated, currently-LIVE process
+  (/home/ubuntu/QNet-Home/.venv-iq9/bin/python -m services.iq9_native.main, PID 3674 — a
+  separate "QHome" demo deployment, not part of this repo, not geniex-serve) with a real
+  external client (10.73.51.123, "qhome-ventuno-living-room") connected for the last
+  ~3.5 h. Did NOT kill it — that decision needs a human (see T1.1-blocked.txt for the two
+  resolution paths and exact commands). mosquitto.service was left `enabled` but stopped
+  (not crash-looping).
+
+PRE-VALIDATED ANYWAY (non-destructive, alt ports 11883/19001, cleaned up after):
+  - mosquitto starts cleanly with this exact qnet.conf listener config (proves
+    libwebsockets19t64 + the websockets listener work on this device)
+  - on-device mosquitto_pub -> mosquitto_sub round trip: PASS
+  - laptop-side paho-mqtt verification, both transports, against 10.73.51.175:
+      TCP  transport: PASS  (subscribed qnet/#, published qnet/test, received it back)
+      WS   transport: PASS  (same, over ws://.../mqtt on the websockets listener)
+  Laptop venv used: a throwaway venv under %TEMP%, `pip install paho-mqtt`, script at
+  C:\Users\QCWorkshop26\AppData\Local\Temp\qnet-mqtt-test.py (parameterized by port,
+  works for prod ports too — rerun against 1883/9001 once unblocked:
+  `python qnet-mqtt-test.py 1883 9001`).
+
+NOT YET DONE (pending the port conflict resolution):
+  - Final `systemctl restart mosquitto` on production ports 1883/9001
+  - Re-run of the same laptop verification against the real ports 1883/9001 (trivial once
+    unblocked — same script, default args)
+
+MEASURED ROUND-TRIP (on-device, alt port, loopback, paho-mqtt): 1.2 ms
+  (spec requires "within 1 s" — three orders of magnitude of margin)
+
+ACTION NEEDED: see verify/T1.1-blocked.txt, "EXACT COMMANDS A HUMAN SHOULD RUN".

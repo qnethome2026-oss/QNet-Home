@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# QNet Home - node identity template (DESIGN.md §5).
+# "Node identity: a local config file, nothing clever." Set once at install.
+# No IP mapping (DHCP moves), no registration flow (something to fail live).
+# At boot the node publishes itself on qnet/<room>/status, so the dashboard
+# learns which rooms exist without any registration protocol existing at all.
+
+node_id: kitchen-01
+room: kitchen

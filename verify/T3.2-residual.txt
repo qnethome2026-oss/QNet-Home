@@ -1,0 +1,82 @@
+T3.2 residual — 16k context (--nctx 16384) on geniex-serve
+=============================================================
+Date: 2026-08-05, IQ-9075 device (10.73.51.175), via ssh iq9
+
+CHANGE MADE
+  File: /etc/systemd/system/geniex-serve.service
+  Backup taken first: /etc/systemd/system/geniex-serve.service.bak-pre-nctx (sudo, on device)
+
+  Before:
+    ExecStart=/home/ubuntu/.local/bin/geniex serve --skip-update
+
+  After:
+    ExecStart=/home/ubuntu/.local/bin/geniex serve --skip-update --nctx 16384
+
+  Applied with:
+    sudo systemctl daemon-reload
+    sudo systemctl restart geniex-serve
+
+  Verify residual checklist item (per docs/IMPLEMENTATION.md T3.2):
+    $ grep nctx /etc/systemd/system/geniex-serve.service
+    ExecStart=/home/ubuntu/.local/bin/geniex serve --skip-update --nctx 16384
+  -> PASS
+
+SERVICE HEALTH AFTER RESTART
+  systemctl status geniex-serve (58s after restart):
+    Active: active (running) since Wed 2026-08-05 19:57:23 UTC
+    Main PID: 15813 (geniex)
+    Memory: 2.5G (peak 2.8G)  <- higher than the pre-nctx baseline (~150M idle / ~4GB doc'd
+                                  footprint with default ctx) — expected, larger KV cache
+                                  reserved for 16k context. Still far under the 34 GB budget.
+  NRestarts=0, ActiveState=active, SubState=running  -> no crash-restart-loop, stable.
+
+VERIFICATION
+
+  1. GET /v1/models (16s after restart):
+     curl -s http://127.0.0.1:18181/v1/models
+     -> {"data":[{"id":"google/gemma-4-E2B-it-qat-q4_0-gguf:Q4_0","created":0,
+         "object":"model","owned_by":"google"}],"object":"list"}
+     PASS
+
+  2. POST /v1/chat/completions — first request after restart (model load included),
+     model "google/gemma-4-E2B-it-qat-q4_0-gguf", enable_think:false,
+     max_completion_tokens:30 (exact GenieX field names, per runbook Finding 1),
+     prompt "Say hello in exactly one word.":
+
+     Response:
+       {"choices":[{"finish_reason":"stop","message":{"content":"Hello", ...}}],
+        "usage":{"completion_tokens":1,"prompt_tokens":16,"total_tokens":17, ...}}
+
+     -> content "Hello", no thinking-channel markers present (enable_think:false worked),
+        max_completion_tokens respected (finish_reason "stop" well under the 30 cap).
+     PASS
+
+     First-request time (curl wall clock, includes model load onto the Hexagon NPU/HTP):
+       4.90 s
+
+     journalctl -u geniex-serve during this request confirms the NPU/HTP path loaded again
+     (same as the original T3.2 setup): "Successfully opened file libggml-htp-v73.so" and
+     "remote_handle64_open ... file:///libggml-htp-v73.so ... _dom=cdsp" — inference still
+     running on the Hexagon cdsp domain, not CPU fallback. The fastrpc "Error 0x14"/"Warning"
+     lines around startup are the same benign PD/notif-setup noise as at initial T3.2 setup
+     (not new, not fatal).
+
+  3. Second (warm) request, same prompt/params:
+       Elapsed: 0.23 s
+     Consistent with the original TTFT-warm figure (~0.18 s) plus one generated token.
+     PASS
+
+  NET RESULT: service came back up cleanly with --nctx 16384; no rollback was needed.
+
+NOT TOUCHED (per hard safety rules)
+  - ~/.cache/geniex/models/ (the hand-patched geniex.json Step-6 workaround) — untouched,
+    and behavior confirms it's still in effect: response used the plain-LLM path (no VLM
+    tokenization corruption symptom of "prompt_tokens": 1 regardless of prompt; here
+    prompt_tokens=16, matching the actual input).
+  - No reboots performed.
+  - No `pkill -f` used anywhere in this session.
+
+ROLLBACK PLAN (not needed, documented for completeness)
+  sudo cp /etc/systemd/system/geniex-serve.service.bak-pre-nctx /etc/systemd/system/geniex-serve.service
+  sudo systemctl daemon-reload
+  sudo systemctl restart geniex-serve

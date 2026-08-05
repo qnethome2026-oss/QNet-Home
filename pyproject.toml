@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qnet"
+version = "0.1.0"
+description = "QNet Home - a privacy-first, multi-device home safety system"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
+dependencies = [
+    "paho-mqtt>=2.1",
+    "pyyaml",
+    "httpx",
+    "openai",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["qnet*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
