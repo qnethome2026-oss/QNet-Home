@@ -44,8 +44,13 @@ if ($LASTEXITCODE -ne 0) { throw 'pyinstaller not installed. pip install -e .[de
 # Data files, as source-relative-path => destination-dir-in-bundle. The
 # destinations mirror the repo layout so qnet/app.py's bundle_root() lookup is
 # identical in dev and frozen - see DASHBOARD_REL / FIXTURE_REL there.
+# T5.4 split the dashboard in two: index.html is the product page a family
+# opens, admin.html is the technical view it links to. BOTH must ship - the
+# product page's footer, its Settings modal and its Help modal all link to
+# admin.html, and a bundle carrying only index.html would ship three dead links.
 $DataFiles = @{
     'dashboard\index.html'             = 'dashboard'
+    'dashboard\admin.html'             = 'dashboard'
     'dev\fixtures\replay_demo.jsonl'   = 'dev\fixtures'
 }
 
@@ -91,7 +96,7 @@ Write-Host ('BUILD OK  {0}' -f $Exe) -ForegroundColor Green
 Write-Host ('  dist size : {0:N1} MB across {1} files' -f ($bytes / 1MB), $files)
 
 # Confirm the bundled data files landed where app.py will look for them.
-foreach ($rel in @('_internal\dashboard\index.html', '_internal\dev\fixtures\replay_demo.jsonl')) {
+foreach ($rel in @('_internal\dashboard\index.html', '_internal\dashboard\admin.html', '_internal\dev\fixtures\replay_demo.jsonl')) {
     $p = Join-Path 'dist\QNetHome' $rel
     if (Test-Path $p) {
         Write-Host ('  bundled   : {0} ({1:N0} bytes)' -f $rel, (Get-Item $p).Length)

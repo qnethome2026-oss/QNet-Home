@@ -31,10 +31,12 @@ alive. Full evidence in ``verify/T5.3.txt``. The submission requirement is an
 the machine the demo runs on; ``open_in_window()`` below is the seam to put a
 real WebView back behind if one ever becomes available on this CPU.
 
-The dashboard itself is unchanged and unaware of any of this - one
-self-contained ``index.html`` that already works from ``file://`` (T5.1), with
-the broker URL editable in the page. Nothing here needs to know a broker
-exists.
+The dashboard itself is unchanged and unaware of any of this - self-contained
+HTML that already works from ``file://`` (T5.1), with the hub address editable
+in the page. Nothing here needs to know a broker exists. Since T5.4 there are
+two pages, not one: ``dashboard/index.html`` (the product page, the one this
+app opens) and ``dashboard/admin.html`` (the technical view it links to). Both
+are staged, side by side, so the relative links between them resolve.
 
 Run it:
 
@@ -57,6 +59,10 @@ from pathlib import Path
 # bundle root when frozen - `packaging/build.ps1` adds them at these same paths
 # so one lookup table serves both.
 DASHBOARD_REL = Path("dashboard") / "index.html"
+# T5.4: the product page links to the admin portal from its footer, its Help
+# modal and its Settings modal. It is a sibling file, opened as a plain relative
+# href, so it has to be staged next to index.html or those links 404.
+ADMIN_REL = Path("dashboard") / "admin.html"
 FIXTURE_REL = Path("dev") / "fixtures" / "replay_demo.jsonl"
 
 
@@ -119,6 +125,13 @@ def stage_dashboard() -> Path:
         (target_dir / "dashboard").mkdir(parents=True, exist_ok=True)
         target = target_dir / DASHBOARD_REL
         shutil.copyfile(source, target)
+
+        # The admin portal is a sibling page the product page links to (T5.4),
+        # so it is staged into the same directory. Missing is silent: the
+        # product page is fully usable without it, it just loses a link.
+        admin = bundle_root() / ADMIN_REL
+        if admin.is_file():
+            shutil.copyfile(admin, target_dir / ADMIN_REL)
 
         # The offline-demo fixture rides along when it was bundled. It is not
         # needed to open the dashboard, so a missing one is silent.
