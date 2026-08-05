@@ -21,7 +21,14 @@ dependencies = [
 [project.optional-dependencies]
 # amqtt is the laptop stand-in for Mosquitto (dev/broker.py) - Windows has no
 # mosquitto package, and the spine has to be developable off the hardware.
-dev = ["pytest", "amqtt>=0.11"]
+# pyinstaller builds the Windows .EXE/.MSIX (T5.3, packaging/): a build tool,
+# not something the shipped app imports, so it stays out of `dependencies`.
+# NOTE: no pywebview, though DESIGN §14 says "WebView". Its Windows backends
+# need pythonnet, which cannot host a CLR inside native ARM64 CPython on this
+# laptop - see qnet/app.py's docstring and verify/T5.3.txt. The wrapper opens
+# the system browser instead and imports stdlib only, which is also why the
+# packaged app is ~10 MB rather than ~60.
+dev = ["pytest", "amqtt>=0.11", "pyinstaller>=6.10"]
 
 [tool.setuptools.packages.find]
 include = ["qnet*"]

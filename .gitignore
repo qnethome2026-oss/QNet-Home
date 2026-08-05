@@ -4,3 +4,11 @@ __pycache__/
 *.pyc
 data/
 verify/*.tmp
+
+# T5.3 build output. Everything here is reproducible from packaging/build.ps1
+# and packaging/make_msix.ps1 - the 20 MB onedir tree, the 8.6 MB msix, the
+# exported cert, and PyInstaller's generated spec and work dir. The scripts are
+# the artifact; the binaries are not.
+build/
+dist/
+packaging/QNetHome.spec
