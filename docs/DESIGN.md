@@ -93,10 +93,13 @@ sequenceDiagram
         A->>B: say · "Any pain? Did you hit your head?"
         P-->>A: "no" — only then does it close
     else "no" / pain / 30 s silence
-        A->>T: notify_contacts
+        A->>T: notify_contacts · "Reply OK if you can check on Tony — otherwise I'll call emergency services in 30 s"
         A->>B: say · "I've messaged Sarah."
-        A->>A: 15 s timer
-        alt still silent
+        A->>A: 30 s reply window
+        alt contact replies OK (regex on the rails, never the model)
+            A->>B: say · "Sarah saw my message and is coming to check on you."
+            A->>A: 180 s backstop — an acked-then-silent incident still calls
+        else still silent
             A->>T: call_emergency (simulated)
             A->>B: say · "Help is on the way. I'll stay with you."
         else person speaks
@@ -105,11 +108,13 @@ sequenceDiagram
     end
 ```
 
+A contact can also reply **"call 911"** at any point in a live incident — the (simulated) call fires immediately. Replies are accepted only from configured contact chat ids, arrive over a getUpdates long-poll in the agent, and land in the session log, the dashboard feed, and the `qnet/<room>/contact` wire message.
+
 ---
 
 ## 4. The contract
 
-MQTT is the only coupling between devices. Broker: Mosquitto on the IQ-9075 (`apt install mosquitto`, native ARM64). Clients: `paho-mqtt` on nodes and agent. Dashboard subscribes over Mosquitto's WebSocket listener on `:9001` — no backend API to write.
+MQTT is the only coupling between devices. Broker: Mosquitto on the IQ-9075 (`apt install mosquitto`, native ARM64). Clients: `paho-mqtt` on nodes and agent. Dashboard subscribes over Mosquitto's WebSocket listener — no backend API to write. **Ports are configuration, not contract** (`config/house.yaml` `mqtt:` block; dashboard takes the full `ws://` URL in Settings): local dev defaults 1883/9001; the deployed IQ-9075 broker serves **11883 tcp / 19001 ws** while an unrelated teammate stack holds `:1883` on that board — switch back to standard ports later by editing `infra/mosquitto.conf` + the config block and restarting (procedure in the conf header).
 
 | Topic | Direction | Purpose |
 |---|---|---|
@@ -139,8 +144,7 @@ MQTT is the only coupling between devices. Broker: Mosquitto on the IQ-9075 (`ap
 // qnet/kitchen/looked  → { "qid": "q7", "room": "kitchen", "found": true,
 //                          "answer": "on the counter next to the kettle" }
 
-// say      → { "text": "...", "prio": "safety|comfort|routine" }
-//            routine (T6.2): a find answer, or a brief with no live fall session
+// say      → { "text": "...", "prio": "safety|comfort" }
 // heard    → { "text": "i'm fine", "silence": false }
 // session  → { "id": "...", "room": "kitchen", "skill": "fall-response",
 //              "urgency": "safety|routine", "phase": "escalate",
@@ -178,7 +182,7 @@ qnet/
 >
 > `vision.py` owns the camera and exposes the latest frame in shared memory; `look.py` reads it rather than opening a second capture. The mic and speaker belong entirely to the speech service (§9), so nothing of ours opens them.
 
-**The room simulator (`dev/sim.html`) — a chat UI standing in for a whole room.** A single HTML page with an MQTT client built in (`mqtt.js` over the broker's `:9001` WebSocket, same stack as the dashboard). You pick a room, type what a person would have *said aloud*, and the page publishes it exactly as the real node would — same three-way routing as the §9 adapter loop (responder phrase → `ask/responder_brief`; active session → `heard`; wake phrase → `ask/query`; anything else discarded and shown greyed out). A **Fall button** publishes the fall event for that room. Incoming `say` messages render as the house's chat bubbles, so an entire incident reads as a conversation.
+**The room simulator (`dev/sim.html`) — a chat UI standing in for a whole room.** A single HTML page with an MQTT client built in (`mqtt.js` over the broker's WebSocket listener, same stack as the dashboard). You pick a room, type what a person would have *said aloud*, and the page publishes it exactly as the real node would — same three-way routing as the §9 adapter loop (responder phrase → `ask/responder_brief`; active session → `heard`; wake phrase → `ask/query`; anything else discarded and shown greyed out). A **Fall button** publishes the fall event for that room. Incoming `say` messages render as the house's chat bubbles, so an entire incident reads as a conversation.
 
 Why it exists, stated once: **the agent never talks to the speech service — only the node's adapter does** — so everything brain-side (engine, skills, timers, cancel, notifications, LLM, dashboard) is fully exercisable with typed text before any audio hardware or speech service exists. Two honest limits: it cannot test audio-timing behaviour (half-duplex, say-interrupts-listen, VAD tuning — those need the real adapter and service), and its ~15 lines of routing JS deliberately mirror the adapter's Python — a small, accepted duplication for a dev tool; if the routing rules ever change, change both.
 
@@ -247,9 +251,11 @@ async def run_phase(phase, session):
     if phase.opening:
         await say(phase.opening)              # canned: instant, can't be skipped
     for a in phase.on_enter:                  # e.g. notify_contacts, call_emergency
-        if a not in session.on_enter_done:    # once per SESSION, not per entry —
-            session.on_enter_done.add(a)      # escalate→check→escalate must not
-            await execute(a)                  # send the caregiver a second alarm
+        if (phase.id, a) not in session.on_enter_done:   # once per (phase, action):
+            session.on_enter_done.add((phase.id, a))     # re-entry never re-alarms,
+            await execute(a)                  # but call_help still sends ITS milestone
+                                              # (keyed by action alone, §7's second
+                                              # Telegram could never fire)
     timer = start_timer(phase.timer)
 
     while not timer.fired:
@@ -292,7 +298,7 @@ If Gemma is unavailable, the engine still walks the phases on their timers using
 {"ts": 1785790163.9, "event": "heard", "text": "", "silence": true}
 {"ts": 1785790164.0, "event": "phase", "from": "check", "to": "escalate"}
 {"ts": 1785790164.3, "event": "tool",  "tool": "notify_contacts", "result": "sent"}
-{"ts": 1785790179.0, "event": "refusal", "tool": "call_emergency", "phase": "check"}
+{"ts": 1785790165.5, "event": "refusal", "tool": "call_emergency", "phase": "escalate"}
 ```
 
 **The same events also go out live, not just to disk.** Every line above is published to `qnet/session/<id>` (§4) the instant it happens — the JSONL file and the dashboard's live feed are two destinations for the identical stream, not two separate mechanisms. So the dashboard isn't polling or reconstructing anything; it's just rendering MQTT messages as they arrive.
@@ -356,13 +362,18 @@ emergency_number: "911"
 
 **`on_enter` replaces `must` for these two.** `must` meant "guaranteed before exit, enforced by the timer as a fallback" — reliable, but still routed through the agent's turn. `on_enter` is stronger: the action fires the instant the phase starts, no agent turn involved at all. Given how consequential these two are, "instant and automatic" is worth being more explicit than "guaranteed eventually."
 
-**The three possible Telegram messages, templated, sent with no model call:**
+**The four possible Telegram messages, templated, sent with no model call** (the escalate one became a *question* on 2026-08-06 — notifying a contact and immediately dialing 911 made the notification pointless, so the contact gets the 30 s reply window first):
 
 ```
-escalate  on_enter → "🔴 Possible fall — {resident.name}, {room}. Checking on them now."
+escalate  on_enter → "🔴 Possible fall — {resident.name}, {room}. Reply OK if you can check on
+                      {resident.name} — otherwise I'll call emergency services in 30 seconds."
+contact_engaged on_enter → "🤝 Got it — I'll hold off on emergency services. I'll still call in
+                      3 minutes unless someone resolves this."
 call_help on_enter → "📞 No response from {resident.name} — calling emergency services now ({room})."
 cancel, if notified → "✅ False alarm — {resident.name} confirmed they're okay ({room}). No action needed."
 ```
+
+`contact_engaged` is the phase an accepted ack jumps to: the house tells the person who is coming, the comfort loop continues, and a **180 s backstop** still places the call if the acked incident then goes silent — deliberately not offered to the model as an exit; the jump is engine-side, like a timer.
 
 **`{room}` is in all three, deliberately — it's already known (the event carries it, §4) and it's the one fact a trusted contact needs most to act on the message: which room to go to or describe to a dispatcher. Free to include, easy to forget, so it's spelled out here rather than left implicit.**
 
@@ -386,7 +397,10 @@ stateDiagram-v2
     check --> closed : ok (fine AND no pain)
     check --> escalate : "no" / pain / silence / 30 s
     escalate --> check : they respond
-    escalate --> call_help : 15 s silence
+    escalate --> contact_engaged : contact replies OK (30 s window)
+    escalate --> call_help : 30 s, no reply
+    contact_engaged --> check : person responds
+    contact_engaged --> call_help : 180 s backstop / contact says "call 911"
     call_help --> resolved : responder arrives (manual)
     closed --> [*]
     resolved --> [*]
@@ -648,6 +662,8 @@ The agent knows how many nodes it expects (from `house.yaml`), so it can tell th
 
 That third row is the one worth building. Silently reporting "not found" when you only managed to check half the house is the kind of thing that makes people stop trusting a system.
 
+**These sentences are deterministic — the model never words a search answer** (decided 2026-08-06 after observing it live: the tool reported *no room answered*, and Gemma worded "The item is in the living room. The living room camera reported that the item is there" — a fabricated location, spoken). The answer *is* this skill's safety content; the engine's own sentence, which `--no-llm` always used, is now the only path. Two related rails from the same evening: the object is extracted from "where's my X *[anything after is noise]*" by clause-cutting regex before the model is ever consulted, and inbound traffic for rooms not in `config`'s `rooms:` map is dropped outright (a coexisting stack on the shared workshop broker was publishing raw STT chatter as queries).
+
 ### Capture and cost
 
 The node is already running a camera pipeline for fall detection, so `look` takes the **latest frame already in memory** — no second capture path, no rolling buffer. Timing needn't be exact; a frame up to a second old is fine for a stationary object.
@@ -680,7 +696,7 @@ Adding a whole second capability touched: one new node module, one new skill fil
 
 ## 14. Dashboard
 
-**Stack:** a single `index.html` with `mqtt.js` subscribing to Mosquitto's WebSocket listener on `:9001`. No build step, no npm, no backend API. Packaged for Windows by wrapping it in a WebView window: PyInstaller `--onedir` → `makeappx` → `.MSIX`.
+**Stack:** a single `index.html` with `mqtt.js` subscribing to Mosquitto's WebSocket listener (URL set in the page's Settings, §4). No build step, no npm, no backend API. Packaged for Windows by wrapping it in a WebView window: PyInstaller `--onedir` → `makeappx` → `.MSIX`.
 
 It is a **home** dashboard, not a fall alarm — so it shows sessions, and a session is a session whether it's a fall or a question.
 
@@ -690,7 +706,7 @@ It is a **home** dashboard, not a fall alarm — so it shows sessions, and a ses
 | **Activity** | One list of sessions, falls and questions together, newest first. Click for the transcript, current phase, tools called, and any refused tool calls |
 | **System** | Telemetry — NPU utilisation, per-stage latency, bytes on the wire vs what video would have cost |
 
-**One rule, driven by data rather than hard-coded:** a session whose skill declares `urgency: safety` **takes over the whole screen**; a `routine` session just appears in Activity. So a fall always interrupts, a question never does, and any future skill gets the right behaviour by setting one frontmatter field.
+**One rule, driven by data rather than hard-coded:** a session whose skill declares `urgency: safety` **interrupts the screen**; a `routine` session just appears in Activity. So a fall always interrupts, a question never does, and any future skill gets the right behaviour by setting one frontmatter field. *How* it interrupts is a Settings choice (decided 2026-08-06): the default is a red sticky **banner** — room, elapsed time, Open room, Mark resolved — with the feed and typed-voice composer still usable underneath, because resolving through conversation ("I'm fine" → pain double-check → resolved) is the designed path and a full-screen overlay was blocking it. The **full-screen takeover** remains as an opt-in for wall-mounted displays nobody types on. "Mark resolved" (banner and overlay both) publishes the same `heard` "false alarm" a spoken cancel would — the engine cancels and notifies, not just the page.
 
 Who it's for: **voice is the resident's interface, the screen is the caregiver's.** The person who fell talks to the room. The person looking for their glasses talks to the room. The dashboard is where family sees what happened and where the system's behaviour is inspectable.
 
@@ -816,6 +832,7 @@ Deliberately not in v1. Each says where it plugs in, so adding it is local.
 | O11 | Keyword-spotting model as a cheap pre-gate before calling STT | Only if the wake phrase proves trigger-happy | 2 h | `node/voice.py` |
 | O12 | **EdgeTAM object tracking** (Apache-2.0, ~18 ms/frame) emitting `object.moved` / `object.left_room` | The real memory path — track a specific object from one click, no class list, no training | 1 d | `node/look.py`, `agent/` |
 | O13 | Single GStreamer pipeline shared by the fall detector and the VLM's frame grab | One capture, one decode, no duplicated work — and it's a measurable number | 3 h | `node/vision.py` |
+| O14 | **Room camera live view in the dashboard** — clicking a room on the floor plan opens that room's stream (MJPEG or WebRTC from the node). The click-target and modal already exist as a designed placeholder ("Camera streaming is not enabled in this build") | On-demand viewing only, never continuous streaming — and only in-home (LAN), so the privacy claim holds; state it in the UI when built | 0.5–1 d | `dashboard/index.html`, `node/vision.py` |
 
 **Priority if time is short:** O1 first — it protects the demo. (The comfort loop and the telemetry panel were promoted into v1: §6 and §14.)
 
