@@ -17,7 +17,7 @@ frozen MQTT contract is the boundary, zero engine/tool/dashboard changes.*
 | B | Five blocker fixes, test-driven | ✅ done — Checkpoint V-AB (`8dfecf6`) |
 | C | Hardware-free conversation harness + docs | ✅ done — Checkpoint V-C |
 | D0 | Device pre-flight (IPs, services, right-broker check) | ✅ done 2026-08-06 |
-| D1 | Retire her IQ9 stack (with Muni) | ⬜ awaiting devices + Muni |
+| D1 | Retire her IQ9 stack | ✅ done 2026-08-06 (user authorized on Muni's behalf) |
 | D2 | Second Ventuno bring-up (bedroom: VLM + look + stream) | 🔨 in progress |
 | D3 | Voice node on the kitchen board (RAM gate → G3 checklist → wake soak) | ⬜ awaiting devices + whisper artifact |
 | D4 | Voice-first rehearsals ×2, contact-ack live, packaging, merge PR | ⬜ awaiting devices |
@@ -97,11 +97,14 @@ stall watchdog for vision. Ventuno-2 inventory: Docker + BRIO camera + 13 GiB
 free RAM; Muni's old app parked (containers exited); whisper artifacts likely
 on-board (D3 install source candidate).
 
-**D1 retire her stack (Muni present):** her `deploy/iq9-native/stop.sh` on the
-IQ9 → `ss -tlnp` shows 1883/9001 free → her checkout stays until she confirms.
-Ports remain 11883/19001 through the demo (switch-back to standard ports is a
-documented post-hackathon step — `infra/mosquitto.conf` header).
-*Gate:* inject round-trip + dashboard Live + one full fall e2e.
+**D1 retire her stack ✅ (2026-08-06, user authorized on Muni's behalf):** her
+`stop.sh` reported the pidfile instance already gone; the original orphan (PID
+3674, cmdline-verified `services.iq9_native.main`) was SIGTERM'd by exact PID.
+`ss` confirms **1883 and 9001 free** — first time this hackathon; her `status.sh`
+agrees ("not running"); her checkout left intact. Gate passed: fall inject →
+opening say on our broker → false-alarm cancel, agent unaffected. Ports remain
+11883/19001 through the demo (switch-back now unblocked as the documented
+post-hackathon step — `infra/mosquitto.conf` header).
 
 **D2 second Ventuno (bedroom):** inventory the board (may carry her old app —
 park it) → QAIRT apt install (gotchas: `models/fall-detection/README.md`) →
