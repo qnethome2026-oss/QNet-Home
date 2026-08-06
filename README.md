@@ -48,7 +48,9 @@ _Not yet available._
 
 | Name | Email |
 | --- | --- |
-| _TBD_ | _TBD_ |
+| Gaurav Mehta | gkmphx@gmail.com |
+| Munibhavana Konidala | konidalamunibhavana@gmail.com |
+| Amrutha Sai Gattu | amruthsai16@gmail.com |
 
 ## License
 
