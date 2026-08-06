@@ -40,9 +40,13 @@ rooms:
     # owns this camera (Logitech BRIO, stable by-id path).
     node: bedroom-01
     source: "v4l2src device=/dev/v4l/by-id/usb-046d_Logitech_BRIO_DA650E32-video-index0"
-# 0.8 + 3/6 (user calibration, 2026-08-06 afternoon): high floor - real falls
-# measure 0.85-0.94, all observed noise <=0.52 - with 3 fallen frames in ~2s.
-vision:  { conf_floor: 0.8, fire_on: "3/6", rearm_after_s: 60 }
+# 0.8 + 6/6 (user calibration, 2026-08-06; tightened from 3/6 that evening):
+# high floor - real falls measure 0.85-0.94, all observed noise <=0.52 - and
+# ALL six frames in the ~2.1s window must cross the floor. Maximum strictness:
+# one weak/occluded frame restarts the wait, so a fall confirms only after
+# ~2s of continuous high-confidence detection. If live takes ever miss, step
+# back to 5/6 then 4/6 (dev/vision_tuner.py measures would-fire live).
+vision:  { conf_floor: 0.8, fire_on: "6/6", rearm_after_s: 60 }
 voice:
   speech_service_url: "http://localhost:8080"   # her service; it owns the audio devices
   wake_phrase: "hey home"
