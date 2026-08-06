@@ -2502,11 +2502,22 @@ if (typeof module !== "undefined" && module.exports) {
 if (typeof window !== "undefined" && typeof document !== "undefined") (function () {
 
 const $ = (id) => document.getElementById(id);
-const DEFAULT_HUB = "ws://127.0.0.1:9001/mqtt";
+/* Demo default: the real broker on the IQ-9075 so a fresh page works with zero
+   setup (user request, 2026-08-06). Corp DHCP can move the board - if the chip
+   says Reconnecting forever, fix the address in Settings (it persists). Local
+   dev against dev/broker.py: enter ws://127.0.0.1:9001/mqtt there. */
+const DEFAULT_HUB = "ws://10.73.51.175:19001/mqtt";
 const STORE_KEY = "qnethome.hub";
 
 function loadHubUrl() {
-  try { return window.localStorage.getItem(STORE_KEY) || DEFAULT_HUB; }
+  try {
+    const stored = window.localStorage.getItem(STORE_KEY);
+    // Migration (2026-08-06): the old dev default may have been explicitly
+    // saved before the demo default changed - treat it as "never set" so a
+    // plain refresh lands on the real broker. Anything else the user typed wins.
+    if (stored === "ws://127.0.0.1:9001/mqtt") return DEFAULT_HUB;
+    return stored || DEFAULT_HUB;
+  }
   catch (_e) { return DEFAULT_HUB; }   // file:// with storage disabled: still works
 }
 function saveHubUrl(url) {
@@ -2559,7 +2570,12 @@ function saveCamUrls(obj) {
   try { window.localStorage.setItem(CAM_KEY, JSON.stringify(obj || {})); } catch (_e) { /* best effort */ }
 }
 let voiceSimOn = loadVoiceSim();
-let camUrls = loadCamUrls();
+/* Demo default, same spirit as DEFAULT_HUB: the kitchen node's frame server,
+   pre-filled so the room modal shows the LIVE preview with zero setup. A saved
+   Settings value wins; clearing the field reverts to this default on reload
+   (empty fields are not stored - collectCamUI). */
+const DEFAULT_CAM_URLS = { kitchen: "http://10.73.51.123:8090/kitchen.jpg" };
+let camUrls = Object.assign({}, DEFAULT_CAM_URLS, loadCamUrls());
 
 /* ---- state (same indexing as dashboard/admin.html; see the header) ---- */
 const sessions = new Map();   // id -> the whole run document, as published
