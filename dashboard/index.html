@@ -291,6 +291,27 @@
   .btn:hover { filter: brightness(1.06); }
   .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
 
+  /* ---------------- incident banner (the default) ---------------- */
+  #alertBanner {
+    position: sticky; top: 0; z-index: 40;
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 24px; background: var(--alert); color: #fff;
+    font-weight: 650; font-size: 0.98rem;
+  }
+  #alertBanner[hidden] { display: none; }
+  #alertBanner .ab-dot {
+    width: 10px; height: 10px; border-radius: 50%; background: #fff;
+    animation: live-breathe 1.2s ease-in-out infinite; flex: 0 0 auto;
+  }
+  @media (prefers-reduced-motion: reduce) { #alertBanner .ab-dot { animation: none; } }
+  #alertBanner .ab-actions { margin-left: auto; display: flex; gap: 8px; }
+  #alertBanner .btn.sm {
+    padding: 7px 14px; font-size: 0.85rem; border-radius: 9px;
+    background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.45); color: #fff;
+    font: inherit; font-size: 0.85rem; cursor: pointer;
+  }
+  #alertBanner .btn.sm.ab-resolve { background: #fff; color: var(--alert); border-color: #fff; }
+
   /* ---------------- safety takeover ---------------- */
   /* Calm but urgent: one room, one conversation, one button. Not a siren -
      the person reading this is probably frightened already. */
@@ -703,6 +724,19 @@
   </div>
 </div>
 
+<!-- The incident banner: the default face of an emergency (full-screen
+     takeover is the Settings opt-in). Loud enough to be unmissable, small
+     enough that the feed and the composer stay usable - resolving through
+     conversation is the designed path, this strip is the shortcut. -->
+<div id="alertBanner" role="alert" hidden>
+  <span class="ab-dot" aria-hidden="true"></span>
+  <span id="abText">Something needs attention</span>
+  <span class="ab-actions">
+    <button class="btn sm" id="abOpen" type="button">Open room</button>
+    <button class="btn sm ab-resolve" id="abResolve" type="button">Mark resolved</button>
+  </span>
+</div>
+
 <div class="shell">
 
   <div class="layout">
@@ -1000,6 +1034,18 @@
         Lets you type what a person would have said out loud, from this screen,
         while the listening hardware is not set up yet. Everything you type is
         clearly marked SIMULATED VOICE. Off unless you turn it on.
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="fullscreenToggle" style="display:flex; align-items:center; gap:9px; cursor:pointer;">
+        <input id="fullscreenToggle" type="checkbox" style="width:auto; margin:0;">
+        Full-screen emergency alert
+      </label>
+      <div class="hint">
+        Off: an emergency shows as a red banner and you can keep talking to the
+        house right here. On: it takes the whole screen — for a wall display
+        nobody types on.
       </div>
     </div>
 
@@ -1941,6 +1987,15 @@ function parseVoiceSimFlag(raw) {
   return raw === "1";
 }
 
+/** Full-screen emergency alert, decoded the same way - DEFAULT OFF (user
+ * decision 2026-08-06): an incident normally shows as the red banner so the
+ * chat composer stays usable for talking the house down ("I'm fine" -> pain
+ * double-check -> resolved). Turn on for a wall-mounted display nobody types
+ * on. */
+function parseFullscreenFlag(raw) {
+  return raw === "1";
+}
+
 /** Which room the composer offers first: the one that spoke most recently.
  *   defaultVoiceRoom([{ room, lastActivity }]) -> room | null */
 function defaultVoiceRoom(roomStates) {
@@ -2445,6 +2500,10 @@ function runSelfTest() {
       expect: (r) => r.every((v) => v === false) },
     { name: "typed voice flag: ON only for \"1\" (what Save writes)",
       fn: () => parseVoiceSimFlag("1"), expect: (r) => r === true },
+    { name: "fullscreen flag: DEFAULT OFF - only a stored '1' turns the takeover on",
+      fn: () => [null, undefined, "", "0", "true", "yes", 1].map(parseFullscreenFlag)
+                  .concat([parseFullscreenFlag("1")]),
+      expect: (r) => r.slice(0, 7).every((v) => v === false) && r[7] === true },
     { name: "typed voice: the composer offers the most recently active room first",
       fn: () => [defaultVoiceRoom([{ room: "kitchen", lastActivity: 10 }, { room: "bedroom", lastActivity: 20 }]),
                  defaultVoiceRoom([]), defaultVoiceRoom(null)],
@@ -2491,7 +2550,7 @@ if (typeof module !== "undefined" && module.exports) {
                      deviceListText, composeSummary, summaryStateFrom,
                      // T5.7 - typed voice + camera preview
                      newUlid, normalize, matchesResponderPhrase, stripWakePhrase,
-                     buildAsk, buildHeard, routeInput, parseVoiceSimFlag,
+                     buildAsk, buildHeard, routeInput, parseVoiceSimFlag, parseFullscreenFlag,
                      defaultVoiceRoom, camBustUrl, camUrlForRoom };
 }
 
@@ -2550,6 +2609,7 @@ let roomMapOverrides = loadRoomMap();
    "DEFAULT OFF on a fresh page" is a tested rule rather than a habit. */
 const VOICE_KEY = "qnethome.voicesim";
 const CAM_KEY = "qnethome.camurls";
+const FS_KEY = "qnethome.fullscreen";
 
 function loadVoiceSim() {
   try { return parseVoiceSimFlag(window.localStorage.getItem(VOICE_KEY)); }
@@ -2557,6 +2617,13 @@ function loadVoiceSim() {
 }
 function saveVoiceSim(on) {
   try { window.localStorage.setItem(VOICE_KEY, on ? "1" : "0"); } catch (_e) { /* best effort */ }
+}
+function loadFullscreenPref() {
+  try { return parseFullscreenFlag(window.localStorage.getItem(FS_KEY)); }
+  catch (_e) { return false; }
+}
+function saveFullscreenPref(on) {
+  try { window.localStorage.setItem(FS_KEY, on ? "1" : "0"); } catch (_e) { /* best effort */ }
 }
 function loadCamUrls() {
   try {
@@ -2570,6 +2637,7 @@ function saveCamUrls(obj) {
   try { window.localStorage.setItem(CAM_KEY, JSON.stringify(obj || {})); } catch (_e) { /* best effort */ }
 }
 let voiceSimOn = loadVoiceSim();
+let fullscreenAlerts = loadFullscreenPref();
 /* Demo default, same spirit as DEFAULT_HUB: the kitchen node's frame server,
    pre-filled so the room modal shows the LIVE preview with zero setup. A saved
    Settings value wins; clearing the field reverts to this default on reload
@@ -2909,10 +2977,49 @@ function renderSummary() {
       : "");
 }
 
+/** REALLY resolve: the same wire message as saying "false alarm" out loud, so
+ * the engine cancels the run, sends the OK Telegram, and closes the session -
+ * plus the local optimistic close so the alert drops instantly. The old
+ * cmd/reset publish stays for the admin page's listeners. */
+function resolveIncident(s) {
+  client.publish(`qnet/${s.room}/heard`, { text: "false alarm", silence: false });
+  publishResolve(s.room);
+  sessions.set(s.id, Object.assign({}, s, { state: "closed" }));
+  closedAt.set(s.room, Date.now() / 1000);
+  renderAll();
+}
+
 function renderTakeover() {
   const s = activeTakeoverSession();
   const overlay = $("takeover");
-  if (!s) { overlay.classList.remove("open"); return; }
+  const banner = $("alertBanner");
+
+  if (!s) {
+    overlay.classList.remove("open");
+    banner.hidden = true;
+    return;
+  }
+
+  // Banner is the default; the full-screen overlay is the Settings opt-in.
+  if (!fullscreenAlerts) {
+    overlay.classList.remove("open");
+    banner.hidden = false;
+    const log = s.log || [];
+    const fell = log.some((e) => e && e.event === "detected");
+    $("abText").textContent =
+      `${fell ? "A fall was detected" : "Something needs attention"} in the ${roomLabel(s.room)} — ` +
+      `${formatElapsed(elapsedSeconds(log, seenAt.get(s.id), Date.now() / 1000))} ago. ` +
+      "You can answer below, out loud when voice is set up, or resolve it here.";
+    const schematic = mapping.assigned[s.room];
+    $("abOpen").hidden = !schematic;
+    $("abOpen").onclick = schematic
+      ? () => { fillRoomModal(schematic); openModal("roomModal"); }
+      : null;
+    $("abResolve").onclick = () => resolveIncident(s);
+    return;
+  }
+
+  banner.hidden = true;
   overlay.classList.add("open");
 
   const ctx = ctxFor(s);
@@ -2943,16 +3050,10 @@ function renderTakeover() {
   ).join("");
   chat.scrollTop = chat.scrollHeight;
 
-  $("resolveBtn").onclick = () => {
-    publishResolve(s.room);
-    // Drop the overlay immediately: the person pressing this has decided it is
-    // handled, and waiting for the engine to echo would leave them staring at
-    // an alert they just dismissed. The next real update re-raises it if the
-    // house disagrees.
-    sessions.set(s.id, Object.assign({}, s, { state: "closed" }));
-    closedAt.set(s.room, Date.now() / 1000);
-    renderAll();
-  };
+  // Same real resolution as the banner: the engine cancels, not just this
+  // screen. The optimistic close inside means the overlay still drops
+  // instantly; the next real update re-raises it if the house disagrees.
+  $("resolveBtn").onclick = () => resolveIncident(s);
 }
 
 function renderAll() {
@@ -3236,6 +3337,7 @@ function collectCamUI() {
 function openSettings() {
   $("hubUrl").value = hubUrl;
   $("voiceSimToggle").checked = voiceSimOn;
+  $("fullscreenToggle").checked = fullscreenAlerts;
   renderMappingUI();
   openModal("settingsModal");
 }
@@ -3254,6 +3356,8 @@ $("saveSettings").addEventListener("click", () => {
   saveCamUrls(camUrls);
   voiceSimOn = $("voiceSimToggle").checked;
   saveVoiceSim(voiceSimOn);
+  fullscreenAlerts = $("fullscreenToggle").checked;
+  saveFullscreenPref(fullscreenAlerts);
 
   const next = $("hubUrl").value.trim() || DEFAULT_HUB;
   const hubChanged = next !== hubUrl;
