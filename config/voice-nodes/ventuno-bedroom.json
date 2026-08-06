@@ -1,7 +1,9 @@
 {
-  "device_id": "ventuno-bedroom",
+  "device_id": "bedroom-voice-01",
   "room_id": "bedroom",
-  "groups": ["upstairs"],
+  "groups": [
+    "upstairs"
+  ],
   "iq9_host": "10.73.51.175",
   "mqtt_port": 11883,
   "mqtt_username": null,
