@@ -423,3 +423,19 @@ def test_recorder_registry_is_the_only_tool_source(tmp_path) -> None:
     assert rec is recorder
     assert set(agent.tools) == {"notify_contacts", "call_emergency", "look_in_rooms"}
     assert agent.tools["call_emergency"].engine_only is True
+
+
+def test_pain_denial_with_the_pain_word_resolves(tmp_path) -> None:
+    """"no, i'm not hurt" contains "hurt" - without negation handling the
+    --no-llm mind escalated an explicit denial (found by the voice system
+    harness, tests/voice/test_voice_system.py). Denials resolve; bare "hurt"
+    still escalates; ambiguity still errs toward escalation."""
+    from qnet.agent.engine import classify_reply, _NEGATED_PAIN_RE
+    assert _NEGATED_PAIN_RE.search("no, i'm not hurt")
+    assert _NEGATED_PAIN_RE.search("no i am not in pain")
+    assert _NEGATED_PAIN_RE.search("nothing hurts")
+    assert not _NEGATED_PAIN_RE.search("my hip hurts")
+    assert not _NEGATED_PAIN_RE.search("yes it hurts")
+    # "no... but my head hurt when i fell" - the negation window is 2 words,
+    # so a far-away pain word still escalates (the safe direction).
+    assert not _NEGATED_PAIN_RE.search("no idea what happened but my head really seriously hurts")

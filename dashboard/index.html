@@ -1935,7 +1935,7 @@ function summaryStateFrom(sessionList, opts) {
  * which mirrors the §9 adapter loop. DESIGN §5 sanctions the sim's routing as
  * the stand-in for the unbuilt speech service, so this page reuses it rather
  * than re-deriving it. The routing is therefore now duplicated in THREE
- * places - qnet/node/voice.py, dev/sim.html and here - change all three
+ * places - apps/ventuno-q/qnet-voice-node, dev/sim.html and here - change all three
  * (the same accepted duplication the MiniMQTT client already documents).
  * ============================================================ */
 
@@ -1991,7 +1991,7 @@ function buildHeard(text) {
   return { text, silence: text === "" };
 }
 
-// routing duplicated in qnet/node/voice.py and dev/sim.html — change all three
+// routing duplicated in apps/ventuno-q/qnet-voice-node and dev/sim.html — change all three
 function routeInput(rawText, room, sessionActive) {
   const norm = normalize(rawText);
   if (matchesResponderPhrase(norm)) {                      // checked first, in ANY state (§9, §12)
@@ -2524,7 +2524,7 @@ function runSelfTest() {
     /* ================= T5.7: TYPED VOICE ROUTING =================
        These cases mirror dev/sim.html's routing self-test - the contract is
        contracts/mqtt.md's ask/heard shapes, and the routing must be
-       indistinguishable from what the sim (and one day qnet/node/voice.py)
+       indistinguishable from what the sim (and one day apps/ventuno-q/qnet-voice-node)
        would have published for the same spoken words. */
 
     { name: "typed routing: responder phrase, idle -> responder brief request, empty text (contract)",

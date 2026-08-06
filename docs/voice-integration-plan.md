@@ -15,7 +15,7 @@ frozen MQTT contract is the boundary, zero engine/tool/dashboard changes.*
 |---|---|---|
 | A | Extraction + re-license | ✅ done — Checkpoint V-AB (`8dfecf6`) |
 | B | Five blocker fixes, test-driven | ✅ done — Checkpoint V-AB (`8dfecf6`) |
-| C | Hardware-free conversation harness + docs | 🔨 in progress |
+| C | Hardware-free conversation harness + docs | ✅ done — Checkpoint V-C |
 | D0 | Device pre-flight (IPs, services, right-broker check) | ⬜ awaiting devices |
 | D1 | Retire her IQ9 stack (with Muni) | ⬜ awaiting devices + Muni |
 | D2 | Second Ventuno bring-up (bedroom: VLM + look + stream) | ⬜ awaiting devices |
@@ -54,7 +54,19 @@ empty · SPDX audit clean. Independently re-verified by the orchestrator.
 **Gate B evidence:** suite 178 green (voice suite 53, conformance 11/11) ·
 byte-compile clean. Independently re-verified.
 
-## Phase C — Hardware-free system glue 🔨
+## Phase C — Hardware-free system glue ✅
+
+**Gate C evidence:** 7 system tests in `tests/voice/test_voice_system.py` (real
+agent + real controller + real transport validation, fake audio bricks, in-
+process bridge) — fall→"i'm fine"→pain-check→resolved · silence→SIMULATED call
+· wake-gated find speaks the location (chatter publishes nothing) · responder
+brief mid-escalation · false-alarm cancel · half-duplex interrupt. Suite **186**
+hermetic (+7 live deselected) · `demo_fallback.sh` 12/12 (QNET_TIMER_SCALE=0.05)
+· dashboard self-tests 119/119. Stub `qnet/node/voice.py` retired;
+`contracts/speech-api.md` written (T0.2 closed); DESIGN §9 filled; DEMO v1.0
+voice-first. **Bonus find by the harness:** the --no-llm mind classified
+"no i'm not hurt" as pain (no negation handling) — fixed with
+`_NEGATED_PAIN_RE` + tests; denials resolve, ambiguity still escalates.
 
 1. **Conversation harness** `tests/voice/test_voice_system.py`: REAL agent
    engine + REAL VoiceController + fake ASR/TTS bricks + in-process bus.

@@ -274,6 +274,14 @@ _TROUBLE_RE = re.compile(r"\b(no|nope|not|help|hurt|hurts|hurting|pain|painful|s
 _PAIN_RE = re.compile(r"\b(pain|painful|hurt|hurts|hurting|sore|ache|aches|aching|head|hit|hip|"
                       r"bleeding|yes|yeah|yep|think so)\b")
 _NO_PAIN_RE = re.compile(r"\b(no|nope|nothing|none|didn't|didnt|don't|dont|nowhere|fine|ok|okay|good)\b")
+# "no, I'm not hurt" contains "hurt", and _PAIN_RE is checked first - without
+# negation handling an explicit denial escalates in --no-llm mode (found by the
+# voice system harness). A negation within a few words of the pain word is a
+# denial; anything genuinely ambiguous still falls through to _PAIN_RE, which
+# errs toward escalation on purpose.
+_NEGATED_PAIN_RE = re.compile(
+    r"\b(?:no|not|nothing|didn't|didnt|don't|dont|never|isn't|isnt|ain't|aint)"
+    r"\W+(?:\w+\W+){0,2}?(?:pain|painful|hurt|hurts|hurting|sore|ache|aches|aching|bleeding)\b")
 
 
 def classify_reply(phase: phaselib.Phase, session: "Session", text: str) -> Action:
@@ -304,6 +312,8 @@ def classify_reply(phase: phaselib.Phase, session: "Session", text: str) -> Acti
     if "ok" in phase.exits and "escalate" in phase.exits:
         if session.awaiting_pain_answer:
             session.awaiting_pain_answer = False
+            if _NEGATED_PAIN_RE.search(said):
+                return Action("exit", exit="ok")
             if _PAIN_RE.search(said):
                 return Action("exit", exit="escalate")
             if _NO_PAIN_RE.search(said):
