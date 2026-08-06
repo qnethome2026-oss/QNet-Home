@@ -7,8 +7,13 @@ same commit, or it didn't happen (IMPLEMENTATION.md, standing rules).*
 
 MQTT is the only coupling between devices. Broker: Mosquitto on the IQ-9075.
 Clients: `paho-mqtt` on the nodes and the agent. The dashboard and
-`dev/sim.html` subscribe over Mosquitto's WebSocket listener on `:9001` — there
-is no backend API.
+`dev/sim.html` subscribe over Mosquitto's WebSocket listener — there is no
+backend API. **Ports are configuration, not contract** (`config/house.yaml`
+`mqtt:` block; dashboard takes the full `ws://` URL in Settings). Local dev
+defaults 1883/9001; the deployed IQ-9075 broker serves **11883 tcp / 19001
+websockets** while a teammate's stack holds :1883 there (see
+`infra/mosquitto.conf` for the switch-back procedure). Topics and payloads
+below are unaffected.
 
 `<room>` is the room id from `config/house.yaml`'s `rooms:` map (`kitchen`,
 `bedroom`, …), and it is also the node's identity: the node's `config/node.yaml`

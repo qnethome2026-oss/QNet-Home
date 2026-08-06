@@ -1,0 +1,47 @@
+T1.1 - RESOLVED 2026-08-06 (follows verify/T1.1-blocked.txt)
+=============================================================
+User decision (2026-08-05): the :1883 stack on the IQ9 is a teammate's and in
+active use - COEXIST, do not evict. QNet Home's Mosquitto runs on non-standard
+ports; ports are configuration, not contract; switch back to 1883/9001 later
+when their stack retires.
+
+What was done
+-------------
+1. infra/mosquitto.conf -> listeners 11883 (tcp) / 19001 (websockets), with the
+   coexistence rationale and the switch-back procedure in the file header.
+   Deployed to iq9:/etc/mosquitto/conf.d/qnet.conf, `systemctl restart
+   mosquitto` -> active (running), both listeners bound (ss -tlnp shown below).
+2. config/house.yaml gains the `mqtt:` block (host/port/ws_port) - the engine
+   already read mqtt.host/mqtt.port (engine.run), agent has --broker/--port,
+   dev tools have --port, dashboard takes the full ws:// URL in Settings; no
+   code changes were needed anywhere.
+3. contracts/mqtt.md: ports declared configuration-not-contract; topics and
+   payloads unchanged (the contract stays frozen).
+
+Evidence
+--------
+On-device after restart:
+  Active: active (running)
+  LISTEN 0.0.0.0:19001  users:(("mosquitto",pid=19531,fd=9))
+  LISTEN 0.0.0.0:11883  users:(("mosquitto",pid=19531,fd=5))
+
+From the laptop (paho-mqtt, real LAN, 10.73.51.175):
+  tcp :11883:        PASS round-trip 151.0 ms [('qnet/test', 'hello-463e513c')]
+  websockets :19001: PASS round-trip 151.8 ms [('qnet/test', 'hello-4247526f')]
+  (websockets path /mqtt, same as the dashboard's client)
+
+Teammate's stack untouched:
+  0.0.0.0:1883 still LISTEN, held by their python process (listener PID has
+  changed since the blocked report - they are actively working on it, which
+  further validates the coexistence decision). PID 3674 (iq9_native.main)
+  still up, 21h50m elapsed.
+
+Consequences for other tasks
+----------------------------
+- Dashboard against the real broker: enter ws://10.73.51.175:19001/mqtt in
+  Settings (persisted in localStorage).
+- Agent on the IQ9: config mqtt.host=127.0.0.1, mqtt.port=11883 when deployed
+  on-board; from the laptop use --broker 10.73.51.175 --port 11883.
+- Node (vision.py etc.): point at 10.73.51.175:11883.
+- T1.1's original verify recipe assumed standard ports; THIS file supersedes
+  those port numbers. mosquitto_sub on-device: add -p 11883.

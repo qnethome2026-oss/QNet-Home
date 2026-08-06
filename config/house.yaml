@@ -3,6 +3,18 @@
 # Everything tunable lives in this one file, so nothing here is a code change.
 # The "TODO" values are filled in by T0.5 (Telegram bot + chat id + real names).
 
+mqtt:
+  # Where the broker lives. The agent, nodes, and dev tools all read this (or
+  # override with --broker/--port); the dashboard takes the ws:// URL in its
+  # Settings panel. Local dev: dev/broker.py serves 127.0.0.1 1883/ws 9001.
+  # DEPLOYED (IQ-9075): 11883 tcp / 19001 websockets — NOT the standard ports,
+  # because a teammate's separate stack holds :1883 on that board for now
+  # (verify/T1.1-blocked.txt). When their stack retires, switch the two numbers
+  # in infra/mosquitto.conf and here, restart mosquitto, done.
+  host: "127.0.0.1"
+  port: 1883
+  ws_port: 9001
+
 resident: { name: "Margaret" }
 contacts:
   - { name: "Sarah", telegram_chat_id: "TODO" }
