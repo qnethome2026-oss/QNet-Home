@@ -12,3 +12,6 @@ verify/*.tmp
 build/
 dist/
 packaging/QNetHome.spec
+
+# Local config overlays - secrets (Telegram token, real chat ids). Never commit.
+config/*.local.yaml

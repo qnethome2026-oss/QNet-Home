@@ -14,12 +14,41 @@ import argparse
 import asyncio
 import logging
 import sys
+from pathlib import Path
 
 import yaml
 
 from qnet.agent import engine
 
 DEFAULT_CONFIG = "config/house.yaml"
+
+
+def _merge(base: dict, over: dict) -> dict:
+    """Dicts merge recursively; anything else (lists, scalars) replaces.
+    Replacing lists wholesale is deliberate: a local contacts list with real
+    chat ids must not be appended to the template's TODO entry."""
+    out = dict(base)
+    for key, value in over.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = _merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def load_config(path: str) -> dict:
+    """The house config, with an optional ``<name>.local.yaml`` sibling merged
+    over it. The local file is gitignored - secrets (the Telegram bot token,
+    real chat ids, real names) live there so the public repo never carries
+    them, while the tracked template keeps its TODO placeholders."""
+    with open(path, encoding="utf-8") as handle:
+        config = yaml.safe_load(handle) or {}
+    p = Path(path)
+    local = p.with_name(p.stem + ".local" + p.suffix)
+    if local.exists():
+        with open(local, encoding="utf-8") as handle:
+            config = _merge(config, yaml.safe_load(handle) or {})
+    return config
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -72,8 +101,7 @@ def main(argv: list[str] | None = None) -> int:
         datefmt="%H:%M:%S",
     )
     try:
-        with open(args.config, encoding="utf-8") as handle:
-            config = yaml.safe_load(handle) or {}
+        config = load_config(args.config)
     except OSError as exc:
         print(f"qnet.agent: cannot read {args.config}: {exc}", file=sys.stderr)
         return 2
