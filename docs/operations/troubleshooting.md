@@ -134,3 +134,20 @@ numbers, update `config/house.yaml`'s `mqtt:` block, restart mosquitto.
   already registered on the board.
 - A dead microphone never kills a demo beat: the dashboard's flagged composer
   is the rehearsed fallback ([`DEMO.md`](../DEMO.md)).
+
+
+## Voice chain wedges (observed live 2026-08-06, both cured by one restart)
+
+Symptoms: the house goes mute (TTS `ConnectionError`/`RemoteDisconnected` in
+`docker logs qnet-voice-node-main-1`) and/or nothing is transcribed (runner
+logs `Failed to decode audio chunk. Data field length: 0`, zero `full_text`
+events) — while the voice heartbeat may still claim `listening` (known health
+blind spot: the node does not yet notice a silent runner).
+
+Fix: `ssh ventuno 'arduino-app-cli app restart user:qnet-voice-node'` — both
+containers restart, models reload (~45 s). Verify: publish a routine say and
+watch the heartbeat run listening→speaking→idle with zero new ConnectionErrors.
+
+Aggravating factor (fixed): the original 20 s comfort metronome sent a TTS
+request every cycle during long sessions — the 1/2/5-minute schedule cuts that
+load ~15×.
