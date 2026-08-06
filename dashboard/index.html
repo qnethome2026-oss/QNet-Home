@@ -461,6 +461,18 @@
   .fp-tip .tip-state.quiet { color: var(--muted); }
   .fp-tip .tip-line { color: var(--muted); margin-top: 6px; display: flex; align-items: center; gap: 7px; }
 
+  /* ---- live camera health ---- */
+  /* The dot is the "is the webcam actually working" answer, everywhere a room
+     is drawn: green + breathing while heartbeats flow, still amber when three
+     beats in a row have gone missing. */
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; display: inline-block; }
+  .live-dot.on { background: var(--calm); animation: live-breathe 2.4s ease-in-out infinite; }
+  .live-dot.off { background: var(--caution); animation: none; }
+  @keyframes live-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+  @media (prefers-reduced-motion: reduce) { .live-dot.on { animation: none; } }
+  .rm-health { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; }
+  .fp-dev.dev-online use { color: var(--calm); }
+
   /* ---- the Summary card ---- */
   /* A 1px gradient hairline, done as a padded wrapper so it works without
      border-image and degrades to a plain rounded card if the gradient is
@@ -1450,6 +1462,25 @@ function houseStatus(roomStates) {
   return { text: "", tone: "calm" };
 }
 
+/**
+ * Live camera health from the node's 5 s status heartbeat. Online means a beat
+ * arrived within the last 15 s — three missed beats and the page stops
+ * claiming the camera works. fps rides along as the "it is really processing
+ * frames right now" proof; the detector's arming states get household words
+ * (armed → watching, holdoff → recovering) because this line is user-facing.
+ *   cameraHealth({receivedAt, fps, state} | null, nowSeconds) -> {online, label}
+ */
+function cameraHealth(beat, now) {
+  if (!beat || typeof beat.receivedAt !== "number" || (now - beat.receivedAt) > 15) {
+    return { online: false, label: "Camera offline" };
+  }
+  const parts = ["Camera online"];
+  if (typeof beat.fps === "number" && beat.fps > 0) parts.push(`${beat.fps.toFixed(1)} fps`);
+  const st = { armed: "watching", holdoff: "recovering" }[beat.state];
+  if (st) parts.push(st);
+  return { online: true, label: parts.join(" · ") };
+}
+
 /** DESIGN §14/§6, unchanged from dashboard/admin.html on purpose: a safety run
  * that is still open takes the whole screen; a routine one never does, and a
  * closed or cancelled one drops the overlay. Same predicate, same file-level
@@ -2109,6 +2140,24 @@ function runSelfTest() {
     { name: "house: no rooms at all -> calm tone, empty text (banner stays hidden)",
       fn: () => houseStatus([]), expect: (r) => r.text === "" && r.tone === "calm" },
 
+    // ---- camera health from the status heartbeat ----
+    { name: "camera health: fresh beat -> online with fps and a household word for armed",
+      fn: () => cameraHealth({ receivedAt: 1000, fps: 2.85, state: "armed" }, 1004),
+      expect: (r) => r.online === true && r.label === "Camera online · 2.9 fps · watching" },
+    { name: "camera health: three missed beats (>15 s) -> offline",
+      fn: () => cameraHealth({ receivedAt: 1000, fps: 2.85, state: "armed" }, 1016),
+      expect: (r) => r.online === false && r.label === "Camera offline" },
+    { name: "camera health: no beat ever -> offline, never a crash",
+      fn: () => [cameraHealth(null, 1), cameraHealth(undefined, 1), cameraHealth({}, 1)],
+      expect: (r) => r.every((h) => h.online === false && h.label === "Camera offline") },
+    { name: "camera health: holdoff reads as recovering, never the jargon word",
+      fn: () => cameraHealth({ receivedAt: 1000, fps: 3.0, state: "holdoff" }, 1001),
+      expect: (r) => r.label === "Camera online · 3.0 fps · recovering"
+                     && !/holdoff|armed/.test(r.label) },
+    { name: "camera health: missing fps -> online without a fps claim",
+      fn: () => cameraHealth({ receivedAt: 1000, state: "armed" }, 1001),
+      expect: (r) => r.online === true && r.label === "Camera online · watching" },
+
     // ---- relative time ----
     { name: "relative time: seconds -> 'just now'",
       fn: () => relativeTime(1000, 1020), expect: (r) => r === "just now" },
@@ -2620,6 +2669,15 @@ client.onMessage = (topic, payloadStr) => {
 
   const roomMatch = topic.match(/^qnet\/([^/]+)\/(status|say|heard|event|looked|ask)$/);
   if (roomMatch) {
+    // The 5 s heartbeat is the camera's proof of life; cameraHealth() turns
+    // its age into online/offline everywhere the room is drawn.
+    if (roomMatch[2] === "status") {
+      heartbeats.set(roomMatch[1], {
+        receivedAt: Date.now() / 1000,
+        fps: payload && payload.fps,
+        state: payload && payload.state,
+      });
+    }
     ensureRoom(roomMatch[1]);
     touchRoom(roomMatch[1]);
     renderRooms();
@@ -2656,8 +2714,9 @@ function currentRoomStates() {
 /* ---- the floor plan ----
    `plan` is the whole answer for one drawn room, and the tooltip, the modal
    and the SVG all read it, so they cannot disagree about a room. */
-let plan = {};          // schematic id -> { label, devices, state, lastActivity, monitored }
+let plan = {};          // schematic id -> { label, devices, state, lastActivity, monitored, health }
 let mapping = { assigned: {}, unassigned: [], source: {} };
+const heartbeats = new Map();   // device room -> { receivedAt, fps, state }
 
 function buildPlan() {
   const states = currentRoomStates();
@@ -2680,6 +2739,14 @@ function buildPlan() {
       const rank = { quiet: 0, good: 1, caution: 2, alert: 3 };
       if (!best || rank[s.state.tone] > rank[best.tone]) best = s.state;
     }
+    // Any live device makes the room's camera "online"; its beat is the label.
+    const now = Date.now() / 1000;
+    let health = { online: false, label: "Camera offline" };
+    for (const dev of devices) {
+      const h = cameraHealth(heartbeats.get(dev), now);
+      if (h.online) { health = h; break; }
+    }
+
     out[r.id] = {
       id: r.id,
       label: r.label,
@@ -2687,6 +2754,7 @@ function buildPlan() {
       monitored: devices.length > 0,
       state: best || { label: "All quiet ✓", tone: "quiet" },
       lastActivity: last,
+      health,
     };
   }
   return out;
@@ -2713,9 +2781,11 @@ function renderRooms() {
     // kitchen. It only shows while the incident is live.
     g.querySelector(".fp-badge").classList.toggle("is-off", tint !== "alert");
     g.querySelector(".fp-dev").classList.toggle("is-off", !info.monitored);
+    g.querySelector(".fp-dev").classList.toggle("dev-online", info.monitored && info.health.online);
 
     g.setAttribute("aria-label",
-      `${info.label}: ${info.monitored ? info.state.label : "no device in this room"}`);
+      `${info.label}: ${info.monitored
+        ? `${info.state.label}, ${info.health.label.toLowerCase()}` : "no device in this room"}`);
   });
 
   // Rooms the house named that are not on the plan.
@@ -2949,7 +3019,8 @@ function showTip(id) {
     `<div class="tip-state ${escapeHtml(info.monitored ? info.state.tone : "quiet")}">${
       escapeHtml(info.monitored ? info.state.label : "No device in this room")}</div>` +
     (info.monitored
-      ? `<div class="tip-line">${iconMarkup("camera", "sm")}<span>${escapeHtml(deviceListText(info.devices))}</span></div>`
+      ? `<div class="tip-line"><span class="live-dot ${info.health.online ? "on" : "off"}"></span><span>${escapeHtml(info.health.label)}</span></div>`
+        + `<div class="tip-line">${iconMarkup("camera", "sm")}<span>${escapeHtml(deviceListText(info.devices))}</span></div>`
         + (when ? `<div class="tip-line">${iconMarkup("check-circle", "sm")}<span>Last activity ${escapeHtml(when)}</span></div>` : "")
       : `<div class="tip-line">${iconMarkup("camera", "sm")}<span>No QNet device in this room.</span></div>`);
 
@@ -2993,7 +3064,11 @@ function fillRoomModal(id) {
   dev.innerHTML = iconMarkup(info.monitored ? "camera" : "house") +
     `<span>${escapeHtml(deviceListText(info.devices))}${
       info.monitored && info.lastActivity != null
-        ? " · last activity " + relativeTime(info.lastActivity) : ""}</span>`;
+        ? " · last activity " + relativeTime(info.lastActivity) : ""}</span>` +
+    (info.monitored
+      ? `<span class="rm-health"><span class="live-dot ${info.health.online ? "on" : "off"}"></span>${
+          escapeHtml(info.health.label)}</span>`
+      : "");
 
   // The live-view slot is only meaningful where there is a camera to stand in
   // for; an empty room gets the sentence instead of a black rectangle.
