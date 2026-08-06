@@ -363,14 +363,31 @@ class VoiceController:
         self._set_status(state="IDLE_LISTENING")
         self._publish_status("idle", say_id=command.message_id)
 
+    # A responder announces themselves however they like. Prefix-matching one
+    # configured phrase missed "hey home, I'm the first responder" and every
+    # summary-style ask (user finding 2026-08-06), so: several phrases, matched
+    # ANYWHERE in the sentence. Kept deliberately specific - a bare "what
+    # happened" is something the person on the floor might ask, and that must
+    # stay a reply, not a brief.
+    RESPONDER_EXTRA_PHRASES = (
+        "give me a summary of what happened",
+        "summary of what happened",
+        "tell me what happened",
+        "what happened here",
+        "i am a paramedic",
+        "i am with the ambulance",
+    )
+
     def _matches_responder_phrase(self, transcript: str) -> bool:
         def normalize(value: str) -> str:
             value = re.sub(r"\bi['’]m\b", "i am", value.lower())
             return re.sub(r"[^a-z0-9]+", " ", value).strip()
 
         normalized = normalize(transcript)
-        expected = normalize(self.config.responder_phrase)
-        return bool(normalized and expected and normalized.startswith(expected))
+        if not normalized:
+            return False
+        phrases = [self.config.responder_phrase, *self.RESPONDER_EXTRA_PHRASES]
+        return any(p and p in normalized for p in (normalize(x) for x in phrases))
 
     def _remember(self, message_id: str) -> None:
         if len(self.recent_ids) == self.recent_ids.maxlen:

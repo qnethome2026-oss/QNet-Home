@@ -321,3 +321,22 @@ def test_runner_teardown_race_is_retried_without_error_state() -> None:
     assert voice.status_snapshot()["last_error"] == ""
     assert voice.status_snapshot()["asr_restart_count"] == 1
     assert transport.queries == []
+
+
+def test_responder_phrases_match_anywhere_and_cover_summary_asks() -> None:
+    """User finding (2026-08-06): only "I'm the first responder..." as a strict
+    prefix triggered the brief. A responder may lead with the wake phrase or
+    just ask for a summary; the person on the floor asking a bare question must
+    NOT trigger it."""
+    voice, _asr, _tts, _transport = controller("anything")
+    match = voice._matches_responder_phrase
+    assert match("I'm the first responder")
+    assert match("Hey home, I'm the first responder, what happened?")
+    assert match("give me a summary of what happened")
+    assert match("Tell me what happened")
+    assert match("I am a paramedic")
+    # The resident's own words stay replies.
+    assert not match("what")
+    assert not match("I don't know what happened")
+    assert not match("my head hurts")
+    assert not match("")
