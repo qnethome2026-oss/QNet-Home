@@ -1536,7 +1536,7 @@ function roomState(session, opts) {
   }
 
   if (o.closedAt != null && (now - o.closedAt) <= RECENT_CLOSE_SECONDS) {
-    return { label: "All clear", tone: "good" };
+    return { label: "Resolved just now", tone: "good" };
   }
   return { label: "All quiet ✓", tone: "quiet" };
 }
@@ -1867,18 +1867,6 @@ function composeSummary(state) {
     return { headline: s.provided.trim(), bullets: [] };
   }
 
-  let headline;
-  const act = s.active || null;
-  if (act && act.room && act.tone === "alert") {
-    headline = act.phase === "call_help"
-      ? `${roomLabel(act.room)} needs attention — help has been called.`
-      : `${roomLabel(act.room)} needs attention — QNet is getting help.`;
-  } else if (act && act.room && act.tone === "caution") {
-    headline = `QNet is checking on the ${roomLabel(act.room)}.`;
-  } else {
-    headline = "All quiet in the house.";
-  }
-
   const bullets = [];
   const inc = s.lastIncident || null;
   if (inc && inc.room) {
@@ -1892,6 +1880,22 @@ function composeSummary(state) {
 
   const finds = Number(s.findCount) || 0;
   if (finds > 0) bullets.push(`${finds} question${finds === 1 ? "" : "s"} answered today`);
+
+  // The headline is a present-tense claim. "All quiet in the house." is only
+  // honest when there is nothing to report at all; above a list of the day's
+  // incidents it read as dismissive (user feedback 2026-08-06), so a day WITH
+  // history gets "Nothing needs attention right now." instead.
+  let headline;
+  const act = s.active || null;
+  if (act && act.room && act.tone === "alert") {
+    headline = act.phase === "call_help"
+      ? `${roomLabel(act.room)} needs attention — help has been called.`
+      : `${roomLabel(act.room)} needs attention — QNet is getting help.`;
+  } else if (act && act.room && act.tone === "caution") {
+    headline = `QNet is checking on the ${roomLabel(act.room)}.`;
+  } else {
+    headline = bullets.length ? "Nothing needs attention right now." : "All quiet in the house.";
+  }
 
   return { headline, bullets };
 }
@@ -2255,7 +2259,7 @@ function runSelfTest() {
       expect: (r) => r.label === "Help is on the way" && r.tone === "alert" },
     { name: "room state: recently closed -> 'All clear'",
       fn: () => roomState({ urgency: "safety", state: "closed" }, { now: 5000, closedAt: 4950 }),
-      expect: (r) => r.label === "All clear" && r.tone === "good" },
+      expect: (r) => r.label === "Resolved just now" && r.tone === "good" },
     { name: "room state: closed long ago -> back to 'All quiet ✓'",
       fn: () => roomState({ urgency: "safety", state: "closed" }, { now: 5000, closedAt: 100 }),
       expect: (r) => r.label === "All quiet ✓" },
@@ -2446,7 +2450,7 @@ function runSelfTest() {
         active: null, findCount: 0,
         lastIncident: { room: "kitchen", kind: "fall", atText: "8:14 PM",
                         outcome: "resolved", simulatedCall: true, notified: "Sarah" } }),
-      expect: (r) => r.headline === "All quiet in the house."
+      expect: (r) => r.headline === "Nothing needs attention right now."
         && r.bullets.length === 3
         && r.bullets[0] === "A fall in the Kitchen at 8:14 PM — resolved"
         && r.bullets[1] === "A SIMULATED emergency call was placed"
@@ -2464,7 +2468,7 @@ function runSelfTest() {
       expect: (r) => /marked a false alarm$/.test(r.bullets[0]) },
     { name: "summary: FIND-ONLY day - questions are counted, never alarming",
       fn: () => [composeSummary({ findCount: 2 }), composeSummary({ findCount: 1 })],
-      expect: (r) => r[0].headline === "All quiet in the house."
+      expect: (r) => r[0].headline === "Nothing needs attention right now."
                      && r[0].bullets.length === 1 && r[0].bullets[0] === "2 questions answered today"
                      && r[1].bullets[0] === "1 question answered today" },
     { name: "summary: everything at once - headline is the live alert, bullets in order",
@@ -2517,7 +2521,7 @@ function runSelfTest() {
       fn: () => composeSummary(summaryStateFrom(
         [{ id: "01A", room: "kitchen", urgency: "safety", state: "closed", phase: "resolved", log: fallLog }],
         { now: 1200, clockText: () => "8:14 PM", contactName: "Sarah" })),
-      expect: (r) => r.headline === "All quiet in the house."
+      expect: (r) => r.headline === "Nothing needs attention right now."
         && r.bullets[0] === "A fall in the Kitchen at 8:14 PM — resolved"
         && r.bullets[1] === "A SIMULATED emergency call was placed"
         && r.bullets[2] === "Sarah was notified" },
@@ -2527,7 +2531,7 @@ function runSelfTest() {
                     { now: 2100, clockText: () => "9:00 AM" });
                   return [st.active, st.findCount, composeSummary(st)]; },
       expect: (r) => r[0] === null && r[1] === 1
-                     && r[2].headline === "All quiet in the house."
+                     && r[2].headline === "Nothing needs attention right now."
                      && r[2].bullets[0] === "1 question answered today" },
     { name: "summary state: IDLE - nothing at all -> the quiet digest",
       fn: () => composeSummary(summaryStateFrom([], { now: 1 })),
