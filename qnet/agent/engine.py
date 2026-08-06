@@ -407,6 +407,13 @@ class Session:
     comfort_idx: int = 0
     comfort_count: int = 0
     last_comfort_text: str = ""
+    # Phases already entered once, and the words that caused the latest
+    # phase jump. A REVISITED phase must never replay its opening ("I saw
+    # you fall - are you okay?" asked again mid-incident read as a machine
+    # airing its plumbing - user transcript 2026-08-06); instead the words
+    # that caused the jump get answered, through the first-aid matcher.
+    visited_phases: set = field(default_factory=set)
+    pending_reply_text: str = ""
     inbox: asyncio.Queue = field(default_factory=asyncio.Queue)
     task: asyncio.Task | None = None
 
@@ -1411,8 +1418,22 @@ class Agent:
         timer, with the cancel matcher ahead of everything else.
         """
         session.phase = phase.id
-        if phase.opening:
+        revisit = phase.id in session.visited_phases
+        session.visited_phases.add(phase.id)
+        pending = session.pending_reply_text
+        session.pending_reply_text = ""
+        if phase.opening and not revisit:
             await self.say(session, self.spoken_opening(session, phase.opening), "safety")
+            # "I'm not okay, my head hurts" deserves the head guidance even
+            # though it took an exit - the generic opening alone ignored the
+            # complaint (user transcript 2026-08-06). Only on a first-aid
+            # match: generic exit-causing words are covered by the opening.
+            if pending and self.first_aid is not None and self.first_aid.match(pending):
+                await self.reply_to(session, pending)
+        elif revisit and pending:
+            # Re-entry never replays the opening; the person's words get a
+            # real answer instead ("but my head hurts, what should I do?").
+            await self.reply_to(session, pending)
 
         for action in phase.on_enter:
             key = (phase.id, action)
@@ -1481,6 +1502,9 @@ class Agent:
                 log.info("[%s] refused %s %r outside phase %s", session.room, action.kind, action.name, phase.id)
                 continue
             if action.kind == "exit":
+                # Carry the words that caused the jump: the destination phase
+                # answers them instead of (or after) its opening.
+                session.pending_reply_text = (text or "").strip()
                 return action.exit
             await self.perform(session, phase, action)
 

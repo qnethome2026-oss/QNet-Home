@@ -522,7 +522,11 @@ def test_false_alarm_cancels_and_nothing_more_is_spoken(tmp_path) -> None:
             # intervals' worth of scaled time to prove the quiet is real.
             goodbye = sysm.spoken
             await asyncio.sleep(1.0)
-            assert sysm.spoken == goodbye == [CHECK_OPENING, ESCALATE_OPENING]
+            # "help" now earns the guided reply right after the escalate
+            # opening (first-aid match on an exit-causing utterance).
+            assert sysm.spoken == goodbye
+            assert goodbye[:2] == [CHECK_OPENING, ESCALATE_OPENING]
+            assert len(goodbye) == 3 and "Help is on the way" in goodbye[2]
         finally:
             await sysm.shutdown()
         assert sysm.errors == []

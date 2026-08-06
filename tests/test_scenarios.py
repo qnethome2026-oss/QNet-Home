@@ -476,3 +476,31 @@ def test_help_me_gets_an_answer_not_the_status_recording(tmp_path) -> None:
         assert len(bus.said()) == prev
 
     asyncio.run(scenario())
+
+
+def test_head_hurts_transcript_no_stupid_replay(tmp_path) -> None:
+    """The 2026-08-06 live transcript, as a regression: (1) "i'm not okay my
+    head hurts" escalates AND earns the head guidance, not just the generic
+    opening; (2) "but my head hurts, what should i do" jumps back to check
+    WITHOUT replaying "I saw you fall - are you okay?" and gets the guidance
+    answered instead."""
+
+    async def scenario() -> None:
+        agent, bus, rec = make_agent(tmp_path, timer_scale=0.05, comfort_interval_s=1000)
+        session = await fall(agent)
+        assert bus.said().count(CHECK_OPENING) == 1
+
+        await heard(agent, text="i'm not okay my head hurts")
+        await until(lambda: session.phase == "escalate", why="pain words escalate")
+        await until(lambda: any("lying down" in t for t in bus.said()),
+                    why="head guidance follows the escalate opening")
+
+        await heard(agent, text="but my head hurts, what should i do")
+        await until(lambda: session.phase == "check", why="responding jumps back to check")
+        # a moment for the revisit reply to land
+        await until(lambda: sum(1 for t in bus.said() if "lying down" in t) >= 2,
+                    why="the question gets the guidance answered again")
+        # THE bug: the opening must not replay on re-entry.
+        assert bus.said().count(CHECK_OPENING) == 1
+
+    asyncio.run(scenario())

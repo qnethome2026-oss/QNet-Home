@@ -45,7 +45,10 @@ async def reach_call_help(agent, rec) -> None:
 
 
 def comfort_says(bus) -> list[str]:
-    return [m["text"] for m in bus.says() if m["prio"] == "comfort"]
+    # Status updates only: guided replies also ride prio "comfort", but every
+    # status line carries the elapsed clause and replies never do.
+    return [m["text"] for m in bus.says()
+            if m["prio"] == "comfort" and "since I saw you fall" in m["text"]]
 
 
 # --- the 1/2/5 cadence ----------------------------------------------------
