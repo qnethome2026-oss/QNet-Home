@@ -1,0 +1,22 @@
+# QNet Home - bedroom camera preview on the second Ventuno Q (D2). Install:
+#   sudo cp infra/systemd/qnet-stream-bedroom.service /etc/systemd/system/qnet-stream.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now qnet-stream
+# Identical to the kitchen unit apart from these comments: stream.py serves
+# whatever /dev/shm/qnet_*_frame.jpg exists - on this board that frame comes
+# from look.py's --export-every exporter, not vision.py (no vision here).
+# LAN trust domain only - do not port-forward (qnet/node/stream.py).
+
+[Unit]
+Description=QNet Home bedroom stream - latest-frame preview for the dashboard
+After=network-online.target
+
+[Service]
+Type=simple
+User=arduino
+WorkingDirectory=/home/arduino/qnet-node
+ExecStart=/home/arduino/qnet-venv/bin/python -u -m qnet.node.stream --port 8090
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

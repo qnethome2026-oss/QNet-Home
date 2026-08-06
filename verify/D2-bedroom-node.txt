@@ -1,0 +1,207 @@
+# D2 — second Ventuno Q bring-up: BEDROOM node (VLM + look + stream, NO vision)
+# Date: 2026-08-06 · branch voice-integration · evidence collected live from the
+# laptop unless a step says it ran on a board. Board 2 = 10.73.51.178 ("ventuno2").
+
+## 1. SSH keys provisioned
+
+Laptop pubkey (~/.ssh/id_ed25519.pub, the same identity the `ventuno` alias uses)
+appended to board 2's ~/.ssh/authorized_keys via plink (password bootstrap), and
+a `ventuno2` alias added to the laptop's ~/.ssh/config:
+
+    Host ventuno2
+      HostName 10.73.51.178
+      User arduino
+      IdentityFile ~/.ssh/id_ed25519
+      ServerAliveInterval 30
+      ServerAliveCountMax 4
+
+    $ ssh ventuno2 hostname
+    ventunoq
+
+Board 1 had no keypair -> generated (ssh-keygen -t ed25519, no passphrase) and
+its pubkey appended to board 2, for the direct model transfer:
+
+    $ ssh ventuno 'ssh -o StrictHostKeyChecking=accept-new arduino@10.73.51.178 hostname'
+    ventunoq
+
+## 2. VLM service (Qualcomm genai-llm-vlm-service container, Qwen3-VL-4B on the NPU)
+
+Copied board 1's ~/docker-compose-qcs8300-ubuntu.yaml and ~/.env
+(GENAI_MODEL_DIR=/home/arduino/models — matches board 1's running container) to
+the same paths on board 2.
+
+Model transfer, board1 -> board2 direct over the new key (rsync -a
+--info=progress2), only the served model's directory:
+
+    board 1: 6.4G  /home/arduino/models/qwen2_5_vl_7b_instruct-genie-w4a16-qualcomm_qcs8275  (NOT copied)
+             4.1G  /home/arduino/models/qwen3_vl_4b_instruct-genie-w4a16-qualcomm_qcs8275    (copied)
+    rsync:   4,367,715,041 100%  35.06MB/s  0:01:58 (xfr#24, to-chk=0/26)
+    board 2: 4.1G  /home/arduino/models/qwen3_vl_4b_instruct-genie-w4a16-qualcomm_qcs8275
+
+DEVIATION (documented): `docker compose up -d` hit a name conflict — board 2
+already carried an EXITED genai-llm-vlm-service container (created 2026-07-14,
+compose project /home/arduino/muni/compose — Muni's). Per the do-not-delete
+rule it was RENAMED, not removed:
+
+    docker rename genai-llm-vlm-service genai-llm-vlm-service-muni-parked
+
+Then `docker compose -f ~/docker-compose-qcs8300-ubuntu.yaml up -d` started clean
+(image artifacts.codelinaro.org/iot-solutions-microservices/genai-llm-vlm-service:latest,
+830MB, pulled fresh).
+
+    $ ssh ventuno2 'curl -s -m 120 http://127.0.0.1:9001/v1/models'
+    {"object":"list","data":[{"id":"qwen3_vl_4b_instruct","created":1786033833,"object":"model","owned_by":""}]}
+
+## 3. Node code + venv on board 2
+
+~/qnet-node mirrors board 1's layout, sourced from the LAPTOP repo (branch
+voice-integration, includes tonight's look.py change): qnet/{__init__,ids}.py,
+qnet/node/{__init__,look,stream,vision}.py, config/{house,node}.yaml,
+dev/{spy,inject}.py. node.yaml set to the bedroom identity:
+
+    node_id: bedroom-01
+    room: bedroom
+
+~/qnet-venv created (needed `sudo apt-get install python3.12-venv` first);
+installed: paho-mqtt 2.1.0, opencv-python-headless 5.0.0.93, numpy 2.5.1,
+pyyaml 6.0.3, openai 2.53.0 (+deps) — the set look.py/stream.py import,
+matched against board 1's venv.
+
+## 4. Design note — who exports the frame / heartbeat with NO vision on this board
+
+stream.py deliberately never opens a camera: it serves what vision.py exports to
+/dev/shm/qnet_<room>_frame.jpg — and vision (fall detection) stays kitchen-only.
+So qnet/node/look.py gained an OPT-IN `--export-every S` flag (default 0 = off,
+kitchen node unchanged): one background thread owns the camera, drains it
+continuously, atomically writes the shm frame every S seconds (vision.py's
+_atomic_write), and look.py publishes the 5 s qnet/<room>/status heartbeat
+(state "look-only", detector "none (look+stream node)"). The bedroom unit runs
+`--export-every 1`. Units were NOT templated — two explicit per-room files in
+infra/systemd/ (qnet-look-bedroom.service, qnet-stream-bedroom.service),
+installed on the board under the canonical names qnet-look/qnet-stream; the
+kitchen files' comments already double as docs and a template would hide the
+one real difference (the export flag).
+
+## 5. Gate D2 evidence
+
+### Services active
+
+    $ ssh ventuno2 systemctl is-active qnet-look qnet-stream
+    active
+    active
+
+### Both rooms' heartbeats on the broker
+
+    $ .venv/Scripts/python.exe dev/spy.py --broker 10.73.51.175 --port 11883 -t 'qnet/+/status' -C 4
+    # spy: 10.73.51.175:11883 qnet/+/status
+    09:31:45.615 qnet/bedroom/status {"node": "bedroom-01", "room": "bedroom", "ts": 1786033905.6374736, "state": "look-only", "fps": 26.96, "frames": 1217, "detector": "none (look+stream node)"}
+    09:31:47.268 qnet/kitchen/status {"node": "kitchen-01", "room": "kitchen", "ts": 1786033907.1836843, "state": "armed", "fps": 2.7, "frames": 3191, "detector": "fall-yolo11n@hexagon-npu"}
+    09:31:50.637 qnet/bedroom/status {"node": "bedroom-01", "room": "bedroom", "ts": 1786033910.6384647, "state": "look-only", "fps": 27.15, "frames": 1361, "detector": "none (look+stream node)"}
+    09:31:52.522 qnet/kitchen/status {"node": "kitchen-01", "room": "kitchen", "ts": 1786033912.4467611, "state": "armed", "fps": 2.7, "frames": 3205, "detector": "fall-yolo11n@hexagon-npu"}
+
+### Stream serves the bedroom frame over the LAN (from the laptop)
+
+    $ curl http://10.73.51.178:8090/bedroom.jpg
+    HTTP 200, 20594 bytes  (image/jpeg; re-fetched later: HTTP 200, 25405 bytes)
+
+### VLM scene sanity (image round-trip on the NPU, board 2)
+
+Once the BRIO was physically placed (it spent the first minutes on the desk
+pointing up at a teammate), the scene-describe probe returned:
+
+    $ ~/qnet-venv/bin/python /tmp/describe.py   # sends the /dev/shm frame to :9001
+    This photo shows a white dome-style security camera mounted on a light-colored
+    wall, with a visible bracket securing it to the surface. The camera is
+    positioned in a corner near a cabinet or shelf, with a small wooden surface
+    visible to the right.
+
+That wall-mounted dome camera became the bedroom-visible object for the e2e.
+
+### look round-trip (bedroom answers from its own frame + local VLM)
+
+Context: while this gate ran, the BRIO was lying on the desk pointing up at a
+teammate working above it (verified by eye via bedroom.jpg), so the honest
+"visible object" was the person. First probe asked for "glasses" — the bedroom
+node replied found=false on its odd close-up (honest negative), while BOTH
+rooms answered the broadcast, proving the fabric:
+
+    $ dev/inject.py --broker 10.73.51.175 --port 11883 look --object "glasses"
+    qnet/look {"qid": "01KZBYWNRF8XPV8NHDQH2HACH4", "object": "glasses", "mode": "find", "room": null}
+    # spy (qnet/+/looked):
+    09:35:53.951 qnet/bedroom/looked {"qid": "01KZBYWNRF8XPV8NHDQH2HACH4", "room": "bedroom", "found": false, "answer": ""}
+    09:35:54.462 qnet/kitchen/looked {"qid": "01KZBYWNRF8XPV8NHDQH2HACH4", "room": "kitchen", "found": true, "answer": "a man wearing glasses"}
+    # bedroom journal: look: qid=01KZBYWNRF8XPV8NHDQH2HACH4 object='glasses' mode=find frame=shm (0.03s) total=4.55s found=False answer=''
+
+Round-trip with the object the BRIO actually saw — found=true with a location
+phrase, answered from the exporter's shm frame:
+
+    $ dev/inject.py --broker 10.73.51.175 --port 11883 look --object "person"
+    qnet/look {"qid": "01KZBYY6X932N4S0W3D5DJT75A", "object": "person", "mode": "find", "room": null}
+    # spy (qnet/bedroom/looked):
+    09:36:43.497 qnet/bedroom/looked {"qid": "01KZBYY6X932N4S0W3D5DJT75A", "room": "bedroom", "found": true, "answer": "a person is visible near the wall"}
+
+### FULL two-room find e2e — ask in the kitchen, answer found in the bedroom
+
+    $ dev/inject.py --broker 10.73.51.175 --port 11883 ask --room kitchen --text "where is my security camera"
+    qnet/kitchen/ask {"id": "01KZBZ2T7HT42HD3YN515EFRWW", "ts": 1786034350.3, "room": "kitchen", "text": "where is my security camera", "kind": "query"}
+
+    # spy (qnet/#, status beats elided) — the agent on the IQ9 runs the whole flow:
+    09:39:10.365 qnet/kitchen/ask {"id": "01KZBZ2T7HT42HD3YN515EFRWW", "ts": 1786034350.3, "room": "kitchen", "text": "where is my security camera", "kind": "query"}
+    09:39:10.418 qnet/look {"qid": "01KZBZ2TBDWSSQ4BAYRS6FDJHM", "object": "security camera", "mode": "find", "room": null}
+    09:39:14.043 qnet/kitchen/looked {"qid": "01KZBZ2TBDWSSQ4BAYRS6FDJHM", "room": "kitchen", "found": false, "answer": ""}
+    09:39:14.656 qnet/bedroom/looked {"qid": "01KZBZ2TBDWSSQ4BAYRS6FDJHM", "room": "bedroom", "found": true, "answer": "a security camera is visible on the wall near the shelf"}
+    09:39:14.666 qnet/kitchen/say {"text": "I found your security camera in the bedroom, a security camera is visible on the wall near the shelf.", "prio": "routine"}
+
+    # session log tool line (published run document):
+    {"event": "tool", "tool": "look_in_rooms", "result": "2/2 answered, found in bedroom", "qid": "01KZBZ2TBDWSSQ4BAYRS6FDJHM"}
+
+BOTH rooms answered the broadcast (kitchen honestly not-found, bedroom found),
+and the say names the bedroom finding. Ask -> say took 4.3 s end to end.
+
+### Laptop suite + dashboard harness (after tonight's repo changes)
+
+    $ .venv/Scripts/python.exe -m pytest -q
+    186 passed, 7 deselected in 48.14s
+
+    $ node .../run_core_tests.mjs dashboard/index.html
+    QNet Home product-page self-test: 119/119 passed
+
+## 6. Bonus — whisper QNN artifacts found on board 2 (D3 install source)
+
+BOTH variants are present and complete in the arduino model registry
+(/var/lib/arduino-app-cli/models/audio-analytics/asr/):
+
+    whisper_small-voice_ai-float-qualcomm_qcs8275/            601M total
+        config.json      737
+        decoder.bin      361,689,088
+        encoder.bin      267,300,864
+        metadata.json    17,534
+        vocab.bin        357,313
+    whisper_small_quantized-voice_ai-w8a16-qualcomm_qcs8275/  343M total
+        config.json      874
+        decoder.bin      225,320,960
+        encoder.bin      133,320,704
+        metadata.json    43,808
+        vocab.bin        357,313
+
+D3 can rsync either directory from board 2 (10.73.51.178) instead of waiting on
+Muni — scripts/install_whisper_voice_ai_model.sh expects exactly this layout
+(encoder.bin/decoder.bin/vocab.bin + metadata), and the quantized dir is also
+the tokenizer source the script references.
+
+## 7. Parallel-work note
+
+While D2 ran, the orchestrator/user advanced the branch (a861c1e D0/D2 tracker,
+b6607af "D1 done — her IQ9 stack retired", 22d5a12 dashboard System-log pane).
+Commit 22d5a12 swept this task's already-made DEFAULT_CAM_URLS bedroom edit
+into the tree, so `git status` no longer shows dashboard/index.html as
+modified — the change is present at HEAD (bedroom -> http://10.73.51.178:8090/bedroom.jpg)
+and the extraction harness was RE-RUN on the post-commit file: 119/119 passed.
+Nothing was committed by this task itself.
+
+## 8. Untouched, per the rules
+
+Board 1: all services left running (qnet-vision/look/stream + container).
+Board 2: qhome-voice-node-* and dictation-assistant containers still present,
+still stopped; ~/ArduinoApps and the arduino-app-cli daemon (:8800) untouched;
+Muni's old VLM container preserved under the -muni-parked name.

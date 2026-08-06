@@ -35,8 +35,11 @@ rooms:
     node: kitchen-01
     source: "v4l2src device=/dev/video2"
   bedroom:
+    # Second Ventuno Q (10.73.51.178, D2): look + stream only, NO vision -
+    # fall detection stays kitchen-only. look.py's --export-every exporter
+    # owns this camera (Logitech BRIO, stable by-id path).
     node: bedroom-01
-    source: "v4l2src device=/dev/video2"
+    source: "v4l2src device=/dev/v4l/by-id/usb-046d_Logitech_BRIO_DA650E32-video-index0"
 vision:  { conf_floor: 0.6, fire_on: "5/8", rearm_after_s: 60 }
 voice:
   speech_service_url: "http://localhost:8080"   # her service; it owns the audio devices
