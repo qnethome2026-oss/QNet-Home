@@ -439,3 +439,35 @@ def test_pain_denial_with_the_pain_word_resolves(tmp_path) -> None:
     # "no... but my head hurt when i fell" - the negation window is 2 words,
     # so a far-away pain word still escalates (the safe direction).
     assert not _NEGATED_PAIN_RE.search("no idea what happened but my head really seriously hurts")
+
+
+def test_help_me_gets_an_answer_not_the_status_recording(tmp_path) -> None:
+    """Live finding (2026-08-06): "Help me" / "What can I do?" mid-call_help
+    earned only the next timed status line. An unrouted utterance in a safety
+    session now gets a responsive reply - the canned guidance under --no-llm -
+    and it resets the comfort clock instead of stacking on it."""
+
+    async def scenario() -> None:
+        agent, bus, rec = make_agent(tmp_path, timer_scale=0.05, comfort_interval_s=1000)
+        session = await fall(agent)
+        for _ in range(3):
+            await heard(agent, silence=True)
+        await until(lambda: rec.count("call_emergency") == 1, why="reach call_help")
+        before = len(bus.said())
+
+        await heard(agent, text="help me")
+        await until(lambda: len(bus.said()) > before, why="a reply to the person")
+        assert bus.said()[-1] == engine.REPLY_FALLBACK
+
+        await heard(agent, text="what can i do")
+        await until(lambda: len(bus.said()) > before + 1, why="a second reply")
+        assert bus.said()[-1] == engine.REPLY_FALLBACK
+        # Still in call_help - answering is not an exit, and silence heards
+        # never trigger it (no chatty replies to timeouts).
+        assert session.phase == "call_help"
+        prev = len(bus.said())
+        await heard(agent, silence=True)
+        await asyncio.sleep(0.2)
+        assert len(bus.said()) == prev
+
+    asyncio.run(scenario())

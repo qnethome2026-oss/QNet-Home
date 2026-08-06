@@ -123,6 +123,12 @@ ROUTINE_PRIO = "routine"
 # The pain double-check (§3, §6) - canned, so it is reachable with no model at
 # all. "I'm fine" must never close a session without passing through this.
 PAIN_QUESTION = "Any pain? Did you hit your head?"
+# What an unrouted mid-escalation utterance gets instead of silence (user
+# finding 2026-08-06: "Help me" / "What can I do?" earned only the next timed
+# status line). The guidance half is fall.md's own sourced wording - nothing
+# medical beyond what the skill already says once in its opening.
+REPLY_FALLBACK = ("I'm right here with you. Try to get comfortable and don't strain to move — "
+                  "help is on the way.")
 
 # Cancel is an engine-level interrupt on EXPLICIT phrases only (§6). Word
 # boundaries, so "stopped" and "cancelled the paper" do not close a session -
@@ -1292,6 +1298,13 @@ class Agent:
 
             action = await self.decide(phase, session, text)
             if action.kind == "wait":
+                # They said something and no exit matched - answer THEM, not
+                # just the clock. Only in safety sessions (a find session has
+                # nothing to reassure about), only for real words. say() also
+                # resets the comfort clock, so this replaces - not stacks on -
+                # the next status line.
+                if (text or "").strip() and session.urgency == "safety":
+                    await self.reply_to(session, text)
                 continue
             if not self.allows(phase, action):
                 await self.append(
@@ -1392,6 +1405,38 @@ class Agent:
             # it. There is exactly one speaker per session by construction.
             return
         await self.say(session, await self.comfort_text(session), "comfort")
+
+    async def reply_to(self, session: Session, text: str) -> None:
+        """Respond to what the person actually said, mid-escalation (§6 spirit).
+
+        Same seam as ``comfort_text``: Gemma may word the response from the
+        engine's facts (which include the person's own words and fall.md's
+        sourced guidance line), and anything unusable falls back to the canned
+        ``REPLY_FALLBACK`` - so ``--no-llm`` answers too, and the model can
+        acknowledge but never invent a new claim or new medical advice.
+        """
+        line = None
+        if self.llm is not None:
+            facts = (
+                [f'the person just said: "{text}" - acknowledge and answer that first, briefly']
+                + self.comfort_facts(session)
+                + ["safe guidance you may repeat: get comfortable, don't strain to move, "
+                   "stay as still as is comfortable if anything hurts"]
+            )
+            started = time.monotonic()
+            line = await asyncio.to_thread(self.llm.word_line, "reply", facts)
+            await self.append(
+                session,
+                {
+                    "event": "llm",
+                    "phase": session.phase,
+                    "kind": "reply",
+                    "facts": facts,
+                    "source": "gemma" if line else "fallback",
+                    "ms": round((time.monotonic() - started) * 1000),
+                },
+            )
+        await self.say(session, line or REPLY_FALLBACK, "comfort")
 
     async def comfort_text(self, session: Session) -> str:
         """Gemma words the update; the engine chooses the facts (T3.4).
