@@ -19,7 +19,7 @@ frozen MQTT contract is the boundary, zero engine/tool/dashboard changes.*
 | D0 | Device pre-flight (IPs, services, right-broker check) | ✅ done 2026-08-06 |
 | D1 | Retire her IQ9 stack | ✅ done 2026-08-06 (user authorized on Muni's behalf) |
 | D2 | Second Ventuno bring-up (bedroom: VLM + look + stream) | ✅ done 2026-08-06 |
-| D3 | Voice node on the kitchen board (RAM gate → G3 checklist → wake soak) | 🔨 deploying (whisper artifacts found on board 2) |
+| D3 | Voice node on the kitchen board (RAM gate → G3 checklist → wake soak) | 🔨 deployed 2026-08-06: app running, both whisper models registered, heartbeat + say proven on wire, RAM gate passed on float (`verify/D3-voice-deploy.txt`); G3 in-room checklist + T6.4 wake soak await a human |
 | D4 | Voice-first rehearsals ×2, contact-ack live, packaging, merge PR | ⬜ awaiting devices |
 
 ## Phase A — Extraction + re-license ✅

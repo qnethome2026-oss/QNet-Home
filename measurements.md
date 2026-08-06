@@ -4,6 +4,25 @@ Every number here was measured on the named hardware, with the method stated —
 nothing modelled, nothing quoted from a datasheet. DESIGN.md's rule: nothing
 `[?]` goes on a slide until it's measured.
 
+## D3 — voice node RAM gate on the kitchen Ventuno Q (2026-08-06)
+
+Board: kitchen Ventuno Q (10.73.51.123), already running qnet-vision +
+qnet-look + qnet-stream + the Qualcomm LLM/VLM container. Method: `free -m` on
+the board immediately before `arduino-app-cli app start qnet-voice-node`, and
+again after both containers were up, the audio-analytics runner had registered
+`['whisper-small', 'whisper-small-quantized']`, float whisper-small had served
+a real streaming transcription session, and piper TTS had synthesized one say.
+
+| free -m | total | used | available |
+|---|---|---|---|
+| Before app start (16:47:06Z) | 15284 | 10080 | **5204** |
+| After app + models up (16:49:02Z) | 15284 | 11523 | **3761** |
+
+- Voice node cost: **+1443 MiB** used. Headroom after = 3761 MiB, comfortably
+  above the ~800 MiB gate → **float whisper-small stays active**; the
+  quantized rollback remains registered (config flip + restart, no copy).
+- Evidence: `verify/D3-voice-deploy.txt`.
+
 ## T6.3 — look→looked round trip on the Ventuno Q (2026-08-05)
 
 Board: Arduino Ventuno Q, `node/look.py` answering `qnet/look` with

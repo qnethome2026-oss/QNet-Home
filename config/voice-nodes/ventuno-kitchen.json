@@ -6,7 +6,7 @@
   "mqtt_port": 11883,
   "mqtt_username": null,
   "mqtt_password": null,
-  "microphone_device": "usb:1",
+  "microphone_device": "usb:2",
   "speaker_device": "usb:1",
   "asr_model": "whisper-small",
   "language": "en",

@@ -507,6 +507,8 @@
   .sl-line.sl-svc-look   { background: linear-gradient(90deg, rgba(6,182,212,0.20),  rgba(6,182,212,0.05) 70%); }
   .sl-line.sl-svc-voice  { background: linear-gradient(90deg, rgba(217,70,239,0.20), rgba(217,70,239,0.05) 70%); }
   .sl-line.sl-svc-agent  { background: linear-gradient(90deg, rgba(99,91,255,0.18),  rgba(99,91,255,0.04) 70%); }
+  .sl-line.sl-svc-alert  { background: rgba(153,27,27,0.30); border-left-color: #b91c1c !important;
+                           color: #fecaca; font-weight: 600; }
   .sl-legend { font-weight: 400; margin-left: 10px; opacity: 0.9; font-size: 0.78rem; }
   .sl-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin: 0 4px 0 8px; }
   .sl-dot.sl-brain { background: #635bff; } .sl-dot.sl-kitchen { background: #2f9e63; }
@@ -2901,8 +2903,10 @@ function syslogPush(topic, payloadStr) {
   let payload = null;
   try { payload = JSON.parse(payloadStr); } catch (_e) { /* raw line stays raw */ }
   const origin = wireOrigin(topic, payload);
+  // A detection event outranks the color scheme: dark red, unmissable.
+  const alert = /\/event$/.test(topic) || (payload && payload.result === "SIMULATED");
   syslogLines.unshift({ text: `${hh}:${mm}:${ss}.${ms}  ${topic}  ${payloadStr}`,
-                        device: origin.device, service: origin.service });
+                        device: origin.device, service: alert ? "alert" : origin.service });
   if (syslogLines.length > SYSLOG_CAP) syslogLines.length = SYSLOG_CAP;
   const pane = $("syslogPane");
   $("syslogCount").textContent = `(${syslogLines.length})`;
