@@ -547,6 +547,64 @@
     background: var(--card-2); color: var(--text); border: 1px solid var(--line);
   }
   .maprow select:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
+  /* T5.7: per-room camera preview address. Full-width second line of a maprow
+     (the row wraps), styled like every other input on the page. */
+  .maprow .camurl {
+    flex: 1 1 100%; font: inherit; font-size: 0.85rem; padding: 7px 10px;
+    border-radius: 9px; background: var(--card-2); color: var(--text);
+    border: 1px solid var(--line);
+  }
+  .maprow .camurl:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
+
+  /* ---- T5.7: typed voice input (feature-flagged, default OFF) ----
+     A chat-style composer docked under the Live activity feed. It only exists
+     on screen while the Settings toggle is on, and the SIMULATED VOICE badge
+     in the panel head is on exactly as long as it is - §14's honesty rule,
+     same treatment as the SIMULATED call badge. */
+  .voice-dock {
+    display: flex; gap: 8px; align-items: center;
+    padding: 10px 14px; border-top: 1px solid var(--line-soft);
+  }
+  .voice-dock[hidden] { display: none; }
+  .voice-dock select {
+    font: inherit; font-size: 0.86rem; padding: 8px 8px; border-radius: 9px;
+    background: var(--card-2); color: var(--text); border: 1px solid var(--line);
+    max-width: 130px;
+  }
+  .voice-dock input {
+    flex: 1; min-width: 0; font: inherit; font-size: 0.9rem; padding: 8px 12px;
+    border-radius: 9px; background: var(--card-2); color: var(--text);
+    border: 1px solid var(--line);
+  }
+  .voice-dock input:focus, .voice-dock select:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
+  .voice-dock button { padding: 8px 14px; }
+  /* The greyed "not heard" hint chip on a discarded typed line. */
+  .entry .line-hint {
+    display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px;
+    border: 1px dashed var(--line); color: var(--muted);
+    font-size: 0.72em; font-style: normal; white-space: nowrap; vertical-align: 1px;
+  }
+
+  /* ---- T5.7: room modal live camera preview (DESIGN §17 O14) ---- */
+  .cam img {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: contain; background: #000; z-index: 1;
+  }
+  .cam img[hidden] { display: none; }
+  .cam .cam-live {
+    position: absolute; top: 10px; left: 12px; z-index: 2;
+    padding: 2px 10px; border-radius: 999px;
+    background: rgba(0, 0, 0, 0.55); color: #ffffff;
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
+  }
+  .cam .cam-live .live-dot { color: #3fc287; margin-right: 4px; }
+  .cam .cam-live[hidden] { display: none; }
+  .cam .cam-err {
+    position: absolute; bottom: 10px; left: 12px; z-index: 2;
+    padding: 2px 10px; border-radius: 999px;
+    background: rgba(0, 0, 0, 0.55); color: #cdd3df; font-size: 0.74rem;
+  }
+  .cam .cam-err[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -791,6 +849,10 @@
         <div class="panel-head">
           <svg class="ico" aria-hidden="true"><use href="#i-chat"></use></svg>
           <h2 id="feedTitle">Live activity</h2>
+          <!-- T5.7: on exactly while the Settings toggle is on. §14's honesty
+               rule, same treatment as the SIMULATED call badge: the reader must
+               never mistake a typed line for something a room actually heard. -->
+          <span class="sim-badge" id="voiceBadge" hidden>SIMULATED VOICE</span>
         </div>
         <!-- NEWEST AT THE TOP: the latest line is always visible without
              scrolling, and each new arrival announces itself with a brief
@@ -798,6 +860,15 @@
         <div class="feed-scroll" id="feedScroll">
           <div class="feed" id="feed" style="border:none; box-shadow:none; border-radius:0; background:transparent;"></div>
           <div class="placeholder" id="feedEmpty" style="border:none; padding:24px 18px;">Nothing has happened today. That is the good outcome.</div>
+        </div>
+        <!-- T5.7: the typed stand-in for the speech service that is not built
+             yet. Routing mirrors dev/sim.html's ROUTING CORE exactly (DESIGN §5
+             sanctions the sim as the stand-in); hidden unless the toggle is on. -->
+        <div class="voice-dock" id="voiceDock" hidden>
+          <select id="voiceRoom" aria-label="Room the typed line is spoken in"></select>
+          <input id="voiceText" type="text" autocomplete="off"
+                 placeholder="Type what would have been said out loud…">
+          <button class="btn primary" id="voiceSend">Send</button>
         </div>
       </section>
 
@@ -906,6 +977,20 @@
       <div class="hint">Where this screen listens to your home. Leave it alone unless someone told you to change it. Saving reconnects.</div>
     </div>
 
+    <!-- T5.7: the typed-voice feature flag. DEFAULT OFF; the stored value must
+         be exactly "1" to turn it on (parseVoiceSimFlag in the LOGIC CORE). -->
+    <div class="field">
+      <label for="voiceSimToggle" style="display:flex; align-items:center; gap:9px; cursor:pointer;">
+        <input id="voiceSimToggle" type="checkbox" style="width:auto; margin:0;">
+        Simulated voice input
+      </label>
+      <div class="hint">
+        Lets you type what a person would have said out loud, from this screen,
+        while the listening hardware is not set up yet. Everything you type is
+        clearly marked SIMULATED VOICE. Off unless you turn it on.
+      </div>
+    </div>
+
     <p style="margin-top: 26px;">
       <a href="admin.html">Open admin portal →</a><br>
       <span class="hint">The technical view: every message, timing and diagnostic.</span>
@@ -928,16 +1013,20 @@
     <div class="devline" id="rmDevices"></div>
 
     <h4>Live view</h4>
-    <!-- THE SLOT. Streaming is a future build, and this is the panel it will
-         appear in - correctly proportioned, in place, and labelled honestly
-         rather than hidden until it works. A family that clicks a room should
-         learn what this screen will one day do, and be told plainly that it
-         does not do it yet. -->
+    <!-- THE SLOT (DESIGN §17 O14). With no preview address saved for the room
+         this is the same honest placeholder it always was. With one saved in
+         Settings, the slot shows the node's latest frame, refreshed about
+         twice a second while (and only while) this modal is open - an
+         in-home, LAN-only preview, and the label says exactly that. Never
+         called "streaming": it is a picture that refreshes. -->
     <div class="cam" id="rmCam" role="img" aria-label="Camera live view is not enabled in this build">
+      <img id="rmCamImg" alt="" hidden>
+      <div class="cam-live" id="rmCamLive" hidden><span class="live-dot">●</span>LIVE — local preview (LAN only)</div>
+      <div class="cam-err" id="rmCamErr" hidden>Camera unreachable — still trying</div>
       <svg class="ico" aria-hidden="true"><use href="#i-camera"></use></svg>
       <div class="cam-title">Live view</div>
-      <div class="cam-note">Camera streaming is not enabled in this build</div>
-      <div class="cam-chip">Coming soon</div>
+      <div class="cam-note" id="rmCamNote">Camera streaming is not enabled in this build</div>
+      <div class="cam-chip" id="rmCamChip">Coming soon</div>
     </div>
     <p class="hint" style="margin-top:12px;">
       Nothing this room sees or hears leaves your home. QNet understands it in
@@ -1733,6 +1822,125 @@ function summaryStateFrom(sessionList, opts) {
 }
 
 /* ============================================================
+ * T5.7 - TYPED VOICE INPUT + CAMERA PREVIEW. Still pure.
+ *
+ * ROUTING ATTRIBUTION: newUlid / nowTs / normalize / the phrase constants /
+ * matchesResponderPhrase / stripWakePhrase / buildAsk / buildHeard /
+ * routeInput are copied verbatim from dev/sim.html's ROUTING CORE (T1.2b),
+ * which mirrors the §9 adapter loop. DESIGN §5 sanctions the sim's routing as
+ * the stand-in for the unbuilt speech service, so this page reuses it rather
+ * than re-deriving it. The routing is therefore now duplicated in THREE
+ * places - qnet/node/voice.py, dev/sim.html and here - change all three
+ * (the same accepted duplication the MiniMQTT client already documents).
+ * ============================================================ */
+
+const CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+function newUlid(tsSeconds) {
+  // Same layout as qnet/ids.py: 48-bit ms timestamp << 80 | 80 random bits,
+  // Crockford base32, 26 chars, most-significant first — so an id minted
+  // here is byte-for-byte indistinguishable from one the agent or
+  // dev/inject.py mints.
+  const ms = BigInt(Math.floor((tsSeconds === undefined ? Date.now() / 1000 : tsSeconds) * 1000));
+  const randBytes = new Uint8Array(10);
+  globalThis.crypto.getRandomValues(randBytes);
+  let rand = 0n;
+  for (const b of randBytes) rand = (rand << 8n) | BigInt(b);
+  const value = (ms << 80n) | rand;
+  let out = "";
+  for (let shift = 125n; shift >= 0n; shift -= 5n) out += CROCKFORD32[Number((value >> shift) & 0x1fn)];
+  return out;
+}
+
+function nowTs() {
+  // Unix epoch seconds, fractional - full millisecond precision on purpose;
+  // see dev/sim.html's nowTs() for why a value landing on a whole second is
+  // avoided rather than rounded onto.
+  return Date.now() / 1000;
+}
+
+function normalize(text) {
+  return text.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+}
+
+const RESPONDER_PHRASE_NORM = normalize("i'm the first responder");
+const WAKE_PHRASES_NORM = ["hey home", "hi home"]; // "hey, home" already collapses to "hey home" via normalize()
+
+function matchesResponderPhrase(norm) {
+  return norm.includes(RESPONDER_PHRASE_NORM);
+}
+
+function stripWakePhrase(norm) {
+  for (const phrase of WAKE_PHRASES_NORM) {
+    if (norm === phrase) return "";
+    if (norm.startsWith(phrase + " ")) return norm.slice(phrase.length).trim();
+  }
+  return null; // doesn't start with a wake phrase
+}
+
+function buildAsk(room, text, kind) {
+  return { id: newUlid(), ts: nowTs(), room, text, kind };
+}
+
+function buildHeard(text) {
+  return { text, silence: text === "" };
+}
+
+// routing duplicated in qnet/node/voice.py and dev/sim.html — change all three
+function routeInput(rawText, room, sessionActive) {
+  const norm = normalize(rawText);
+  if (matchesResponderPhrase(norm)) {                      // checked first, in ANY state (§9, §12)
+    return { topic: `qnet/${room}/ask`, payload: buildAsk(room, "", "responder_brief") };
+  }
+  if (sessionActive) {                                      // the agent just asked something
+    return { topic: `qnet/${room}/heard`, payload: buildHeard(rawText.trim()) };
+  }
+  const stripped = stripWakePhrase(norm);                    // idle — "Hey Home…"
+  if (stripped !== null) {
+    return { topic: `qnet/${room}/ask`, payload: buildAsk(room, stripped, "query") };
+  }
+  return null;                                                // idle small talk — not for the house
+}
+
+/** The typed-voice feature flag, decoded from what localStorage hands back.
+ * ON only when the stored value is exactly "1" - null (never saved), "",
+ * "0", corrupt text and storage-disabled all mean OFF. This is the "fresh
+ * page shows no input box and no badge" rule as a testable function. */
+function parseVoiceSimFlag(raw) {
+  return raw === "1";
+}
+
+/** Which room the composer offers first: the one that spoke most recently.
+ *   defaultVoiceRoom([{ room, lastActivity }]) -> room | null */
+function defaultVoiceRoom(roomStates) {
+  let best = null;
+  for (const s of (Array.isArray(roomStates) ? roomStates : [])) {
+    if (!s || !s.room) continue;
+    if (!best || (s.lastActivity || 0) > (best.lastActivity || 0)) best = s;
+  }
+  return best ? best.room : null;
+}
+
+/** Cache-busting for the preview picture: the node's server marks the frame
+ * no-cache, and the changing query param defeats any cache that ignores that. */
+function camBustUrl(url, t) {
+  const u = String(url == null ? "" : url);
+  return u + (u.indexOf("?") >= 0 ? "&" : "?") + "t=" + t;
+}
+
+/** The preview address for a drawn room: its devices in order, first one with
+ * a saved address wins; no address saved -> null and the modal shows the same
+ * placeholder it always did. */
+function camUrlForRoom(deviceRooms, camUrls) {
+  const urls = camUrls && typeof camUrls === "object" ? camUrls : {};
+  for (const dev of (Array.isArray(deviceRooms) ? deviceRooms : [])) {
+    const u = urls[dev];
+    if (typeof u === "string" && u.trim()) return u.trim();
+  }
+  return null;
+}
+
+/* ============================================================
  * SELF-TEST - lives inside the LOGIC CORE block so the `node -e` extraction in
  * verify/T5.4-product.txt runs byte-identical cases to the browser's
  * ?selftest=1. Every assertion here is about a rule this page must not break.
@@ -2144,6 +2352,65 @@ function runSelfTest() {
     { name: "summary state: malformed run documents -> a usable state, never a crash",
       fn: () => composeSummary(summaryStateFrom([null, {}, { log: "nope" }], { now: 1 })),
       expect: (r) => r.headline === "All quiet in the house." && r.bullets.length === 0 },
+
+    /* ================= T5.7: TYPED VOICE ROUTING =================
+       These cases mirror dev/sim.html's routing self-test - the contract is
+       contracts/mqtt.md's ask/heard shapes, and the routing must be
+       indistinguishable from what the sim (and one day qnet/node/voice.py)
+       would have published for the same spoken words. */
+
+    { name: "typed routing: responder phrase, idle -> responder brief request, empty text (contract)",
+      fn: () => routeInput("I'm the first responder, can you tell me what happened?", "kitchen", false),
+      expect: (r) => !!r && r.topic === "qnet/kitchen/ask" && r.payload.kind === "responder_brief"
+                     && r.payload.text === "" && r.payload.room === "kitchen" },
+    { name: "typed routing: responder phrase WINS mid-run too (checked first, any state)",
+      fn: () => routeInput("i'm the first responder what happened", "kitchen", true),
+      expect: (r) => !!r && r.topic === "qnet/kitchen/ask" && r.payload.kind === "responder_brief" },
+    { name: "typed routing: active run -> heard, raw text preserved, silence false",
+      fn: () => routeInput("i'm fine", "kitchen", true),
+      expect: (r) => !!r && r.topic === "qnet/kitchen/heard"
+                     && r.payload.text === "i'm fine" && r.payload.silence === false
+                     && Object.keys(r.payload).sort().join(",") === "silence,text" },
+    { name: "typed routing: idle wake phrase -> query with the phrase stripped",
+      fn: () => routeInput("Hey Home, where are my keys?", "bedroom", false),
+      expect: (r) => !!r && r.topic === "qnet/bedroom/ask" && r.payload.kind === "query"
+                     && r.payload.text === "where are my keys" },
+    { name: "typed routing: case and punctuation are tolerated ('HI HOME!!!')",
+      fn: () => routeInput("HI HOME!!! Where ARE my keys??", "bedroom", false),
+      expect: (r) => !!r && r.payload.kind === "query" && r.payload.text === "where are my keys" },
+    { name: "typed routing: idle small talk -> null, nothing published (shown greyed instead)",
+      fn: () => routeInput("nice weather today", "kitchen", false),
+      expect: (r) => r === null },
+    { name: "typed routing: the chosen room targets the wire path AND the payload",
+      fn: () => [routeInput("hey home where is my hat", "bedroom", false),
+                 routeInput("hey home where is my hat", "kitchen", false)],
+      expect: (r) => r[0].topic === "qnet/bedroom/ask" && r[0].payload.room === "bedroom"
+                     && r[1].topic === "qnet/kitchen/ask" && r[1].payload.room === "kitchen" },
+    { name: "typed routing: minted ids are 26-char Crockford ULIDs, time-ordered",
+      fn: () => [newUlid(1000), newUlid(2000)],
+      expect: (r) => r.every((id) => /^[0-9A-HJKMNP-TV-Z]{26}$/.test(id)) && r[0] < r[1] },
+
+    // ---- the feature flag: OFF by default, always ----
+    { name: "typed voice flag: OFF for every stored value except exactly \"1\"",
+      fn: () => [null, undefined, "", "0", "true", "yes", "on", 1].map(parseVoiceSimFlag),
+      expect: (r) => r.every((v) => v === false) },
+    { name: "typed voice flag: ON only for \"1\" (what Save writes)",
+      fn: () => parseVoiceSimFlag("1"), expect: (r) => r === true },
+    { name: "typed voice: the composer offers the most recently active room first",
+      fn: () => [defaultVoiceRoom([{ room: "kitchen", lastActivity: 10 }, { room: "bedroom", lastActivity: 20 }]),
+                 defaultVoiceRoom([]), defaultVoiceRoom(null)],
+      expect: (r) => r[0] === "bedroom" && r[1] === null && r[2] === null },
+
+    /* ================= T5.7: CAMERA PREVIEW (§17 O14) ================= */
+    { name: "camera: cache-busting appends ?t=, or &t= when the address has a query",
+      fn: () => [camBustUrl("http://10.0.0.5:8090/kitchen.jpg", 5), camBustUrl("http://x/f.jpg?a=1", 5)],
+      expect: (r) => r[0] === "http://10.0.0.5:8090/kitchen.jpg?t=5" && r[1] === "http://x/f.jpg?a=1&t=5" },
+    { name: "camera: first device with a saved address wins; none saved -> null (placeholder)",
+      fn: () => [camUrlForRoom(["a", "b"], { b: "http://u/b.jpg" }),
+                 camUrlForRoom(["a", "b"], { a: "  ", b: "http://u/b.jpg" }),
+                 camUrlForRoom(["a"], {}), camUrlForRoom(null, null)],
+      expect: (r) => r[0] === "http://u/b.jpg" && r[1] === "http://u/b.jpg"
+                     && r[2] === null && r[3] === null },
   ];
 
   const results = cases.map((c) => {
@@ -2172,7 +2439,11 @@ if (typeof module !== "undefined" && module.exports) {
                      // T5.5 - the house
                      ICON_IDS, SCHEMATIC_ROOMS, DEFAULT_MAPPING, normKey, similarity,
                      bestSchematicMatch, resolveMapping, devicesBySchematic, stateTint,
-                     deviceListText, composeSummary, summaryStateFrom };
+                     deviceListText, composeSummary, summaryStateFrom,
+                     // T5.7 - typed voice + camera preview
+                     newUlid, normalize, matchesResponderPhrase, stripWakePhrase,
+                     buildAsk, buildHeard, routeInput, parseVoiceSimFlag,
+                     defaultVoiceRoom, camBustUrl, camUrlForRoom };
 }
 
 /* ============================================================
@@ -2212,6 +2483,34 @@ function saveRoomMap(obj) {
   try { window.localStorage.setItem(MAP_KEY, JSON.stringify(obj || {})); } catch (_e) { /* best effort */ }
 }
 let roomMapOverrides = loadRoomMap();
+
+/* ---- T5.7: typed-voice flag + per-room camera preview addresses ----
+   Both persist like the room overrides above. The voice flag is stored as
+   "1"/"0" and decoded by parseVoiceSimFlag (LOGIC CORE), which is where
+   "DEFAULT OFF on a fresh page" is a tested rule rather than a habit. */
+const VOICE_KEY = "qnethome.voicesim";
+const CAM_KEY = "qnethome.camurls";
+
+function loadVoiceSim() {
+  try { return parseVoiceSimFlag(window.localStorage.getItem(VOICE_KEY)); }
+  catch (_e) { return false; }   // storage disabled: the flag stays off
+}
+function saveVoiceSim(on) {
+  try { window.localStorage.setItem(VOICE_KEY, on ? "1" : "0"); } catch (_e) { /* best effort */ }
+}
+function loadCamUrls() {
+  try {
+    const raw = window.localStorage.getItem(CAM_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (_e) { return {}; }
+}
+function saveCamUrls(obj) {
+  try { window.localStorage.setItem(CAM_KEY, JSON.stringify(obj || {})); } catch (_e) { /* best effort */ }
+}
+let voiceSimOn = loadVoiceSim();
+let camUrls = loadCamUrls();
 
 /* ---- state (same indexing as dashboard/admin.html; see the header) ---- */
 const sessions = new Map();   // id -> the whole run document, as published
@@ -2452,6 +2751,19 @@ function iconMarkup(iconId, extra) {
   return `<svg class="ico${extra ? " " + extra : ""}" aria-hidden="true"><use href="#i-${id}"></use></svg>`;
 }
 
+/* T5.7: lines a person TYPED into the composer, kept locally (they are not
+   wire events - the wire carries what routeInput published, and the house's
+   own echo of it arrives like any other message). Sent lines carry the
+   SIMULATED VOICE badge; discarded lines are dim with the "not heard" hint,
+   mirroring dev/sim.html's greyed discard row. */
+const typedLines = [];
+let typedSeq = 0;
+
+function pushTypedLine(line, hint) {
+  typedLines.push({ ts: Date.now() / 1000, key: `typed:${typedSeq++}`, line, hint: hint || null });
+  if (typedLines.length > 100) typedLines.shift();
+}
+
 function renderFeed() {
   // Every run's every line, humanized; nulls simply never appear.
   const items = [];
@@ -2463,6 +2775,7 @@ function renderFeed() {
       items.push({ ts: entry.ts, key: `${s.id}:${i}`, line });
     });
   }
+  for (const t of typedLines) items.push(t);         // typed lines sit in the same stream
   items.sort((a, b) => (b.ts || 0) - (a.ts || 0));   // newest first, at the top
 
   const feed = $("feed"), empty = $("feedEmpty");
@@ -2470,11 +2783,12 @@ function renderFeed() {
 
   // Flash only lines this page has never rendered; prime silently on load.
   const isNew = (key) => feedPrimed && !seenFeedKeys.has(key);
-  feed.innerHTML = items.slice(0, 200).map(({ ts, key, line }) => `
+  feed.innerHTML = items.slice(0, 200).map(({ ts, key, line, hint }) => `
     <div class="entry tone-${escapeHtml(line.tone)}${isNew(key) ? " flash" : ""}">
       <span class="icon">${iconMarkup(line.iconId)}</span>
       <span class="body"><span class="text">${escapeHtml(line.text)}</span>${
-        line.badge ? `<span class="sim-badge">${escapeHtml(line.badge)}</span>` : ""}</span>
+        line.badge ? `<span class="sim-badge">${escapeHtml(line.badge)}</span>` : ""}${
+        hint ? `<span class="line-hint">${escapeHtml(hint)}</span>` : ""}</span>
       <span class="when">${escapeHtml(clockTime(ts))}</span>
     </div>`).join("");
 
@@ -2560,7 +2874,60 @@ function renderAll() {
   renderFeed();
   renderSummary();
   renderTakeover();
+  renderVoiceDock();
 }
+
+/* ============================================================
+ * T5.7 - TYPED VOICE INPUT (feature-flagged, default OFF)
+ * The composer under the Live activity feed. Routing is routeInput() in the
+ * LOGIC CORE (the dev/sim.html mirror); everything here is presentation.
+ * ============================================================ */
+
+let voiceRoomTouched = false;   // a room a person picked is never re-guessed
+
+function renderVoiceDock() {
+  $("voiceDock").hidden = !voiceSimOn;
+  $("voiceBadge").hidden = !voiceSimOn;   // §14: the badge is on exactly while the flag is
+  if (!voiceSimOn) return;
+
+  const sel = $("voiceRoom");
+  const devs = Array.from(rooms.keys()).sort();
+  const prev = sel.value;
+  sel.innerHTML = devs.length
+    ? devs.map((d) => `<option value="${escapeHtml(d)}">${escapeHtml(roomLabel(d))}</option>`).join("")
+    : `<option value="">No rooms yet</option>`;
+  // Keep a person's explicit choice; otherwise follow the most recent activity.
+  const wanted = (voiceRoomTouched && devs.indexOf(prev) >= 0)
+    ? prev
+    : (defaultVoiceRoom(currentRoomStates()) || devs[0] || "");
+  sel.value = wanted;
+}
+
+function sendTypedLine() {
+  const raw = $("voiceText").value;
+  if (!raw.trim()) return;
+  const room = $("voiceRoom").value;
+  if (!room) return;   // nothing discovered yet - nowhere to speak
+  const s = newestSessionForRoom(room);
+  const route = routeInput(raw, room, !!(s && s.state === "active"));
+  if (!route) {
+    // Mirror dev/sim.html's discard behaviour: shown greyed, never published.
+    pushTypedLine({ iconId: "mic", text: `“${raw.trim()}”`, tone: "dim" },
+                  "not heard — no active conversation");
+  } else {
+    const ok = client.publish(route.topic, route.payload);
+    pushTypedLine({ iconId: "mic", text: `Typed in the ${roomLabel(room)}: “${raw.trim()}”`,
+                    tone: "neutral", badge: "SIMULATED VOICE" },
+                  ok ? null : "not sent — this screen is not connected to your home");
+  }
+  $("voiceText").value = "";
+  renderFeed();
+  $("voiceText").focus();
+}
+
+$("voiceSend").addEventListener("click", sendTypedLine);
+$("voiceText").addEventListener("keydown", (e) => { if (e.key === "Enter") sendTypedLine(); });
+$("voiceRoom").addEventListener("change", () => { voiceRoomTouched = true; });
 
 /* ============================================================
  * FLOOR PLAN INTERACTION - tooltip and room modal.
@@ -2631,6 +2998,64 @@ function fillRoomModal(id) {
   // The live-view slot is only meaningful where there is a camera to stand in
   // for; an empty room gets the sentence instead of a black rectangle.
   $("rmCam").style.display = info.monitored ? "" : "none";
+
+  // T5.7 (§17 O14): a saved preview address turns the slot into a real
+  // picture; without one it stays the honest placeholder it always was.
+  const camUrl = info.monitored ? camUrlForRoom(info.devices, camUrls) : null;
+  if (camUrl) startCamPreview(camUrl);
+  else stopCamPreview();
+}
+
+/* ---- T5.7: the camera preview loop ----
+   ~2 frames a second by cache-busted re-fetch of the node's latest-frame URL
+   (qnet/node/stream.py serves it no-cache, CORS *). The interval polices its
+   own lifetime: the moment the room modal is no longer open - however it was
+   closed - the next tick shuts the loop down, so there is never background
+   traffic from a closed modal. */
+const CAM_REFRESH_MS = 500;
+let camTimer = null;
+let camActiveUrl = null;
+
+function stopCamPreview() {
+  clearInterval(camTimer);
+  camTimer = null;
+  camActiveUrl = null;
+  const img = $("rmCamImg");
+  img.hidden = true;
+  img.removeAttribute("src");
+  $("rmCamLive").hidden = true;
+  $("rmCamErr").hidden = true;
+  $("rmCamNote").style.display = "";
+  $("rmCamChip").style.display = "";
+  $("rmCam").setAttribute("aria-label", "Camera live view is not enabled in this build");
+}
+
+function startCamPreview(url) {
+  if (camTimer && camActiveUrl === url) return;   // re-render while open: keep the loop
+  stopCamPreview();
+  camActiveUrl = url;
+  $("rmCamNote").style.display = "none";
+  $("rmCamChip").style.display = "none";
+  $("rmCam").setAttribute("aria-label", "Live camera preview — local to your home");
+
+  const img = $("rmCamImg");
+  img.onload = () => {
+    img.hidden = false;
+    $("rmCamLive").hidden = false;
+    $("rmCamErr").hidden = true;
+  };
+  img.onerror = () => {
+    // Quiet failure state; the loop keeps trying while the modal is open.
+    img.hidden = true;
+    $("rmCamLive").hidden = true;
+    $("rmCamErr").hidden = false;
+  };
+  const tick = () => {
+    if (!$("roomModal").classList.contains("open")) { stopCamPreview(); return; }
+    img.src = camBustUrl(camActiveUrl, Date.now());
+  };
+  tick();
+  camTimer = setInterval(tick, CAM_REFRESH_MS);
 }
 
 document.querySelectorAll("#fpRooms .fp-room").forEach((g) => {
@@ -2690,6 +3115,10 @@ function renderMappingUI() {
         <option value=""${cur ? "" : " selected"}>Not on the plan</option>
         ${opts}
       </select>
+      <input class="camurl" data-cam="${escapeHtml(dev)}" type="text" spellcheck="false"
+             autocapitalize="off" autocorrect="off"
+             placeholder="Camera preview address (optional — stays inside your home)"
+             value="${escapeHtml(camUrls[dev] || "")}">
     </div>`;
   }).join("");
 }
@@ -2702,16 +3131,25 @@ function collectMappingUI() {
   return next;
 }
 
-$("settingsBtn").addEventListener("click", () => {
+/* T5.7: the camera addresses, from the same rows. Only rooms with something
+   typed are stored; a cleared field forgets the address. */
+function collectCamUI() {
+  const next = {};
+  document.querySelectorAll("#mapRows input.camurl").forEach((inp) => {
+    const v = inp.value.trim();
+    if (v) next[inp.getAttribute("data-cam")] = v;
+  });
+  return next;
+}
+
+function openSettings() {
   $("hubUrl").value = hubUrl;
+  $("voiceSimToggle").checked = voiceSimOn;
   renderMappingUI();
   openModal("settingsModal");
-});
-$("assignLink").addEventListener("click", () => {
-  $("hubUrl").value = hubUrl;
-  renderMappingUI();
-  openModal("settingsModal");
-});
+}
+$("settingsBtn").addEventListener("click", openSettings);
+$("assignLink").addEventListener("click", openSettings);
 $("saveSettings").addEventListener("click", () => {
   // Every visible row becomes an explicit override, including the ones the
   // person did not touch. That is deliberate: once someone has opened this
@@ -2719,6 +3157,12 @@ $("saveSettings").addEventListener("click", () => {
   // agreed to, and it must not shift under a later change to the guesser.
   roomMapOverrides = collectMappingUI();
   saveRoomMap(roomMapOverrides);
+
+  // T5.7: camera addresses and the typed-voice flag ride the same Save.
+  camUrls = collectCamUI();
+  saveCamUrls(camUrls);
+  voiceSimOn = $("voiceSimToggle").checked;
+  saveVoiceSim(voiceSimOn);
 
   const next = $("hubUrl").value.trim() || DEFAULT_HUB;
   const hubChanged = next !== hubUrl;

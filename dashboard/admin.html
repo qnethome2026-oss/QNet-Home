@@ -215,6 +215,20 @@
   table.topic-table td.count { text-align: right; font-variant-numeric: tabular-nums; }
   table.topic-table th { color: var(--muted); font-weight: 600; }
 
+  /* ---------- Wire log (T5.7) ---------- */
+  .wire-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  #wireFilter { flex: 1 1 240px; font: 12px/1.5 ui-monospace, Consolas, monospace; }
+  #wirePauseBtn.paused { background: var(--warn); color: #1a1d24; border-color: transparent; }
+  .wire-count { color: var(--muted); font-size: 0.8em; font-variant-numeric: tabular-nums; }
+  .wire-log {
+    font: 12px/1.55 ui-monospace, Consolas, monospace;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; max-height: 42vh; overflow-y: auto; overflow-x: auto;
+  }
+  .wire-log .wl { white-space: pre; }
+  .wire-log .wl .t { color: var(--muted); }
+  .wire-log .wl .topic { color: var(--accent); }
+
   /* ---------- Takeover overlay ---------- */
   #takeover {
     position: fixed; inset: 0; z-index: 500; background: #16060699;
@@ -301,6 +315,19 @@
         <div class="card" style="grid-column: 1 / -1;">
           <h3>Messages per topic</h3>
           <div id="topicTable"><div class="empty-hint">Nothing received yet.</div></div>
+        </div>
+        <!-- T5.7: every raw MQTT message as it arrives, newest first (the same
+             convention as the Activity list). Capped at 500 kept lines; Pause
+             freezes the view while messages keep being captured underneath. -->
+        <div class="card" style="grid-column: 1 / -1;">
+          <h3>Wire log</h3>
+          <div class="wire-controls">
+            <input id="wireFilter" type="text" spellcheck="false"
+                   placeholder="filter — substring match on topic + payload">
+            <button id="wirePauseBtn">Pause</button>
+            <span class="wire-count" id="wireCount"></span>
+          </div>
+          <div id="wireLog" class="wire-log"><div class="empty-hint">Nothing received yet.</div></div>
         </div>
       </div>
     </section>
@@ -875,6 +902,7 @@ client.onStatus = (kind, text) => {
 
 client.onMessage = (topic, payloadStr) => {
   msgStats = addMessage(msgStats, topic, payloadStr);
+  addWireLine(topic, payloadStr);   // T5.7: the raw wire log sees EVERY message, parseable or not
 
   let payload = null;
   try { payload = JSON.parse(payloadStr); }
@@ -1141,6 +1169,56 @@ function renderBytesPanel() {
     </div>
     <div class="row" style="font-size:0.82em; color:var(--muted); margin-top:6px;">QNet has used about <b style="color:var(--text)">${ratio < 0.01 ? "<0.01" : ratio.toFixed(2)}%</b> of what an equivalent video stream would have, over the same window.</div>`;
 }
+
+/* ---------- Wire log (T5.7) ----------
+   Every raw MQTT message, exactly as it arrived: HH:MM:SS.mmm topic payload.
+   Newest first, matching the Activity list's convention. The buffer keeps the
+   latest 500 lines; Pause freezes RENDERING only - capture continues
+   underneath, so resuming shows what happened while you were reading. */
+const WIRE_CAP = 500;
+const wireLog = [];        // newest first: [{ t: Date, topic, payload }]
+let wirePaused = false;
+let wireFilterText = "";
+
+function fmtTsWire(d) {
+  const p2 = (n) => String(n).padStart(2, "0");
+  return `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, "0")}`;
+}
+
+function addWireLine(topic, payloadStr) {
+  wireLog.unshift({ t: new Date(), topic, payload: payloadStr });
+  if (wireLog.length > WIRE_CAP) wireLog.length = WIRE_CAP;
+  if (!wirePaused) renderWireLog();
+}
+
+function renderWireLog() {
+  const el = $("wireLog");
+  const f = wireFilterText.trim().toLowerCase();
+  const rows = f
+    ? wireLog.filter((m) => (m.topic + " " + m.payload).toLowerCase().indexOf(f) >= 0)
+    : wireLog;
+  $("wireCount").textContent =
+    `${f ? rows.length + " matching of " : ""}${wireLog.length} kept (cap ${WIRE_CAP})${wirePaused ? " — paused" : ""}`;
+  if (!rows.length) {
+    el.innerHTML = `<div class="empty-hint">${wireLog.length ? "No line matches the filter." : "Nothing received yet."}</div>`;
+    return;
+  }
+  el.innerHTML = rows.map((m) =>
+    `<div class="wl"><span class="t">${fmtTsWire(m.t)}</span> <span class="topic">${escapeHtml(m.topic)}</span> ${escapeHtml(m.payload)}</div>`
+  ).join("");
+}
+
+$("wirePauseBtn").addEventListener("click", () => {
+  wirePaused = !wirePaused;
+  const btn = $("wirePauseBtn");
+  btn.textContent = wirePaused ? "Resume" : "Pause";
+  btn.classList.toggle("paused", wirePaused);
+  renderWireLog();   // resuming catches up; pausing repaints the count marker
+});
+$("wireFilter").addEventListener("input", () => {
+  wireFilterText = $("wireFilter").value;
+  renderWireLog();
+});
 
 function renderTopicTable() {
   const el = $("topicTable");

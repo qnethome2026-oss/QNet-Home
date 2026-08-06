@@ -1,0 +1,21 @@
+# QNet Home - "where's my stuff" eyes on the Ventuno Q (T7.1). Install:
+#   sudo cp infra/systemd/qnet-look.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now qnet-look
+# Needs the Qualcomm LLM/VLM container serving Qwen3-VL on :9001 (Docker,
+# restart=unless-stopped - setup/ventuno-vlm/README.md) and prefers the frame
+# vision.py exports; falls back to a direct camera grab when vision is down.
+
+[Unit]
+Description=QNet Home node look - on-node VLM answers for qnet/look
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+User=arduino
+WorkingDirectory=/home/arduino/qnet-node
+ExecStart=/home/arduino/qnet-venv/bin/python -u -m qnet.node.look --room kitchen --broker 10.73.51.175 --port 11883 --source /dev/video0
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
