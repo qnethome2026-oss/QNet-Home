@@ -4,6 +4,36 @@ Every number here was measured on the named hardware, with the method stated —
 nothing modelled, nothing quoted from a datasheet. DESIGN.md's rule: nothing
 `[?]` goes on a slide until it's measured.
 
+## T6.3 — look→looked round trip on the Ventuno Q (2026-08-05)
+
+Board: Arduino Ventuno Q, `node/look.py` answering `qnet/look` with
+Qwen3-VL-4B (w4a16, Hexagon NPU, Qualcomm LLM/VLM container on :9001), 640 px
+frames, broker = the live IQ-9075 Mosquitto at 10.73.51.175:11883 over Wi-Fi.
+
+Method: a paho client **on the board** publishes a `look` (find mode, real
+object query) and timestamps until the matching-qid `looked` arrives — the
+full path: board → broker → board → frame grab → VLM → broker → board. Five
+runs, warm model, vision.py **not** running (so each look pays a direct
+camera grab, ~0.6–0.7 s — the worst-case frame path).
+
+| Round trip | Value |
+|---|---|
+| Median of 5 | **4.13 s** |
+| Min / max | 4.11 s / 4.42 s |
+| Later single runs, same path | up to 5.4 s (guide mode, camera open 0.67 s) |
+| shm frame path (vision.py running), single run | 4.56 s total, frame read 0.02 s |
+
+- Node-side handling alone (frame + VLM + publish, from the service log):
+  3.9–5.4 s; the VLM call is ~3.3–4.5 s of it. Consistent with the ~3.4 s
+  warm query measured at container setup (`setup/ventuno-vlm/README.md`).
+- → `find.look_timeout_s` lowered 8 → **6** in `config/house.yaml`
+  (worst observed 5.4 + margin; §13's measured-plus-a-second rule). End-to-end
+  ask→say with one of two rooms answering was 9.4 s, dominated by waiting the
+  full timeout for the absent bedroom node — the tune cuts that to ~7.5 s.
+- Honesty note: during one measurement window every `found` went false because
+  a teammate was leaning centimetres from the lens — the VLM correctly
+  reported the queried object not visible. Live camera, live workshop.
+
 ## T4.2 — fall detection pipeline on the Ventuno Q (2026-08-06)
 
 Board: Arduino Ventuno Q (QCS8300, Hexagon HTP v75), Ubuntu 24.04, sharing the

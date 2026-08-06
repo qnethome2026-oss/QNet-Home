@@ -20,6 +20,7 @@ Prefixes each line with a wall clock so 2-second assertions are checkable.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 
@@ -49,7 +50,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.count and seen >= args.count:
             client.disconnect()
 
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="qnet-spy")
+    # Unique client id: two spies with the same id kick each other off the
+    # broker in an endless reconnect loop (observed live in T6.3).
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"qnet-spy-{os.getpid()}-{int(time.time()) % 10000}")
     client.on_connect, client.on_message = on_connect, on_message
     client.connect(args.broker, args.port, keepalive=30)
     try:

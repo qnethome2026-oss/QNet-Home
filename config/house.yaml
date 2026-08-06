@@ -15,7 +15,7 @@ mqtt:
   port: 1883
   ws_port: 9001
 
-resident: { name: "Margaret" }
+resident: { name: "Tony" }
 contacts:
   - { name: "Sarah", telegram_chat_id: "TODO" }
 telegram_bot_token: "TODO"
@@ -43,13 +43,24 @@ llm:
   # Optional - drop the block and this exact URL is the default. --no-llm
   # ignores it entirely: no client is built at all.
   base_url: "http://127.0.0.1:18181/v1"
+look:
+  # The node-side half of "where's my stuff" (§13, T6.3): each node's look.py
+  # asks its OWN local VLM - the Qualcomm container on the node, Hexagon NPU
+  # (setup/ventuno-vlm/README.md). Frames never leave the node; only the
+  # one-sentence answer crosses the wire.
+  vlm_url: "http://127.0.0.1:9001/v1"
+  model: "qwen3_vl_4b_instruct"
+  fresh_s: 3        # vision.py's /dev/shm frame export older than this means
+                    # vision is down -> look.py grabs one frame itself.
 find:
   # "Where's my stuff" (§13). No timers in the skill - these two are the only
   # numbers the find flow has.
-  look_timeout_s: 8       # §13's CEILING, not its goal: how long to wait for
-                          # `looked` replies before answering with whatever came
-                          # back. T6.3 lowers it to measured VLM latency + 1 s so
-                          # a dead node does not make every answer slow.
+  look_timeout_s: 6       # how long to wait for `looked` replies before
+                          # answering with whatever came back. §13's ceiling is
+                          # 8; T6.3 measured the real look->looked round trip on
+                          # the Ventuno Q (Qwen3-VL-4B on the NPU, 640 px):
+                          # median 4.1 s, worst observed 5.4 s -> worst + margin,
+                          # so a dead node does not make every answer slow.
   last_find_window_s: 120 # how long "I still don't see them" keeps meaning the
                           # last object searched for (§13's 2-minute memory).
 comfort:

@@ -17,6 +17,8 @@ speech service.
     python dev/inject.py ask    --room kitchen --kind query --text "where are my glasses"
     python dev/inject.py ask    --room kitchen --kind responder_brief
     python dev/inject.py looked --room bedroom --qid q1 --found --answer "on the nightstand"
+    python dev/inject.py look   --object glasses --qid t1            # broadcast, all rooms
+    python dev/inject.py look   --object glasses --mode guide --room bedroom
 
 The fixture is the shape and this file never invents fields: it loads the
 fixture, overrides what the CLI was given, refreshes ``id``/``ts`` where the
@@ -90,6 +92,16 @@ def build_looked(args: argparse.Namespace) -> tuple[str, dict]:
     return f"qnet/{args.room}/looked", msg
 
 
+def build_look(args: argparse.Namespace) -> tuple[str, dict]:
+    """qnet/look - fake the agent's broadcast, to drive a real node's look.py."""
+    msg = fixture("look")
+    msg["qid"] = args.qid or new_ulid()
+    msg["object"] = args.object
+    msg["mode"] = args.mode
+    msg["room"] = args.room  # None = every node answers (the contract's null)
+    return "qnet/look", msg
+
+
 def build_parser() -> argparse.ArgumentParser:
     """One subcommand per message type a room can send."""
     parser = argparse.ArgumentParser(
@@ -126,6 +138,13 @@ def build_parser() -> argparse.ArgumentParser:
     found.add_argument("--not-found", dest="found", action="store_false")
     looked.add_argument("--answer", default=None, help="one sentence of location")
     looked.set_defaults(build=build_looked)
+
+    look = subs.add_parser("look", help="fake the agent's look broadcast")
+    look.add_argument("--object", default="glasses", help="what to look for")
+    look.add_argument("--mode", choices=["find", "guide"], default="find")
+    look.add_argument("--room", default=None, help="target one room (guide); default: broadcast to all")
+    look.add_argument("--qid", default=None, help="correlation id (default: a fresh ULID)")
+    look.set_defaults(build=build_look)
 
     return parser
 
