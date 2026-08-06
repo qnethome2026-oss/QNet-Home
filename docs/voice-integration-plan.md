@@ -16,9 +16,9 @@ frozen MQTT contract is the boundary, zero engine/tool/dashboard changes.*
 | A | Extraction + re-license | ✅ done — Checkpoint V-AB (`8dfecf6`) |
 | B | Five blocker fixes, test-driven | ✅ done — Checkpoint V-AB (`8dfecf6`) |
 | C | Hardware-free conversation harness + docs | ✅ done — Checkpoint V-C |
-| D0 | Device pre-flight (IPs, services, right-broker check) | ⬜ awaiting devices |
+| D0 | Device pre-flight (IPs, services, right-broker check) | ✅ done 2026-08-06 |
 | D1 | Retire her IQ9 stack (with Muni) | ⬜ awaiting devices + Muni |
-| D2 | Second Ventuno bring-up (bedroom: VLM + look + stream) | ⬜ awaiting devices |
+| D2 | Second Ventuno bring-up (bedroom: VLM + look + stream) | 🔨 in progress |
 | D3 | Voice node on the kitchen board (RAM gate → G3 checklist → wake soak) | ⬜ awaiting devices + whisper artifact |
 | D4 | Voice-first rehearsals ×2, contact-ack live, packaging, merge PR | ⬜ awaiting devices |
 
@@ -87,8 +87,15 @@ dashboard self-tests 119/119 · branch pushed.
 
 ## Phase D — Device phases (start on the user's "devices available" signal)
 
-**D0 pre-flight:** re-check board IPs (corp DHCP), `systemctl is-active` all
-six services, `journalctl -u qnet-agent | grep connected` → must be OUR broker.
+**D0 pre-flight ✅ (2026-08-06):** all three boards reachable at their known
+IPs (Ventuno-2 = 10.73.51.178, password without the @); IQ9 3/3 services on OUR
+broker; Ventuno-1 3/3 active. **Incident found+fixed:** the kitchen USB camera
+re-enumerated overnight (/dev/video0 vanished) and vision hung mid-read for
+13 h while "active" — both kitchen units now use the stable /dev/v4l/by-id/
+path (recurrence-proof) and vision recovered to 2.66 fps. Follow-up noted: a
+stall watchdog for vision. Ventuno-2 inventory: Docker + BRIO camera + 13 GiB
+free RAM; Muni's old app parked (containers exited); whisper artifacts likely
+on-board (D3 install source candidate).
 
 **D1 retire her stack (Muni present):** her `deploy/iq9-native/stop.sh` on the
 IQ9 → `ss -tlnp` shows 1883/9001 free → her checkout stays until she confirms.
