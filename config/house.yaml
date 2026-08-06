@@ -40,10 +40,9 @@ rooms:
     # owns this camera (Logitech BRIO, stable by-id path).
     node: bedroom-01
     source: "v4l2src device=/dev/v4l/by-id/usb-046d_Logitech_BRIO_DA650E32-video-index0"
-# fire_on 2/6: ~2 fallen frames within ~2s at 2.8fps (user calibration call,
-# 2026-08-06) - faster trigger, leaning on the 0.6 floor for false-positive
-# protection. The stricter 5/8 remains the value to revisit in T4.3 tuning.
-vision:  { conf_floor: 0.6, fire_on: "2/6", rearm_after_s: 60 }
+# 0.8 + 3/6 (user calibration, 2026-08-06 afternoon): high floor - real falls
+# measure 0.85-0.94, all observed noise <=0.52 - with 3 fallen frames in ~2s.
+vision:  { conf_floor: 0.8, fire_on: "3/6", rearm_after_s: 60 }
 voice:
   speech_service_url: "http://localhost:8080"   # her service; it owns the audio devices
   wake_phrase: "hey home"
