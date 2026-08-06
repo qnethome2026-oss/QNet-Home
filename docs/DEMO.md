@@ -1,10 +1,10 @@
 # QNet Home — demo run of show (no-speech build)
 
 *v0.9 — 2026-08-06. Written for the current state: everything real except audio.
-Where a person would SPEAK to the house, the presenter TYPES into the room
-simulator (`dev/sim.html`) — same wire messages, same routing, zero mocks
-anywhere else. When the speech service lands (T3.1), the sim is replaced by a
-microphone and this script does not otherwise change. Numbers marked [M] are
+Where a person would SPEAK to the house, the presenter TYPES into the
+dashboard's flagged voice-sim composer — same wire messages, same routing,
+zero mocks anywhere else. When the speech service lands (T3.1), the keyboard
+is replaced by a microphone and this script does not otherwise change. Numbers marked [M] are
 measured; there are no other numbers.*
 
 ---
@@ -18,6 +18,7 @@ measured; there are no other numbers.*
 | IQ-9075 | **The agent** (skills on rails) | systemd `qnet-agent` |
 | Ventuno Q | Fall detection on the Hexagon NPU (`node/vision.py`) | systemd `qnet-vision` (T7.1) |
 | Ventuno Q | Qwen3-VL "look" service (`node/look.py` + VLM container :9001) | systemd `qnet-look` (T7.1) + Docker |
+| Ventuno Q | Camera preview frame server (`node/stream.py`, :8090) | systemd `qnet-stream` (T7.1) |
 | Laptop | Dashboard (QNetHome.exe / MSIX) | Start menu / `dist\QNetHome\QNetHome.exe` |
 | Phone | Telegram — trusted-contact messages from t.me/Qnethomebot | nothing to start |
 
@@ -65,7 +66,7 @@ text).
 
 **Beat 3 — silence escalates.** Nobody answers. On the demo timer scale the
 escalation arrives in seconds: comfort line + **the phone buzzes** — 🔴
-"Possible fall — Margaret, kitchen." Hold the phone up.
+"Possible fall — Tony, kitchen." Hold the phone up.
 
 **Beat 4 — the call.** Still no answer → "You haven't answered, so I'm calling
 emergency services now." + **SIMULATED 911 line on the dashboard (red, marked
@@ -94,8 +95,8 @@ view. Presenter is "in the bedroom" (composer room selector = bedroom).
 
 1. Type: `hey home, where are my glasses` (wake phrase typed today, spoken later).
 2. Narrate while it thinks: every room's node is looking with its OWN camera
-   and answering in text — the frame never leaves the node. [M] ~3.4 s warm
-   per VLM look on the Ventuno.
+   and answering in text — the frame never leaves the node. [M] median 4.1 s
+   look→answer round trip on the Ventuno (worst observed 5.4 s).
 3. The answer comes back in the asking room: named location with a nearby
    anchor ("on the counter, next to the kettle") — and, with one node deployed,
    the house honestly says it couldn't check the bedroom.
@@ -106,7 +107,7 @@ view. Presenter is "in the bedroom" (composer room selector = bedroom).
 ## 4 · Reset between runs
 
 ```
-[ ] Sim: type `false alarm` in any room with an open session (or dashboard takeover → Resolve)
+[ ] Composer: type `false alarm` in any room with an open session (or dashboard takeover → Resolve)
 [ ] Dashboard: verify all rooms quiet/green, Summary shows the recap
 [ ] Sessions accumulate as files; no cleanup needed between runs
 [ ] For a pristine feed: restart the dashboard app (feed re-reads live traffic only)
