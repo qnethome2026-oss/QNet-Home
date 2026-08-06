@@ -32,6 +32,8 @@ One page per purpose; the long-standing files keep their paths (code and
 
 ## Operations
 
+**Rebuild a board from a blank image:** [`operations/rebuild.md`](operations/rebuild.md).
+
 **Power everything back on:** wait ~3 minutes, then run `bash scripts/health_check.sh` from the repo root — one read-only command that checks all three boards and prints ALL GREEN or the exact fix.
  (new — the hard-won runbooks)
 
