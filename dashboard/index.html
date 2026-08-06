@@ -482,6 +482,19 @@
   .fp-tip .tip-state.quiet { color: var(--muted); }
   .fp-tip .tip-line { color: var(--muted); margin-top: 6px; display: flex; align-items: center; gap: 7px; }
 
+  /* ---- raw system log pane ---- */
+  .syslog {
+    max-width: 1180px; margin: 8px auto 0; padding: 0 24px;
+    color: var(--muted); font-size: 0.85rem;
+  }
+  .syslog summary { cursor: pointer; padding: 6px 0; user-select: none; }
+  .syslog .syslog-count { opacity: 0.7; }
+  .syslog pre {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 14px; max-height: 320px; overflow: auto;
+    font-size: 0.76rem; line-height: 1.5; white-space: pre; margin: 4px 0 12px;
+  }
+
   /* ---- live camera health ---- */
   /* The dot is the "is the webcam actually working" answer, everywhere a room
      is drawn: green + breathing while heartbeats flow, still amber when three
@@ -920,6 +933,14 @@
 
     </div>
   </div>
+
+  <!-- Raw system log (user request 2026-08-06): every wire message, on the
+       home page, collapsed by default so the product face stays calm. The
+       admin portal remains the full technical view with filtering. -->
+  <details class="syslog" id="syslogPane">
+    <summary>System log <span class="syslog-count" id="syslogCount"></span></summary>
+    <pre id="syslogBody" aria-live="off"></pre>
+  </details>
 
   <footer>
     <span>QNet Home</span>
@@ -2706,7 +2727,8 @@ let fullscreenAlerts = loadFullscreenPref();
    pre-filled so the room modal shows the LIVE preview with zero setup. A saved
    Settings value wins; clearing the field reverts to this default on reload
    (empty fields are not stored - collectCamUI). */
-const DEFAULT_CAM_URLS = { kitchen: "http://10.73.51.123:8090/kitchen.jpg" };
+const DEFAULT_CAM_URLS = { kitchen: "http://10.73.51.123:8090/kitchen.jpg",
+                           bedroom: "http://10.73.51.178:8090/bedroom.jpg" };
 let camUrls = Object.assign({}, DEFAULT_CAM_URLS, loadCamUrls());
 
 /* ---- state (same indexing as dashboard/admin.html; see the header) ---- */
@@ -2783,7 +2805,30 @@ function scheduleReconnect() {
   reconnectTimer = setTimeout(() => { if (!client.connected) client.connect(hubUrl); }, 3000);
 }
 
+/* ---- raw system log pane ----
+   Newest first, capped, rendered only while the pane is open - a closed pane
+   costs one array push per message and nothing else. */
+const SYSLOG_CAP = 200;
+const syslogLines = [];
+function syslogPush(topic, payloadStr) {
+  const t = new Date();
+  const hh = String(t.getHours()).padStart(2, "0"), mm = String(t.getMinutes()).padStart(2, "0"),
+        ss = String(t.getSeconds()).padStart(2, "0"), ms = String(t.getMilliseconds()).padStart(3, "0");
+  syslogLines.unshift(`${hh}:${mm}:${ss}.${ms}  ${topic}  ${payloadStr}`);
+  if (syslogLines.length > SYSLOG_CAP) syslogLines.length = SYSLOG_CAP;
+  const pane = $("syslogPane");
+  $("syslogCount").textContent = `(${syslogLines.length})`;
+  if (pane && pane.open) $("syslogBody").textContent = syslogLines.join("\n");
+}
+document.addEventListener("DOMContentLoaded", () => {
+  const pane = $("syslogPane");
+  if (pane) pane.addEventListener("toggle", () => {
+    if (pane.open) $("syslogBody").textContent = syslogLines.join("\n");
+  });
+});
+
 client.onMessage = (topic, payloadStr) => {
+  syslogPush(topic, payloadStr);
   let payload = null;
   try { payload = JSON.parse(payloadStr); } catch (_e) { return; }
 
