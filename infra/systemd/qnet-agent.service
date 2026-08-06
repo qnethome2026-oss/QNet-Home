@@ -3,8 +3,10 @@
 #   sudo systemctl daemon-reload && sudo systemctl enable --now qnet-agent
 # Assumes the repo tree at /home/ubuntu/qnet-home (git archive or clone),
 # a venv at /home/ubuntu/qnet-agent-venv (aiomqtt httpx pyyaml openai), and
-# config/house.local.yaml scp'd alongside the config (secrets - not in git,
-# see verify/T0.5-telegram.txt).
+# config/house.local.yaml present alongside the config (secrets - not in
+# git, see verify/T0.5-telegram.txt). That file is BOARD-SPECIFIC: it must
+# carry mqtt: {host: 127.0.0.1, port: 11883} here. Never overwrite it with
+# a laptop copy (verify/INCIDENT-wrong-broker.txt).
 
 [Unit]
 Description=QNet Home agent (the brain) - skills on rails over MQTT

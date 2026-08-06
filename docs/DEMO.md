@@ -31,6 +31,8 @@ and nothing else (`verify/E2E-no-speech.txt`).
 
 ```
 [ ] IQ9 up:      ssh iq9  'systemctl is-active mosquitto geniex-serve qnet-agent'      → 3× active
+[ ] Right broker: ssh iq9 'journalctl -u qnet-agent --no-pager | grep connected | tail -1'
+                 → MUST say 127.0.0.1:11883 (1883 is the teammate stack — verify/INCIDENT-wrong-broker.txt)
 [ ] Ventuno up:  ssh ventuno 'systemctl is-active qnet-vision qnet-look qnet-stream'   → 3× active
 [ ] Dashboard:   launch QNetHome → ⚙ Settings → hub ws://<IQ9-ip>:19001/mqtt (persisted;
                  re-enter only if the corp DHCP moved the board)
