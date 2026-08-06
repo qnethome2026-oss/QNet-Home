@@ -27,6 +27,10 @@ imperative-light, and thin: if a claim can't be safely generalized for a lay
 rescuer, it is left out. Never promise anything; never tell them to get up —
 that rule belongs to `fall.md` and it holds here too.
 
+## bleeding-through
+keywords: still bleeding, bleeding through, keeps bleeding, won't stop bleeding, wont stop bleeding, soaked through, blood coming through
+Don't take the cloth off — put another one on top of it and press harder.
+
 ## bleeding
 keywords: bleeding, bleed, blood, cut, gash
 If you can reach it, press firmly on it with a clean cloth and keep the

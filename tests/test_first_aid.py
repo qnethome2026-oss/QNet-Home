@@ -139,6 +139,11 @@ def test_first_aid_file_loads_with_its_provenance(tmp_path) -> None:
     assert fa.match("my head hurts today").id == "head"      # specificity: head outranks pain
     assert fa.match("my hip hurts").id == "pain"
     assert fa.match("I think I'm bleeding").id == "bleeding"
+    # The follow-up outranks the base topic (2026-08-06 3PM live finding: the
+    # person who said the cloth wasn't working was told to apply a cloth).
+    assert fa.match("I'm still bleeding after putting the cloth on").id == "bleeding-through"
+    assert fa.match("it keeps bleeding").id == "bleeding-through"
+    assert "another one on top" in fa.match("blood coming through the cloth").guidance
     assert fa.match("i'm so cold").id == "cold"
     assert fa.match("help me please").id == "stuck"
     assert fa.match("i'm fine") is None

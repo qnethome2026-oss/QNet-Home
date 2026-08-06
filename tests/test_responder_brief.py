@@ -265,3 +265,49 @@ def test_brief_ignores_a_find_session_in_the_room(tmp_path) -> None:
         assert bus.said("bedroom") == [engine.NO_FALL_HISTORY]
 
     asyncio.run(scenario())
+
+
+# --- the heard path: a responder announcement typed, not spoken -------------
+
+
+def test_typed_responder_announcement_triggers_brief(tmp_path) -> None:
+    """2026-08-06 3PM live finding: "First responder summary please" typed into
+    the dashboard composer arrived as a plain heard and got a pain question
+    back - the engine had no responder detection on the heard path at all (the
+    voice node gates real speech on-device; typed input has no gate). The
+    engine now recognizes the announcement first, whatever the session state,
+    and the words never reach the session as a transcript."""
+
+    async def scenario() -> None:
+        agent, bus, rec = brief_agent(tmp_path, timer_scale=0.1)
+        session = await fall(agent)
+        await heard(agent, "my hip hurts")
+        await until(lambda: rec.count("notify_contacts") == 1, why="escalate's on_enter")
+
+        await heard(agent, "First responder summary please.")
+        await until(
+            lambda: any("Here's what happened" in m["text"] for m in bus.says()),
+            why="the brief to speak",
+        )
+        brief = next(m for m in bus.says() if "Here's what happened" in m["text"])
+        assert "hip hurts" in brief["text"]
+        # The announcement was consumed by the interrupt, never logged as the
+        # resident's words.
+        heard_texts = [(e.get("text") or "").lower() for e in events(session.log, "heard")]
+        assert not any("responder" in t for t in heard_texts)
+        await stop(agent, session)
+
+    asyncio.run(scenario())
+
+
+def test_typed_responder_announcement_with_no_session(tmp_path) -> None:
+    """Idle room, typed announcement: the brief path answers (no fall on file),
+    instead of the old "heard with no live session - ignored" drop."""
+
+    async def scenario() -> None:
+        agent, bus, _rec = brief_agent(tmp_path)
+        await heard(agent, "first responder, can you tell me the summary?")
+        await until(lambda: bus.says(), why="the no-history line")
+        assert bus.said() == [engine.NO_FALL_HISTORY]
+
+    asyncio.run(scenario())

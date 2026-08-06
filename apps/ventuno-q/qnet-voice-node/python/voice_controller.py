@@ -377,6 +377,13 @@ class VoiceController:
         "i am a paramedic",
         "i am with the ambulance",
     )
+    # Anyone announcing one of these identities wants the brief, whatever the
+    # rest of the sentence - "First responder summary please" failed the
+    # full-phrase match live (2026-08-06 3PM test) and the resident got a pain
+    # question instead. A spuriously spoken brief is harmless (it is facts);
+    # a missed one leaves a responder blind. Keep in sync with the engine's
+    # copy in qnet/agent/engine.py (_RESPONDER_TOKENS).
+    RESPONDER_IDENTITY_TOKENS = ("first responder", "paramedic", "ambulance", "emt")
 
     def _matches_responder_phrase(self, transcript: str) -> bool:
         def normalize(value: str) -> str:
@@ -387,7 +394,10 @@ class VoiceController:
         if not normalized:
             return False
         phrases = [self.config.responder_phrase, *self.RESPONDER_EXTRA_PHRASES]
-        return any(p and p in normalized for p in (normalize(x) for x in phrases))
+        if any(p and p in normalized for p in (normalize(x) for x in phrases)):
+            return True
+        padded = f" {normalized} "
+        return any(f" {token} " in padded for token in self.RESPONDER_IDENTITY_TOKENS)
 
     def _remember(self, message_id: str) -> None:
         if len(self.recent_ids) == self.recent_ids.maxlen:

@@ -73,6 +73,7 @@ Two design ambiguities resolved here, both flagged in the code where they bite:
 from __future__ import annotations
 
 import asyncio
+import collections
 import contextlib
 import inspect
 import json
@@ -406,7 +407,16 @@ class Session:
     # finding 2026-08-06: identical status lines read as a recording).
     comfort_idx: int = 0
     comfort_count: int = 0
-    last_comfort_text: str = ""
+    # The last few spoken update lines, all fed to the model as "do not reuse
+    # this wording". One was not enough: with a single line remembered, Gemma
+    # produced "I am still here with you, and Gaurav has been messaged" and
+    # "I am right here with you. Gaurav has been messaged." a minute apart -
+    # the letter of the rule, none of its spirit (live 3PM test).
+    recent_comfort_texts: collections.deque = field(default_factory=lambda: collections.deque(maxlen=3))
+
+    @property
+    def last_comfort_text(self) -> str:
+        return self.recent_comfort_texts[-1] if self.recent_comfort_texts else ""
     # Phases already entered once, and the words that caused the latest
     # phase jump. A REVISITED phase must never replay its opening ("I saw
     # you fall - are you okay?" asked again mid-incident read as a machine
@@ -446,6 +456,41 @@ def session_path(sessions_dir: Path, room: str, skill: str, started_at: float) -
     """
     stamp = datetime.fromtimestamp(started_at).strftime("%Y-%m-%dT%H-%M-%S")
     return sessions_dir / f"{room}__{skill}__{stamp}.jsonl"
+
+
+# A responder announcing themselves must get the brief no matter which path
+# their words arrived by. The voice node gates this on-device (real speech
+# never reaches us as `heard`), so this engine copy exists for every OTHER
+# route - the dashboard's typed composer above all, which publishes straight
+# to qnet/<room>/heard and historically could never trigger a brief at all
+# (2026-08-06 3PM live test: "First responder summary please" got a pain
+# question back). Full phrases + identity tokens, kept deliberately in sync
+# with voice_controller.py (RESPONDER_EXTRA_PHRASES / RESPONDER_IDENTITY_TOKENS).
+_RESPONDER_PHRASES = (
+    "i am the first responder",
+    "give me a summary of what happened",
+    "summary of what happened",
+    "tell me what happened",
+    "what happened here",
+    "i am a paramedic",
+    "i am with the ambulance",
+)
+_RESPONDER_TOKENS = ("first responder", "paramedic", "ambulance", "emt")
+
+
+def matches_responder_phrase(text: str) -> str | None:
+    """The phrase (or token) that identifies a responder, else None."""
+    normalized = re.sub(r"[^a-z0-9]+", " ", re.sub(r"\bi['’]m\b", "i am", (text or "").lower())).strip()
+    if not normalized:
+        return None
+    for phrase in _RESPONDER_PHRASES:
+        if phrase in normalized:
+            return phrase
+    padded = f" {normalized} "
+    for token in _RESPONDER_TOKENS:
+        if f" {token} " in padded:
+            return token
+    return None
 
 
 def brief_line(facts: list[str]) -> str:
@@ -1347,11 +1392,19 @@ class Agent:
         ``run_phase`` logs it, checks it for cancel, and only then gives it to
         the agent's turn.
         """
+        text, silence = msg.get("text", ""), bool(msg.get("silence"))
+        # Responder announcement first, before any session routing: the voice
+        # node gates real speech on-device, but typed composer messages arrive
+        # here raw - and a responder must get the brief whether or not a
+        # session is live (see matches_responder_phrase above).
+        if not silence and matches_responder_phrase(text):
+            log.info("[%s] heard is a responder announcement %r -> brief interrupt", room, text)
+            await self.on_responder_brief(room, {"id": msg.get("id"), "kind": "responder_brief"})
+            return
         session = self.live_session(room)
         if session is None:
             log.info("[%s] heard with no live session - ignored", room)
             return
-        text, silence = msg.get("text", ""), bool(msg.get("silence"))
         log.info("[%s] heard %s", room, "(silence)" if silence else repr(text))
         await session.inbox.put(("heard", text, silence))
 
@@ -1668,7 +1721,7 @@ class Agent:
                 return
         text = await self.comfort_text(session)
         await self.say(session, text, "comfort")
-        session.last_comfort_text = text
+        session.recent_comfort_texts.append(text)
         session.comfort_count += 1
 
     async def reply_to(self, session: Session, text: str) -> None:
@@ -1691,11 +1744,11 @@ class Agent:
             facts += self.comfort_facts(session)
             if topic is not None:
                 facts.append(f"relevant guidance (use only if it directly answers them): {topic.guidance}")
-            if session.last_comfort_text:
-                facts.append(f'do not reuse this wording: "{session.last_comfort_text}"')
+            for prior in session.recent_comfort_texts:
+                facts.append(f'do not reuse this wording: "{prior}"')
             started = time.monotonic()
             line = await asyncio.to_thread(self.llm.word_line, "reply", facts)
-            if line == session.last_comfort_text:
+            if line in session.recent_comfort_texts:
                 line = None  # told not to repeat and repeated anyway - the canned shape differs
             await self.append(
                 session,
@@ -1711,7 +1764,7 @@ class Agent:
             )
         spoken = line or fallback
         await self.say(session, spoken, "comfort")
-        session.last_comfort_text = spoken
+        session.recent_comfort_texts.append(spoken)
 
     async def comfort_text(self, session: Session) -> str:
         """Gemma words the update; the engine chooses the facts (T3.4).
@@ -1724,14 +1777,13 @@ class Agent:
         if self.llm is None:
             return self.comfort_line(session)
         facts = self.comfort_facts(session)
-        if session.last_comfort_text:
-            # An instruction, not a claim: consecutive updates must not share
-            # wording (user finding 2026-08-06). The canned fallback rotates
-            # its shapes for the same reason.
-            facts = facts + [f'do not reuse this wording: "{session.last_comfort_text}"']
+        # An instruction, not a claim: updates must not share wording with any
+        # of the last few (user finding 2026-08-06, twice - one remembered
+        # line only moved the repetition one slot down).
+        facts = facts + [f'do not reuse this wording: "{prior}"' for prior in session.recent_comfort_texts]
         started = time.monotonic()
         line = await asyncio.to_thread(self.llm.word_line, "comfort", facts)
-        if line == session.last_comfort_text:
+        if line in session.recent_comfort_texts:
             line = None  # repeated itself despite the instruction - rotate the canned shape instead
         await self.append(
             session,
@@ -1774,13 +1826,20 @@ class Agent:
             body = ", ".join(facts[:-1]) + ", and " + facts[-1]
         else:
             body = facts[0]
-        line = ""
+        first = ""
         for bump in range(len(COMFORT_SHAPES)):
             shape = COMFORT_SHAPES[(session.comfort_count + bump) % len(COMFORT_SHAPES)]
             line = shape.replace("{Body}", f"{body[0].upper()}{body[1:]}").replace("{body}", body)
-            if line != session.last_comfort_text:
+            if bump == 0:
+                first = line
+            if line not in session.recent_comfort_texts:
                 return line
-        return line
+        # Every shape is in recent memory (an unchanged body cycles all three
+        # into the 3-deep deque). Fall back to this slot's natural rotation:
+        # comfort_count advanced since last time, so it never equals the
+        # immediately-previous line - "different from the last one" survives
+        # even when "different from the last three" is impossible.
+        return first
 
     def contact_name(self) -> str:
         """The first configured contact's name - the caregiver we say out loud."""

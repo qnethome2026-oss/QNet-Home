@@ -335,8 +335,18 @@ def test_responder_phrases_match_anywhere_and_cover_summary_asks() -> None:
     assert match("give me a summary of what happened")
     assert match("Tell me what happened")
     assert match("I am a paramedic")
+    # Second user finding (2026-08-06 3PM live test): natural phrasings that
+    # merely CONTAIN the identity failed the full-phrase match - the resident
+    # asked twice and got a pain question back. Identity tokens now match
+    # anywhere in the sentence.
+    assert match("First responder summary please.")
+    assert match("first responder, can you tell me the summary?")
+    assert match("the paramedic is here now")
+    assert match("EMT here.")
     # The resident's own words stay replies.
     assert not match("what")
     assert not match("I don't know what happened")
     assert not match("my head hurts")
     assert not match("")
+    # "respond"/"responders" must not brush against "first responder".
+    assert not match("please respond to me")
