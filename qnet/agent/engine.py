@@ -1431,9 +1431,22 @@ class Agent:
             if pending and self.first_aid is not None and self.first_aid.match(pending):
                 await self.reply_to(session, pending)
         elif revisit and pending:
-            # Re-entry never replays the opening; the person's words get a
-            # real answer instead ("but my head hurts, what should I do?").
-            await self.reply_to(session, pending)
+            # Re-entry never replays the opening. The words that caused the
+            # jump run through THIS phase's real decision logic, so "I'm fine"
+            # arriving back at check triggers the pain double-check, and a
+            # clean answer resolves the session (user call 2026-08-06) - a
+            # generic acknowledgment here left the incident simmering. Guard:
+            # a decision that would jump to ANOTHER phase is not taken from
+            # entry (that way lies check<->escalate ping-pong); those words
+            # get the first-aid-matched reply and the phase keeps listening.
+            action = await self.decide(phase, session, pending)
+            if action.kind == "say" and self.allows(phase, action):
+                await self.perform(session, phase, action)
+            elif (action.kind == "exit" and self.allows(phase, action)
+                  and self.skill.resolve_exit(action.exit)[0] != "jump"):
+                return action.exit
+            else:
+                await self.reply_to(session, pending)
 
         for action in phase.on_enter:
             key = (phase.id, action)

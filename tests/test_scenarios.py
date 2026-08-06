@@ -504,3 +504,28 @@ def test_head_hurts_transcript_no_stupid_replay(tmp_path) -> None:
         assert bus.said().count(CHECK_OPENING) == 1
 
     asyncio.run(scenario())
+
+
+def test_im_fine_mid_escalation_double_checks_then_resolves(tmp_path) -> None:
+    """User call (2026-08-06): "I'm fine" mid-escalation should re-run the pain
+    double-check and a clean answer should CLOSE the incident - not leave it
+    simmering behind a generic acknowledgment."""
+
+    async def scenario() -> None:
+        agent, bus, rec = make_agent(tmp_path, timer_scale=0.05, comfort_interval_s=1000)
+        session = await fall(agent)
+        for _ in range(2):
+            await heard(agent, silence=True)
+        await until(lambda: session.phase == "escalate", why="silence escalates")
+
+        await heard(agent, text="i'm fine")
+        await until(lambda: engine.PAIN_QUESTION in bus.said(),
+                    why="re-entry runs the pain double-check, not a generic ack")
+        # The opening must still not replay on the re-entry.
+        assert bus.said().count(CHECK_OPENING) == 1
+
+        await heard(agent, text="no i'm not hurt")
+        await until(lambda: session.state == "closed", why="clean answer resolves")
+        assert session.final == "ok"
+
+    asyncio.run(scenario())
