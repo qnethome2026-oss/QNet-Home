@@ -45,8 +45,11 @@ def test_prompt_find_names_object_and_demands_json():
 def test_prompt_guide_asks_for_positional_guidance():
     p = build_prompt("glasses", "guide")
     assert "glasses" in p and "JSON only" in p
-    assert "guiding them" in p and "landmarks" in p
+    assert "guiding them" in p and "landmark" in p
     assert p != build_prompt("glasses", "find")
+    # The asker may be IN the frame - guidance must be offered relative to
+    # them ("to their left"), not only to furniture.
+    assert "person is visible" in p and "to their left" in p
 
 
 def test_prompt_unknown_mode_falls_back_to_find():

@@ -295,6 +295,14 @@ def test_object_heuristic() -> None:
     assert engine.extract_object("where's the tv remote") == "tv remote"
     assert engine.extract_object("where did i leave my reading glasses") == "reading glasses"
     assert engine.extract_object("have you seen my keys please") == "keys"
+    # User requirement (2026-08-06): everything AFTER the object is noise -
+    # a trailing clause must not ride along into the search.
+    assert engine.extract_object("where's my glasses i can't find them anywhere") == "glasses"
+    assert engine.extract_object("where are my keys please i'm late") == "keys"
+    assert engine.extract_object("where is my phone. i need it") == "phone"
+    assert engine.extract_object("where's my wallet, i looked everywhere") == "wallet"
+    # Compound objects without a clause break still survive intact.
+    assert engine.extract_object("where's my water bottle") == "water bottle"
     # An object-less follow-up names nothing - which is what routes it to guide.
     assert engine.extract_object("i still don't see them") is None
     assert engine.extract_object("where are they") is None

@@ -81,11 +81,14 @@ _FIND_PROMPT = (
 )
 _GUIDE_PROMPT = (
     "You are a home assistant camera looking at one photo of a room. A person "
-    "in this room is looking for their {object} and cannot see it. Reply with "
-    'JSON only, no other text: {{"found": true/false, "answer": "if the '
-    "{object} is visible, one short sentence guiding them to it, naming the "
-    "obvious landmarks it is next to, on, or under; empty string if you "
-    'cannot see it"}}'
+    "in this room is looking for their {object} and cannot see it. If a person "
+    "is visible in the photo, that person is the one asking: give the "
+    "direction from where they are standing (to their left, to their right, "
+    "in front of them, behind them) plus the landmark the {object} is next "
+    "to, on, or under. If no person is visible, name the landmarks alone. "
+    'Reply with JSON only, no other text: {{"found": true/false, "answer": '
+    '"one short sentence guiding them to the {object} if it is visible; '
+    'empty string if you cannot see it"}}'
 )
 
 

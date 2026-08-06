@@ -188,6 +188,29 @@ _DETERMINER_RE = re.compile(r"^(?:my|the|a|an|our|his|her|their|some)\s+")
 _TRAILER_RE = re.compile(r"\s*\b(?:please|anywhere|again|for me|right now|now)\b\s*$")
 _EDGE_PUNCT_RE = re.compile(r"^[\s\"'`.,!?]+|[\s\"'`.,!?]+$")
 
+# "where's my glasses i can't find them anywhere" - the capture runs to the end
+# of the sentence, so everything after the object must be cut, not just known
+# trailers. Clause punctuation ends the object outright; so does any word that
+# starts a new thought. The rare compound this costs ("salt and pepper" ->
+# "salt") still finds the right shelf; the trailing-clause misparse it prevents
+# ("glasses i can't find them anywhere") finds nothing at all.
+_CLAUSE_PUNCT_RE = re.compile(r"[.,;!?]")
+_CLAUSE_STARTERS = frozenset(
+    {"i", "i'm", "im", "i've", "ive", "we", "you", "and", "but", "so", "or",
+     "because", "cause", "cos", "since", "please", "thanks", "thank",
+     "anywhere", "somewhere"}
+)
+
+
+def _cut_trailing_clause(obj: str) -> str:
+    obj = _CLAUSE_PUNCT_RE.split(obj, 1)[0].strip()
+    kept: list[str] = []
+    for word in obj.split():
+        if word in _CLAUSE_STARTERS:
+            break
+        kept.append(word)
+    return " ".join(kept)
+
 # A question that names only a pronoun has named nothing: "where are they" is
 # exactly the follow-up §13 routes to `guide` off the remembered object.
 _PRONOUN_OBJECTS = frozenset(
@@ -208,7 +231,8 @@ def extract_object(text: str) -> str | None:
         match = pattern.search(said)
         if not match:
             continue
-        obj = _EDGE_PUNCT_RE.sub("", match.group("obj").strip())
+        obj = _cut_trailing_clause(match.group("obj").strip())
+        obj = _EDGE_PUNCT_RE.sub("", obj)
         obj = _EDGE_PUNCT_RE.sub("", _TRAILER_RE.sub("", _DETERMINER_RE.sub("", obj)).strip())
         if not obj or obj in _PRONOUN_OBJECTS or len(obj.split()) > 4:
             return None
