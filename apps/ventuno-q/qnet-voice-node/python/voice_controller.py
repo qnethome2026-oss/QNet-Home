@@ -106,7 +106,11 @@ class VoiceController:
                 self._cancelled_generations.add(self._current_listen_generation)
                 self._state = "CANCELLING_LISTEN"
                 cancel_listen = True
+                generation = self._current_listen_generation
         if cancel_listen:
+            # Telemetry (2026-08-06 latency work): every cancel names its cause
+            # so dropped-speech counts can be attributed from the log alone.
+            LOGGER.info("say %s cancelled listen gen %d", command.message_id, generation)
             self.speech.cancel_listen()
 
     def on_session_event(self, event: SessionEvent) -> None:
@@ -119,9 +123,19 @@ class VoiceController:
             if self._current_listen_generation is not None:
                 self._cancelled_generations.add(self._current_listen_generation)
                 cancel_listen = True
+                generation = self._current_listen_generation
         # Wake the controller immediately so it switches between the long-lived
         # idle stream and bounded safety-session listens.
         if cancel_listen:
+            # The engine republishes the session doc on every internal event,
+            # and each arrival lands here - this line counts how often that
+            # kills a listen in progress (suspect #1 in the drop analysis).
+            LOGGER.info(
+                "session snapshot %s (state=%s) cancelled listen gen %d",
+                event.session_id,
+                event.state,
+                generation,
+            )
             self.speech.cancel_listen()
 
     def run_once(self) -> None:
@@ -195,6 +209,7 @@ class VoiceController:
         failure: Exception | None = None
         with self._lock:
             self._asr_stream_started_at = time.time()
+        LOGGER.info("idle ASR stream open (gen %d)", generation)
         try:
             for event in self.speech.listen_continuously():
                 with self._lock:
@@ -206,6 +221,7 @@ class VoiceController:
                     self._transcripts.add_partial(text)
                     with self._lock:
                         self._last_asr_event_at = time.time()
+                    LOGGER.debug("ASR partial (%d chars)", len(text))
                     continue
                 if not text:
                     continue
@@ -223,6 +239,13 @@ class VoiceController:
                 # after the phrase - background speech never rides along.
                 request = wake_gate.extract_wake_request(rolling, self._wake_pattern)
                 if request is None:
+                    # R5 keeps words out of node logs; sizes are enough to
+                    # count the (previously invisible) rejections.
+                    LOGGER.info(
+                        "wake gate rejected final (%d chars, window %d chars)",
+                        len(text),
+                        len(rolling),
+                    )
                     continue  # not addressed to us: nothing leaves the node
                 # The wake+command is consumed; drop the window so later
                 # background finals cannot re-trigger on the same match.
@@ -233,15 +256,23 @@ class VoiceController:
 
         cancelled = self._finish_generation(generation)
         if cancelled:
+            LOGGER.info("idle listen gen %d cancelled", generation)
             return
         with self._lock:
             self._asr_restart_count += 1
+            restart_count = self._asr_restart_count
+        LOGGER.info("idle ASR stream ended uncancelled (restart #%d)", restart_count)
         self._handle_asr_failure(failure)
 
     def _listen_for_session(self, generation: int) -> None:
         """A fall session needs a bounded result, including explicit silence."""
         failure: Exception | None = None
         transcript = ""
+        LOGGER.info(
+            "session listen open (gen %d, timeout %gs)",
+            generation,
+            self.config.session_listen_timeout_seconds,
+        )
         try:
             transcript = (
                 self.speech.listen_sentence(timeout=self.config.session_listen_timeout_seconds)
@@ -252,6 +283,13 @@ class VoiceController:
 
         cancelled = self._finish_generation(generation)
         if cancelled:
+            # The key dropped-speech counter: a cancelled session listen throws
+            # its transcript away and never publishes heard. Chars only (R5).
+            LOGGER.info(
+                "session listen gen %d cancelled - transcript discarded (%d chars)",
+                generation,
+                len(transcript),
+            )
             return
         if failure is not None:
             self._handle_asr_failure(failure)
@@ -309,6 +347,8 @@ class VoiceController:
         with self._lock:
             delay = self._asr_failure_backoff
             self._asr_failure_backoff = min(delay * 2, ASR_FAILURE_BACKOFF_CAP_SECONDS)
+        # Each backoff second is a second of total deafness - make it countable.
+        LOGGER.warning("ASR backing off %.2fs after failure (mic closed meanwhile)", delay)
         self.sleep_fn(delay)
 
     def _publish_wake_request(self, request: str) -> None:
@@ -342,6 +382,16 @@ class VoiceController:
             self._transcripts.clear()
         self._set_status(state="SPEAKING", tts=command.text, error="")
         self._publish_status("speaking", say_id=command.message_id)
+        # The whole deaf window is tts start -> guard done: the mic is not
+        # being read anywhere in between. These three stamps measure it.
+        speak_started = time.monotonic()
+        LOGGER.info(
+            "tts start %s (%d chars, prio %s, queued %d)",
+            command.message_id,
+            len(command.text),
+            command.priority,
+            self.tts_queue.qsize(),
+        )
         try:
             self.speech.speak(command.text)
         except Exception as exc:
@@ -358,8 +408,13 @@ class VoiceController:
         # redelivery while the speaker is busy.
         with self._lock:
             self._remember(command.message_id)
+        LOGGER.info("tts done %s in %.2fs", command.message_id, time.monotonic() - speak_started)
         self._set_status(state="POST_TTS_GUARD")
         self.sleep_fn(self.config.post_tts_guard_ms / 1000)
+        LOGGER.info(
+            "post-tts guard done (deaf %.2fs total) - mic can reopen",
+            time.monotonic() - speak_started,
+        )
         self._set_status(state="IDLE_LISTENING")
         self._publish_status("idle", say_id=command.message_id)
 

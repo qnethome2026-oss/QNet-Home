@@ -1,0 +1,93 @@
+T-voice-bench - voice-loop latency + dropped-speech measurement
+Date: 2026-08-06 evening | Branch: voice-integration
+Question: why does the system feel slow, and why is speech sometimes dropped?
+
+INSTRUMENTATION DEPLOYED FIRST (signals only, zero behavior change)
+- Node (both Ventunos): ms timestamps in the logger; log lines on every
+  previously-silent drop path (wake-gate rejection, listen cancellation with
+  cause, discarded session transcript, tts start/done, post-tts guard done,
+  ASR backoff). Sizes only, never words (R5).
+- Engine (IQ9): ms timestamps; "dispatch slow" warning >1 s; tool timing
+  (ms field in session jsonl / log line).
+- Laptop: dev/voice_bench.py (new) - passive qnet/# subscriber computing
+  heard->say, ask->say, deaf windows, snapshot pressure, stalls.
+
+PROTOCOL
+1. .venv/Scripts/python.exe dev/voice_bench.py --broker 10.73.51.175
+   --port 11883 --duration 150 --report <file>
+2. On iq9, from ~/qnet-home: inject fall --room kitchen at t+5; typed heard
+   "i fell but i am okay, my hip hurts a bit" at t+30; typed heard
+   "i am feeling better now" at t+65.
+3. Afterwards: ssh ventuno docker logs (node telemetry) + iq9 journal +
+   session jsonl llm ms fields for the same window.
+Note: node log clock is UTC (22:59 = 15:59 laptop). Ambient office speech was
+present near the kitchen node throughout - realistic conditions.
+
+BENCH SUMMARY (verbatim)
+  window: 15:59:05.373 -> 16:01:36.372 (151s)
+  heard->say latency : n=3 median=2.37s min=0.97s max=5.58s
+  ask->say latency   : n=0
+  deaf windows       : n=4 median=3.17s min=2.70s max=4.43s (TTS + guard + ASR restart)
+  heard published    : 3 speech + 0 silence
+  say published      : 7
+  session snapshots  : 25 across 1 session(s) (0.20/s while active) - each one cancels a live listen
+  node errors        : 1 (last: "TTS: ('Connection aborted.', RemoteDisconnected(...))")
+(The bus-side deaf window under-counts: it sees only speaking->listening
+status edges. The node's own tts start -> guard done stamps are the truth.)
+
+FINDING 1 - session-snapshot cancellation storm (the dropped-speech cause)
+Node log, one session: listen generations 2, 3, 4, 6 ALL cancelled by
+session snapshots / says; each ended "transcript discarded". Of ~7 session
+listens opened in 2.5 min, exactly ONE survived to publish a heard (gen 5).
+Gen 4 was killed by a snapshot with no say pending at all:
+  23:00:26.328 session listen open (gen 4, timeout 15s)
+  23:00:46.615 session snapshot 01KZCMTPT9... (state=active) cancelled listen gen 4
+  23:00:47.576 session listen gen 4 cancelled - transcript discarded (0 chars)
+Mechanism: engine append() republishes the full session doc on EVERY internal
+log line (25 snapshots for one session); node on_session_event cancels the
+in-flight listen on every arrival. Anything the person was saying at that
+moment is discarded and never published. ("0 chars" is what the cancelled ASR
+call returned, not proof nothing was being said - cancel throws the audio away.)
+
+FINDING 2 - TTS dominates latency; chained says produce 6-15 s deaf stretches
+  tts local-ecd33c84 (83 chars, safety): 9.57 s  -> deaf 10.07 s total
+  tts local-2ac9570e (80 chars, comfort): 4.62 s -> deaf  5.12 s (chained: 15.2 s continuous)
+  tts local-01310f63 (32 chars): 1.81 s; local-48d454e7 (55 chars): 3.12 s (chained: 6.0 s)
+  tts local-61058c98 (71 chars): 3.94 s; local-3dced66a (80 chars): 5.75 s (chained: 10.7 s)
+Roughly ~9 chars/s synth+playback. The engine often queues a safety reply AND
+a comfort line back to back; the node speaks both, deaf throughout (half-duplex
+by design), +500 ms guard per line.
+
+FINDING 3 - one TTS runner hang cost the session its opening line + 30 s
+  22:59:13.871 tts start local-177d4afb (45 chars, prio safety)
+  ~30 s later: TTS ('Connection aborted.', RemoteDisconnected(...)) - never spoken
+Matches the known audio-analytics runner failure mode
+(docs/operations/troubleshooting.md). Self-recovered on the next say this time.
+
+FINDING 4 - engine/LLM legs are NOT the bottleneck once warm
+Session jsonl: classify warm 424-494 ms; reply wording 1 834 ms; comfort
+1 496 ms; notify_contacts 1 038-1 252 ms; call_emergency 0 ms.
+Cold first classify of the session: 5 545 ms (the 5.58 s heard->say outlier).
+No "dispatch slow" (>1 s) warnings fired in this window.
+
+FINDING 5 - wake gate rejections now visible (idle mode)
+Ambient speech near the kitchen node is rejected every few seconds, e.g.
+  22:57:45.338 wake gate rejected final (19 chars, window 19 chars)
+Correct behavior (not addressed to us), but until today these drops were
+completely invisible - a missed real wake would have looked identical to
+silence. Now countable.
+
+RANKED (for the fix round, NOT done in this pass)
+1. Stop the snapshot cancellation storm: node should ignore snapshots that
+   do not change session state, and/or engine should not republish the full
+   doc per log line. Directly recovers most dropped speech.
+2. Shorten spoken lines / avoid chaining safety+comfort back to back
+   (deaf time scales with chars; caps already exist in llm.py).
+3. TTS runner hang: watchdog/timeout around speak() so a hang costs seconds,
+   not 30 s and a lost line.
+4. LLM warm-up ping at session open (kills the 5.5 s cold classify).
+
+STILL OPEN
+- End-of-speech -> heard exact number (T3.1): needs a scripted SPOKEN run
+  with a person; every leg of that path is now timestamped, so it falls out
+  of the next live test for free. contracts/speech-api.md line stays pending.

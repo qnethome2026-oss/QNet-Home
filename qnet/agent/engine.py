@@ -773,7 +773,14 @@ class Agent:
             try:
                 async for message in client.messages:
                     try:
+                        started = time.monotonic()
                         await self.on_message(str(message.topic), message.payload)
+                        # Dispatch is serial: a slow handler (LLM call in
+                        # on_ask/on_responder_brief) delays EVERY later
+                        # message, including falls. Make that visible.
+                        elapsed_ms = int((time.monotonic() - started) * 1000)
+                        if elapsed_ms > 1000:
+                            log.warning("dispatch slow: %s held the loop %dms", message.topic, elapsed_ms)
                     except Exception:  # a bad message must never take the agent down
                         log.exception("dropping message on %s", message.topic)
             finally:
@@ -1988,16 +1995,23 @@ class Agent:
             result: Any = None
         else:
             ctx = self.tool_context(session)
+            started = time.monotonic()
             try:
                 result = await spec.fn(ctx, **_supported(spec.fn, args))
             except Exception as exc:  # a tool should never raise; if it does, log the fact
                 log.exception("tool %s failed", name)
                 result = {"error": repr(exc)}
+            # ms mirrors the llm event lines, so the look/VLM leg is timeable
+            # from the session jsonl like every other slow component.
+            elapsed_ms = int((time.monotonic() - started) * 1000)
             if len(session.log) == marker:
                 await self.append(session, {"event": "tool", "tool": name, "result": _result_word(result),
+                                            "ms": elapsed_ms,
                                             "detail": result if isinstance(result, dict) else None})
             else:
-                # The tool logged its own line; publish so the dashboard sees it.
+                # The tool logged its own line; publish so the dashboard sees
+                # it, and keep its duration in the Python log at least.
+                log.info("[%s] tool %s took %dms", session.room, name, elapsed_ms)
                 await self.publish(f"qnet/session/{session.id}", session.wire())
 
         if name == "notify_contacts":

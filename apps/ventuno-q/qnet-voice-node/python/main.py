@@ -22,7 +22,13 @@ from speech_backend import ArduinoSpeechBackend
 from voice_controller import VoiceController
 
 
-logging.basicConfig(level=logging.INFO)
+# Millisecond timestamps: docker logs' own stamps mark line ARRIVAL, not when
+# the event happened - latency work (T3.1) needs the process's clock inline.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s.%(msecs)03d %(levelname)s %(name)s %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 config = VoiceNodeConfig.from_env()
 microphone = Microphone(device=config.microphone_device)

@@ -119,3 +119,44 @@ band as blank-wall noise); the reliable triggers are a real person on a real
 floor (camera repositioned to see floor) or the file-source clip run. One
 screen-replay event did fire at 0.47/0.49 during the low-floor window —
 indistinguishable from noise, which is exactly why it's excluded.
+
+
+## Voice-loop latency + dropped-speech bench (live, 2026-08-06 evening)
+
+Instrumented run: ms timestamps on both loggers, drop-path log lines on the
+node, `dev/voice_bench.py` (new, passive) on `qnet/#`, one injected kitchen
+fall session with two typed replies. Raw captures in verify/T-voice-bench.txt.
+
+Latency legs (n small, one session — directional but unambiguous):
+
+| Leg | Measured |
+|---|---|
+| heard → say (engine decide + wording) | 0.97 / 2.37 / 5.58 s (median 2.37) |
+| LLM classify (gemma, warm) | 424–494 ms |
+| LLM classify (cold, first of session) | 5 545 ms |
+| LLM reply wording | 1.8 s; comfort 1.5 s |
+| notify_contacts (Telegram HTTP) | 1.0–1.3 s |
+| TTS synth+playback | 1.8–9.6 s per line (~9 chars/s) |
+| Deaf window per say (tts start → guard done) | 2.3–10.1 s |
+| Deaf stretch, chained says (safety+comfort back to back) | up to 15.2 s continuous |
+| TTS runner hang (1 occurrence) | ~30 s, line never spoken (RemoteDisconnected) |
+
+Dropped-speech attribution, same 2.5 min window:
+
+- 25 session snapshots published for ONE session (engine republishes the doc
+  on every internal log line) → the node cancelled listen generations 2, 3,
+  4 and 6; **of ~7 session listens opened, exactly 1 survived to publish a
+  heard**. Every cancelled listen discards its partial transcript without
+  publishing — this is the "it never heard me" mechanism, now with counts.
+- Gen 4 was killed by a snapshot alone (no say pending) — pure collateral.
+- The wake gate rejects ambient finals every few seconds in idle mode
+  (previously invisible; now logged with sizes).
+- One 30 s TTS hang made the node deaf AND mute from second 0 of the session
+  (the opening line was lost) — matches the known runner failure mode in
+  docs/operations/troubleshooting.md.
+
+Ranked causes: (1) session-snapshot cancellation storm, (2) TTS duration +
+back-to-back says (deaf 6–15 s stretches; barge-in impossible by design),
+(3) TTS runner hangs, (4) LLM cold-start classify. End-of-speech → heard
+(T3.1 exact number) still needs a scripted SPOKEN run — the path is now fully
+timestamped, so it falls out of the next live test for free.
