@@ -163,9 +163,29 @@ never sends the frame.
 
 Heartbeat published by each node, starting at boot — this is how the dashboard
 learns which rooms exist, with no registration protocol. DESIGN §4 lists the
-topic but pins no payload, so **the shape is not frozen by T0.1**: it is settled
-in T4.2, when `node/vision.py` starts emitting it. There is deliberately no
-fixture for it.
+topic but pins no payload, so the shape was not frozen by T0.1; **T4.2 settles
+it** as what `node/vision.py` emits, every 5 s:
+
+```json
+{ "node": "kitchen-01", "room": "kitchen", "ts": 1785975882.2,
+  "state": "armed", "fps": 2.98, "frames": 61,
+  "detector": "fall-yolo11n@hexagon-npu" }
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `node` | string | `node_id` from `config/node.yaml` |
+| `room` | string | Must match the room in the topic |
+| `ts` | number | Unix epoch seconds, fractional |
+| `state` | string | Detector arming state: `armed` \| `holdoff` (fired, not yet re-armed) |
+| `fps` | number | Achieved end-to-end processing rate since start |
+| `frames` | number | Frames processed since start |
+| `detector` | string | What is doing the detecting, and where it runs |
+
+Consumers must tolerate extra fields (`voice.py`/`look.py` may add their own
+liveness later), and the dashboard today keys only off the heartbeat's arrival —
+the payload is telemetry, not contract-critical state. There is deliberately
+still no fixture: nothing replays a heartbeat.
 
 ### `qnet/session/<id>` — `contracts/fixtures/session.json`
 
