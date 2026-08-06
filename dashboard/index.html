@@ -482,6 +482,27 @@
   .fp-tip .tip-state.quiet { color: var(--muted); }
   .fp-tip .tip-line { color: var(--muted); margin-top: 6px; display: flex; align-items: center; gap: 7px; }
 
+  /* ---- live camera strip ---- */
+  .live-strip { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .live-strip-head {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+    color: var(--muted); font-size: 0.86rem; font-weight: 600;
+  }
+  .live-note { font-weight: 400; opacity: 0.8; }
+  .live-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  .live-tile { position: relative; border-radius: 12px; overflow: hidden; background: #0b0d12; }
+  .live-tile img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
+  .live-tile .live-label {
+    position: absolute; left: 8px; bottom: 8px; padding: 3px 9px; border-radius: 999px;
+    background: rgba(10, 12, 18, 0.72); color: #fff; font-size: 0.78rem; font-weight: 600;
+  }
+  .live-tile.stale img { opacity: 0.45; filter: grayscale(0.6); }
+  .live-tile .live-err {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 0.82rem; text-align: center; padding: 10px;
+  }
+  .live-tile.stale .live-err { display: flex; }
+
   /* ---- raw system log pane ---- */
   .syslog {
     max-width: 1180px; margin: 8px auto 0; padding: 0 24px;
@@ -907,6 +928,19 @@
         </svg>
 
         <div class="placeholder" id="roomsEmpty" style="margin-top:14px;">Waiting to hear from your home…</div>
+      </div>
+
+      <!-- Live camera strip: one tile per room with a preview address. The
+           frames are the ones the nodes already export for the detector, so
+           this costs no capture and no NPU - only an HTTP GET per tick
+           (measured 24-55 KB, stream server at 0.0% CPU). Polling stops when
+           the tab is hidden. Same LAN-only endpoint as the room modal. -->
+      <div id="liveStrip" class="live-strip" hidden>
+        <div class="live-strip-head">
+          <span class="live-dot on" aria-hidden="true"></span>
+          Live view <span class="live-note">local preview · LAN only</span>
+        </div>
+        <div class="live-tiles" id="liveTiles"></div>
       </div>
     </section>
 
@@ -3045,6 +3079,58 @@ function buildPlan() {
   return out;
 }
 
+/* ---- the live camera strip ----
+   One tile per configured preview address, refreshed on a single timer that
+   pauses when the tab is hidden. The nodes export these frames anyway (the
+   detector needs them), so a tile costs one HTTP GET per tick and nothing on
+   the NPU. Tiles are built once per mapping change, not per tick. */
+const LIVE_REFRESH_MS = 1000;
+let liveTiles = [];          // [{ room, url, img, tile }]
+let liveTimer = null;
+
+function buildLiveStrip() {
+  const wanted = [];
+  for (const r of SCHEMATIC_ROOMS) {
+    const info = plan[r.id];
+    if (!info || !info.monitored) continue;
+    const url = camUrlForRoom(info.devices, camUrls);
+    if (url) wanted.push({ room: r.id, label: info.label, url });
+  }
+  const same = wanted.length === liveTiles.length
+    && wanted.every((w, i) => liveTiles[i].room === w.room && liveTiles[i].url === w.url);
+  $("liveStrip").hidden = wanted.length === 0;
+  if (same) return;
+
+  const host = $("liveTiles");
+  host.innerHTML = "";
+  liveTiles = wanted.map((w) => {
+    const tile = document.createElement("div");
+    tile.className = "live-tile";
+    const img = document.createElement("img");
+    img.alt = `${w.label} camera`;
+    img.addEventListener("error", () => tile.classList.add("stale"));
+    img.addEventListener("load", () => tile.classList.remove("stale"));
+    const label = document.createElement("span");
+    label.className = "live-label";
+    label.textContent = w.label;
+    const err = document.createElement("div");
+    err.className = "live-err";
+    err.textContent = "Camera unreachable";
+    tile.append(img, label, err);
+    host.appendChild(tile);
+    return { ...w, img, tile };
+  });
+  tickLiveStrip();
+}
+
+function tickLiveStrip() {
+  if (document.hidden) return;          // no traffic from a background tab
+  for (const t of liveTiles) t.img.src = camBustUrl(t.url, Date.now());
+}
+
+liveTimer = setInterval(tickLiveStrip, LIVE_REFRESH_MS);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) tickLiveStrip(); });
+
 function renderRooms() {
   const states = currentRoomStates();
   plan = buildPlan();
@@ -3080,6 +3166,7 @@ function renderRooms() {
     .map((d) => `<span class="chip">${escapeHtml(roomLabel(d))}</span>`).join(" ");
 
   $("roomsEmpty").hidden = states.length > 0;
+  buildLiveStrip();
 
   const house = houseStatus(states);
   const hs = $("houseStatus");
