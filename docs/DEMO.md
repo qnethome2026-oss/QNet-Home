@@ -29,28 +29,35 @@ and nothing else (`verify/E2E-no-speech.txt`).
 ## 1 · Pre-flight (5 minutes, before the audience)
 
 ```
-[ ] IQ9 up:      ssh iq9  'systemctl is-active mosquitto geniex-serve qnet-agent'   → 3× active
-[ ] Ventuno up:  ssh ventuno 'systemctl is-active qnet-vision qnet-look'            → 2× active
+[ ] IQ9 up:      ssh iq9  'systemctl is-active mosquitto geniex-serve qnet-agent'      → 3× active
+[ ] Ventuno up:  ssh ventuno 'systemctl is-active qnet-vision qnet-look qnet-stream'   → 3× active
 [ ] Dashboard:   launch QNetHome → ⚙ Settings → hub ws://<IQ9-ip>:19001/mqtt (persisted;
                  re-enter only if the corp DHCP moved the board)
-[ ] Sim:         open dev/sim.html in a second browser window, same ws URL, pick a room
+[ ] Typed voice: ⚙ Settings → "Simulated voice input" ON → composer + red SIMULATED VOICE
+                 badge appear in Live activity (this is the keyboard-for-microphone stand-in)
+[ ] Camera view: ⚙ Settings → Rooms & devices → Kitchen camera preview address
+                 http://<Ventuno-ip>:8090/kitchen.jpg → click the Kitchen on the map → LIVE
 [ ] Phone:       Telegram open on the t.me/Qnethomebot chat, volume ON
 [ ] Camera:      kitchen node camera aimed at the fall area; nothing blocking
 [ ] Timers:      demo pace is set in the qnet-agent unit (see §5) — decide before starting
 ```
 
 Fallback rule (from IMPLEMENTATION §3): if anything on a board misbehaves,
-`dev/inject.py` carries the same beats from the laptop — the injector understudy
-is always warm.
+`dev/inject.py` and `dev/sim.html` carry the same beats from the laptop — the
+injector understudy is always warm.
 
 ## 2 · Use case 1 — fall response (the centerpiece)
+
+**Beat 0 — show the room seeing.** Click the Kitchen on the floor plan — the
+LIVE local preview is the room's actual camera. Close the modal.
 
 **Beat 1 — the fall.** A person falls in front of the kitchen camera (prop
 mattress), or — fallback — play `clips/fall-02-cam0-rgb.mp4` to the camera /
 run the vision service with the file source. On the dashboard: the Kitchen
 tints, a session opens.
-*Say to the audience: raw video never leaves this room — the wire carries one
-small JSON event.*
+*Say to the audience: raw video never leaves this room over the fabric — the
+wire carries one small JSON event. (The LIVE preview is a separate LAN-only
+endpoint the household enables; say so if asked.)*
 
 **Beat 2 — the house asks.** Dashboard feed shows "I saw you fall. Take a
 breath — are you okay?" (on the node this will be spoken aloud; today it is
@@ -65,7 +72,7 @@ emergency services now." + **SIMULATED 911 line on the dashboard (red, marked
 SIMULATED)** + second buzz — 📞. The word SIMULATED is in every artifact on
 purpose; say so.
 
-**Beat 5 — the responder brief.** In the sim (kitchen), type:
+**Beat 5 — the responder brief.** In the dashboard composer (room: kitchen), type:
 `i'm the first responder, can you tell me what happened?` → the house answers
 with a grounded timeline (what it saw, when, what it did). One LLM call over
 the session log — nothing pre-scripted.
@@ -75,7 +82,7 @@ session closes, Kitchen turns green, third buzz — ✅, dashboard Summary card
 recaps the incident with SIMULATED preserved.
 
 **Interruption rehearsals (practice both — DESIGN §6):**
-- Type `i'm fine` at Beat 2 → the house does NOT cancel; it double-checks
+- Type `i'm fine` (composer, kitchen) at Beat 2 → the house does NOT cancel; it double-checks
   ("are you hurt anywhere?") — replies route through the pain check.
 - Type `false alarm` at Beat 3 → instant cancel + ✅ message. Only explicit
   phrases cancel.
@@ -83,7 +90,7 @@ recaps the incident with SIMULATED preserved.
 ## 3 · Use case 2 — "where's my stuff"
 
 Stage: glasses (or any distinct object) visibly placed in the kitchen camera's
-view. Presenter is "in the bedroom" (sim room = bedroom).
+view. Presenter is "in the bedroom" (composer room selector = bedroom).
 
 1. Type: `hey home, where are my glasses` (wake phrase typed today, spoken later).
 2. Narrate while it thinks: every room's node is looking with its OWN camera
