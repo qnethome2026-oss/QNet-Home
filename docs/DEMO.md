@@ -1,5 +1,7 @@
 # QNet Home — demo run of show (no-speech build)
 
+*Ops runbooks: power-on + verification → [`operations/cold-start.md`](operations/cold-start.md) · symptom-indexed fixes → [`operations/troubleshooting.md`](operations/troubleshooting.md).*
+
 *v1.0 — 2026-08-06. Voice-first: the kitchen node hears and speaks (Whisper on
 the NPU + TTS, `apps/ventuno-q/qnet-voice-node/`) once Phase D3 of
 `docs/voice-integration-plan.md` has passed its in-room gate. The dashboard's

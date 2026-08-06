@@ -47,6 +47,8 @@ models/        fall model artifacts + NPU compile runbook (main branch)
 
 ## Setup
 
+Deep dive → the [documentation map](docs/README.md) indexes every doc, including the operational runbooks ([cold start](docs/operations/cold-start.md), [troubleshooting](docs/operations/troubleshooting.md), [per-device details](docs/operations/devices.md)).
+
 **Try it with zero hardware first** (any machine with Python 3.12):
 
 ```

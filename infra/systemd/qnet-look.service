@@ -13,7 +13,7 @@ After=network-online.target docker.service
 Type=simple
 User=arduino
 WorkingDirectory=/home/arduino/qnet-node
-ExecStart=/home/arduino/qnet-venv/bin/python -u -m qnet.node.look --room kitchen --broker 10.73.51.175 --port 11883 --source /dev/video0
+ExecStart=/home/arduino/qnet-venv/bin/python -u -m qnet.node.look --room kitchen --broker 10.73.51.175 --port 11883 --source /dev/v4l/by-id/usb-HHWei_Technology_Co.__Ltd._USB_Camera_HHW001-video-index0
 Restart=on-failure
 RestartSec=3
 
