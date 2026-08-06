@@ -115,10 +115,13 @@ def options_for(phase: Any) -> tuple[str, ...]:
       a claim a language model gets to make on the strength of a transcript.
     """
     exits = getattr(phase, "exits", {}) or {}
+    # "unclear" rides along everywhere a decision is requested: Whisper garble
+    # ("I'm so leading") must earn an ask-to-repeat, not a guessed feeling.
+    # The engine speaks a canned line for it; it is never an exit.
     if "ok" in exits and "escalate" in exits:
-        return ("ok", "escalate")
+        return ("ok", "escalate", "unclear")
     if "check" in exits:
-        return ("check", "wait")
+        return ("check", "wait", "unclear")
     return ()
 
 
@@ -373,6 +376,16 @@ class LlmClient:
                 "safe, calm, and informed until help arrives.\n\n"
                 f"What you know:\n{listed}\n\n"
                 "Write ONE short reply they will hear out loud - one sentence, two at most. Rules:\n"
+                # Live 2026-08-06 4:26PM: Whisper heard "I'm still bleeding" as
+                # "I'm so leading"; the model, given nothing concrete, invented
+                # "you are feeling quite unsteady". Asking to repeat is honest
+                # AND self-healing - the retake usually transcribes cleanly.
+                # This rule goes FIRST: the 2B model ignored it mid-list.
+                "- BEFORE anything else, check their words make sense. They reach you through "
+                "speech recognition, which garbles words - a statement like 'I am so leading' is "
+                "a mishearing, not a real sentence. If their words are unclear or nonsensical, your "
+                "ENTIRE reply is to say you did not quite catch that and ask them to say it again. "
+                "Do not guess what they meant, and never describe or assume how they are feeling.\n"
                 "- Answer only what they just said, warmly and briefly. No status recap unless they asked.\n"
                 "- Never echo their words back at them ('I understand you can't reach it') - respond "
                 "the way a caring person would, to what it means for them.\n"
@@ -494,6 +507,7 @@ _FALLBACK_CONDITION = {
     "escalate": "they ask for help, report pain, or do not really answer",
     "check": "they respond coherently, so go back and reassess how they are",
     "wait": "they said nothing meaningful; keep listening",
+    "unclear": "their words came through garbled or do not make sense as a sentence",
 }
 
 

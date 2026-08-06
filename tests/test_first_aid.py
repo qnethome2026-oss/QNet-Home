@@ -307,3 +307,53 @@ def test_reply_prompt_is_a_caregiver_not_a_chatbot() -> None:
     assert "NOT a general-purpose assistant" in prompt
     assert "do NOT answer it" in prompt
     assert "Never explain your own workings" in prompt
+
+
+def test_reply_prompt_asks_to_repeat_instead_of_guessing() -> None:
+    """User finding (2026-08-06 4:26PM): Whisper garbled "I'm still bleeding"
+    into "I'm so leading" and the model invented "you are feeling quite
+    unsteady". Garbled speech must earn a say-it-again, never a guessed
+    feeling."""
+    from qnet.agent import llm as llmlib
+    client = llmlib.LlmClient.__new__(llmlib.LlmClient)
+    prompt = llmlib.LlmClient._word_prompt(client, "reply", ["the person just said: \"I'm so leading.\""], "")
+    assert "speech recognition, which garbles words" in prompt
+    assert "ask them to say it again" in prompt
+    assert "never describe or assume how they are feeling" in prompt
+
+
+def test_unclear_is_offered_wherever_a_decision_is_requested() -> None:
+    """The garble option rides along in every decision request - and call_help
+    still requests nothing at all (options_for's no-request contract)."""
+    from qnet.agent import llm as llmlib
+    from qnet.agent import phases as phaselib
+    skill = phaselib.load_skill(REAL_SKILLS / "fall.md", tools=None)
+    assert llmlib.options_for(skill.phase("check")) == ("ok", "escalate", "unclear")
+    assert llmlib.options_for(skill.phase("escalate")) == ("check", "wait", "unclear")
+    assert llmlib.options_for(skill.phase("call_help")) == ()
+
+
+def test_garbled_speech_earns_ask_to_repeat_not_a_guess(tmp_path) -> None:
+    """Live 4:26PM finding: "I'm still bleeding" arrived as "I'm so leading"
+    and the model invented "you are feeling quite unsteady". Garble is now a
+    classify option and the RAILS speak the canned ask-to-repeat - the model
+    flags it but never words the answer."""
+
+    class UnclearGemma(FactSpy):
+        def classify_reply(self, phase, session_context, heard_text: str) -> str:
+            return "unclear"
+
+    async def scenario() -> None:
+        from qnet.agent.engine import DIDNT_CATCH_LINE
+        spy = UnclearGemma()
+        agent, bus, _rec = make_agent(tmp_path, timer_scale=0.05, comfort_interval_s=1000, llm=spy)
+        session = await fall(agent)
+        before = len(bus.said())
+        await heard(agent, "I am so leading.")
+        await until(lambda: len(bus.said()) > before, why="the ask-to-repeat")
+        assert bus.said()[-1] == DIDNT_CATCH_LINE
+        assert not any(kind == "reply" for kind, _ in spy.calls)  # no free-form wording
+        assert agent.sessions.get("kitchen") is session  # still live, still listening
+        await stop(agent, session)
+
+    asyncio.run(scenario())

@@ -149,6 +149,11 @@ ROUTINE_PRIO = "routine"
 # The pain double-check (§3, §6) - canned, so it is reachable with no model at
 # all. "I'm fine" must never close a session without passing through this.
 PAIN_QUESTION = "Any pain? Did you hit your head?"
+# Whisper garbles ("I'm still bleeding" -> "I'm so leading", live 2026-08-06
+# 4:26PM) and the 2B model, prompted every which way, still answered garble
+# with invented empathy. So garble is a CLASSIFY option ("unclear") and the
+# rails speak this canned line - the model only flags, it never words.
+DIDNT_CATCH_LINE = "Sorry, I didn't quite catch that. Could you say it again?"
 # What an unrouted mid-escalation utterance gets instead of silence (user
 # finding 2026-08-06: "Help me" / "What can I do?" earned only the next timed
 # status line). The guidance half is fall.md's own sourced wording - nothing
@@ -1950,6 +1955,12 @@ class Agent:
         """
         if decision is None or decision not in llmlib.options_for(phase):
             return None
+        if decision == "unclear":
+            # Garbled ASR earns an honest ask-to-repeat - the retake usually
+            # transcribes cleanly. Same one-action-per-turn mechanism as the
+            # pain question; awaiting_pain_answer survives untouched, so the
+            # repeat is still judged as the answer to whatever was asked.
+            return Action("say", text=DIDNT_CATCH_LINE)
         if "ok" in phase.exits and "escalate" in phase.exits:
             if decision == "escalate":
                 session.awaiting_pain_answer = False
