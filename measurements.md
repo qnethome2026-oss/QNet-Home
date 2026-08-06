@@ -99,3 +99,23 @@ around each call, printed by the service at EOF.
   Threshold/N-of-M tuning against labelled clips is exactly T4.3's job.
 - The model reads *deliberate* lying down (UR Fall adl-01) as `fallen` —
   posture, not intent. Known, stated limitation.
+
+
+## Fall-model threshold probe (live, 2026-08-06 — feeds T4.3)
+
+Live experiment on the kitchen board (screen-replay attempts + a wall-aimed
+camera), all values from the on-board NPU pipeline via the detwatch probe:
+
+| Scene | fallen conf observed |
+|---|---|
+| Real fallen-person frames (UR clips, direct source) | 0.86–0.94 |
+| Photo of fallen person on a screen, held to camera (best attempts) | 0.40–0.52, intermittent |
+| Blank wall + mounted dome cameras (floor 0.35 active) | **up to 0.52 — pure noise** |
+| Person close-up at desk (no full body visible) | sitting 0.2–0.9; no reliable class |
+
+Conclusions: conf_floor 0.6 restored and REAFFIRMED (0.35 fires on empty
+walls); screen-replay is not a viable demo trigger (signal sits in the same
+band as blank-wall noise); the reliable triggers are a real person on a real
+floor (camera repositioned to see floor) or the file-source clip run. One
+screen-replay event did fire at 0.47/0.49 during the low-floor window —
+indistinguishable from noise, which is exactly why it's excluded.
