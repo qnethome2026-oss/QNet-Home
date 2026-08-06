@@ -30,7 +30,10 @@ One page per purpose; the long-standing files keep their paths (code and
 | [`../setup/ventuno-voice/arduino-speech.md`](../setup/ventuno-voice/arduino-speech.md) | The verified Arduino ASR/TTS runtime runbook (VAD, half-duplex, model provisioning). |
 | [`../apps/ventuno-q/qnet-voice-node/`](../apps/ventuno-q/qnet-voice-node/) | The voice node itself — self-contained App Lab package. |
 
-## Operations (new — the hard-won runbooks)
+## Operations
+
+**Power everything back on:** wait ~3 minutes, then run `bash scripts/health_check.sh` from the repo root — one read-only command that checks all three boards and prints ALL GREEN or the exact fix.
+ (new — the hard-won runbooks)
 
 | Doc | What it is |
 |---|---|
