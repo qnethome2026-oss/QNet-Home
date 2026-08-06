@@ -489,11 +489,27 @@
   }
   .syslog summary { cursor: pointer; padding: 6px 0; user-select: none; }
   .syslog .syslog-count { opacity: 0.7; }
-  .syslog pre {
+  .syslog .syslog-pre {
     background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-    padding: 12px 14px; max-height: 320px; overflow: auto;
-    font-size: 0.76rem; line-height: 1.5; white-space: pre; margin: 4px 0 12px;
+    padding: 8px; max-height: 320px; overflow: auto;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.76rem; line-height: 1.55; margin: 4px 0 12px;
   }
+  .sl-line { white-space: pre; padding: 1px 8px; border-left: 3px solid transparent; border-radius: 3px; }
+  /* device = hue */
+  .sl-line.sl-brain   { border-left-color: #635bff; background: linear-gradient(90deg, rgba(99,91,255,0.16), transparent 55%); }
+  .sl-line.sl-kitchen { border-left-color: #2f9e63; background: linear-gradient(90deg, rgba(47,158,99,0.16), transparent 55%); }
+  .sl-line.sl-bedroom { border-left-color: #3b82f6; background: linear-gradient(90deg, rgba(59,130,246,0.16), transparent 55%); }
+  .sl-line.sl-other   { border-left-color: #9ca3af; }
+  /* service = gradient strength within the device hue */
+  .sl-line.sl-svc-look.sl-kitchen  { background: linear-gradient(90deg, rgba(47,158,99,0.07), transparent 40%); }
+  .sl-line.sl-svc-look.sl-bedroom  { background: linear-gradient(90deg, rgba(59,130,246,0.07), transparent 40%); }
+  .sl-line.sl-svc-voice.sl-kitchen { background: linear-gradient(90deg, rgba(47,158,99,0.28), transparent 70%); }
+  .sl-line.sl-svc-voice.sl-bedroom { background: linear-gradient(90deg, rgba(59,130,246,0.28), transparent 70%); }
+  .sl-legend { font-weight: 400; margin-left: 10px; opacity: 0.85; font-size: 0.78rem; }
+  .sl-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin: 0 4px 0 8px; }
+  .sl-dot.sl-brain { background: #635bff; } .sl-dot.sl-kitchen { background: #2f9e63; }
+  .sl-dot.sl-bedroom { background: #3b82f6; }
 
   /* ---- live camera health ---- */
   /* The dot is the "is the webcam actually working" answer, everywhere a room
@@ -938,8 +954,11 @@
        home page, collapsed by default so the product face stays calm. The
        admin portal remains the full technical view with filtering. -->
   <details class="syslog" id="syslogPane">
-    <summary>System log <span class="syslog-count" id="syslogCount"></span></summary>
-    <pre id="syslogBody" aria-live="off"></pre>
+    <summary>System log <span class="syslog-count" id="syslogCount"></span>
+      <span class="sl-legend"><i class="sl-dot sl-brain"></i>brain
+      <i class="sl-dot sl-kitchen"></i>kitchen <i class="sl-dot sl-bedroom"></i>bedroom
+      &nbsp;·&nbsp; shade = service (vision / look / voice)</span></summary>
+    <div id="syslogBody" class="syslog-pre" aria-live="off"></div>
   </details>
 
   <footer>
@@ -2865,22 +2884,28 @@ function scheduleReconnect() {
    Newest first, capped, rendered only while the pane is open - a closed pane
    costs one array push per message and nothing else. */
 const SYSLOG_CAP = 200;
-const syslogLines = [];
+const syslogLines = [];   // { text, device, service }
+function syslogRender() {
+  $("syslogBody").innerHTML = syslogLines.map((e) =>
+    `<div class="sl-line sl-${e.device} sl-svc-${e.service}">${escapeHtml(e.text)}</div>`).join("");
+}
 function syslogPush(topic, payloadStr) {
   const t = new Date();
   const hh = String(t.getHours()).padStart(2, "0"), mm = String(t.getMinutes()).padStart(2, "0"),
         ss = String(t.getSeconds()).padStart(2, "0"), ms = String(t.getMilliseconds()).padStart(3, "0");
-  syslogLines.unshift(`${hh}:${mm}:${ss}.${ms}  ${topic}  ${payloadStr}`);
+  let payload = null;
+  try { payload = JSON.parse(payloadStr); } catch (_e) { /* raw line stays raw */ }
+  const origin = wireOrigin(topic, payload);
+  syslogLines.unshift({ text: `${hh}:${mm}:${ss}.${ms}  ${topic}  ${payloadStr}`,
+                        device: origin.device, service: origin.service });
   if (syslogLines.length > SYSLOG_CAP) syslogLines.length = SYSLOG_CAP;
   const pane = $("syslogPane");
   $("syslogCount").textContent = `(${syslogLines.length})`;
-  if (pane && pane.open) $("syslogBody").textContent = syslogLines.join("\n");
+  if (pane && pane.open) syslogRender();
 }
 document.addEventListener("DOMContentLoaded", () => {
   const pane = $("syslogPane");
-  if (pane) pane.addEventListener("toggle", () => {
-    if (pane.open) $("syslogBody").textContent = syslogLines.join("\n");
-  });
+  if (pane) pane.addEventListener("toggle", () => { if (pane.open) syslogRender(); });
 });
 
 client.onMessage = (topic, payloadStr) => {
