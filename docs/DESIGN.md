@@ -458,20 +458,20 @@ These are behavioural requirements, deliberately silent about mechanism. Each ha
 
 *Background, informative only (not a prescription):* R3's endpointing is conventionally done with a VAD (voice activity detection) stage in front of the STT model — many Whisper wrappers bundle one — because STT models don't themselves know when a sentence ended and tend to hallucinate on silence. Whether her service does it that way, or some other way, is invisible to us and doesn't matter.
 
-### The interface — hers to fill in
+### The interface — filled (2026-08-06, closes T0.2)
 
-> **Owner: speech-service teammate.** Placeholders below are yours; fill them (or hand us the equivalent) and we transcribe the result into `contracts/speech-api.md`, which the adapter, its tests, and the T0.3 mock are then built against. Shapes are entirely your choice as long as R1–R5 hold.
+> **Resolved by extraction.** The speech owner built the voice node as an **Arduino App Lab application** using the ASR/TTS bricks — not an HTTP service — and it was integrated from her `asr-tts-mqtt` branch (review: `docs/asr-integration-review.md`; plan/tracking: `docs/voice-integration-plan.md`). The machine-referenced record is **`contracts/speech-api.md`**; the verified runtime detail is `setup/ventuno-voice/arduino-speech.md`.
 
 | Item | Value |
 |---|---|
-| Transport & base URL | *TBD (e.g. HTTP on `localhost:<port>`)* |
-| "Speak this text" call — path/schema, and how completion is signalled (R2) | *TBD* |
-| "Listen once" call — path/schema, timeout parameter (R4), transcript + silence response shapes (R3, R4) | *TBD* |
-| Error behaviour when the service is busy/starting/broken | *TBD — any detectable failure is fine; the adapter treats it as silence and the engine's timers carry on* |
-| In-flight listen cancellation (R6) | *TBD: yes / no* |
-| Measured: end-of-speech → transcript returned | *TBD s — goes to `measurements.md`* |
+| Transport | In-process Arduino bricks inside one App Lab app (`apps/ventuno-q/qnet-voice-node/`) — the app is the sole owner of mic + speaker |
+| Speak (R2) | `tts.speak(text)` — synchronous, returns after all PCM written, +500 ms guard [M] |
+| Listen (R3, R4) | Idle: `asr.transcribe_until_cancelled()` streaming partial/final events, runner-side VAD 700 ms [M]. Session: `asr.transcribe_sentence(timeout=15)`; empty result → `{"text": "", "silence": true}` |
+| Error behaviour | Exceptions surface on node status (never converted to silence); exponential backoff on persistent ASR failure; engine timers carry on regardless |
+| Cancellation (R6) | `asr.cancel()` + generation tagging (a cancelled listen may still return a stale partial — discarded) |
+| Measured: end-of-speech → transcript | pending on-device (T3.1 gate) → `measurements.md` |
 
-*Illustrative shape only — hers may differ:* `POST /speak {text}` returning after playback; `POST /listen {timeout_s}` returning `{text}` or `{silence: true}`. The adapter pseudocode below assumes this shape for readability.
+ASR is Whisper-small float16 compiled to QNN on the Hexagon NPU [M]; `whisper-small-quantized` is the documented rollback under memory pressure. Wake gating is **node-side** per this design (§13): only wake-matched, stripped text is ever published, and transcripts appear in no logs.
 
 ### The adapter loop
 

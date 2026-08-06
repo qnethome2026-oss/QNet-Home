@@ -12,7 +12,7 @@ Each device does the one job only it can do:
 
 | Device | Role | Responsibility |
 | --- | --- | --- |
-| Arduino Ventuno Q (per room; one live today) | Room node | Fall detection (YOLOv11 fine-tune on the Hexagon NPU) always on; Qwen3-VL for "do you see X" lookups; STT/TTS via an on-board speech service (in progress). Raw frames and audio never leave the node. |
+| Arduino Ventuno Q (per room) | Room node | Fall detection (YOLOv11 fine-tune on the Hexagon NPU) always on; Qwen3-VL for "do you see X" lookups; wake-gated voice — Whisper-small ASR on the NPU + TTS (`apps/ventuno-q/qnet-voice-node`). Raw frames and audio never leave the node; only wake-matched, stripped text is ever published. |
 | Qualcomm IQ-9075 | The brain | Mosquitto broker + the agent: Gemma 4 E2B on the Hexagon NPU (via GenieX) runs the conversation inside engine-enforced rails — timers, notifications, and the emergency path fire automatically and never depend on the model. |
 | Snapdragon X Elite laptop | Dashboard | Floor-plan view with live camera health and previews, a chat-style activity feed, and an incident banner with one-click real resolve; packaged as the Windows app. |
 | Phone | Trusted contact | Two-way Telegram: milestone messages naming the room, and a reply window — answer "OK" to claim an incident before the (simulated) emergency call, or "call 911" to trigger it instantly. |
