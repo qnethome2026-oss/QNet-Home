@@ -13,11 +13,8 @@ cites its evidence file.*
   [`voice-integration-plan.md`](../voice-integration-plan.md)). The bedroom
   unit already uses the BRIO's by-id path
   ([`qnet-look-bedroom.service`](../../infra/systemd/qnet-look-bedroom.service)).
-  *Honest gap:* the repo copies of the kitchen units
-  ([`qnet-vision.service`](../../infra/systemd/qnet-vision.service),
-  [`qnet-look.service`](../../infra/systemd/qnet-look.service)) still show
-  `/dev/video0`; the by-id edit was made on-board. A vision stall watchdog is a
-  noted follow-up, not built.
+  (The repo unit files now carry the by-id path too. A vision stall watchdog
+  remains a noted follow-up, not built.)
 - **Vision stalled** (heartbeat stopped, frame stale): `ssh ventuno 'sudo
   systemctl restart qnet-vision'` — the shm frame should be fresh within
   seconds ([`cold-start.md`](cold-start.md) step 4 checks this).

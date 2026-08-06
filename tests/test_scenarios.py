@@ -444,8 +444,11 @@ def test_pain_denial_with_the_pain_word_resolves(tmp_path) -> None:
 def test_help_me_gets_an_answer_not_the_status_recording(tmp_path) -> None:
     """Live finding (2026-08-06): "Help me" / "What can I do?" mid-call_help
     earned only the next timed status line. An unrouted utterance in a safety
-    session now gets a responsive reply - the canned guidance under --no-llm -
-    and it resets the comfort clock instead of stacking on it."""
+    session now gets a responsive reply - and since skills/first-aid.md, a
+    responsive one: "help me" keyword-matches its stuck topic and the canned
+    reply carries that topic's sentence, while "what can i do" matches nothing
+    and gets the acknowledgment-only fallback. Either way it resets the
+    comfort clock instead of stacking on it."""
 
     async def scenario() -> None:
         agent, bus, rec = make_agent(tmp_path, timer_scale=0.05, comfort_interval_s=1000)
@@ -457,7 +460,9 @@ def test_help_me_gets_an_answer_not_the_status_recording(tmp_path) -> None:
 
         await heard(agent, text="help me")
         await until(lambda: len(bus.said()) > before, why="a reply to the person")
-        assert bus.said()[-1] == engine.REPLY_FALLBACK
+        stuck = agent.first_aid.match("help me")
+        assert stuck is not None and stuck.id == "stuck"
+        assert bus.said()[-1] == engine.REPLY_GUIDED.replace("{guidance}", stuck.guidance)
 
         await heard(agent, text="what can i do")
         await until(lambda: len(bus.said()) > before + 1, why="a second reply")

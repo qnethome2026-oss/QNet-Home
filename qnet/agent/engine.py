@@ -85,6 +85,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import aiomqtt
+import yaml
 
 from qnet.agent import llm as llmlib
 from qnet.agent import phases as phaselib
@@ -103,7 +104,31 @@ DEFAULT_BROKER = "127.0.0.1"
 DEFAULT_PORT = 1883
 
 # §6: "if nothing has been spoken for ~20 s the engine gives the agent a turn".
+# Kept as the LEGACY cadence: a configured `comfort.interval_s` still means
+# exactly this (fixed quiet-gap), byte for byte. The default is now a schedule.
 DEFAULT_COMFORT_INTERVAL_S = 20.0
+
+# User finding 2026-08-06: a status line every 20 s reads as hovering, not
+# care. The default cadence is a schedule of offsets from detection - a status
+# about a minute in, another at two minutes, then one every five. The last
+# entry repeats as the gap thereafter; `dev.timer_scale` scales every offset.
+DEFAULT_COMFORT_SCHEDULE_S = (60.0, 120.0, 300.0)
+
+# A scheduled slot that comes due moments after something else spoke (a phase
+# opening, a reply to the person, the responder brief) is skipped outright -
+# that line already broke the silence, which is the slot's whole job. Skipped,
+# never queued: the next scheduled slot stands. Scaled like every duration.
+COMFORT_SLOT_GUARD_S = 10.0
+
+# The canned comfort frames, rotated per line spoken: the facts inside stay
+# identical claims, but consecutive updates must never share wording (user
+# finding 2026-08-06 - a repeated sentence reads as a recording, not a
+# companion). {Body} capitalises the fact list's first letter; {body} does not.
+COMFORT_SHAPES = (
+    "I'm still here with you. {Body}.",
+    "Still with you — {body}.",
+    "I haven't gone anywhere. {Body}.",
+)
 
 # §13: "the agent remembers the last find result for 2 minutes". One variable,
 # one if-statement - no conversation history, no session linking.
@@ -126,9 +151,16 @@ PAIN_QUESTION = "Any pain? Did you hit your head?"
 # What an unrouted mid-escalation utterance gets instead of silence (user
 # finding 2026-08-06: "Help me" / "What can I do?" earned only the next timed
 # status line). The guidance half is fall.md's own sourced wording - nothing
-# medical beyond what the skill already says once in its opening.
+# medical beyond what the skill already says once in its opening. This is the
+# NO-MATCH reply: when the person's words name a problem skills/first-aid.md
+# knows, REPLY_GUIDED carries that topic's sentence instead.
 REPLY_FALLBACK = ("I'm right here with you. Try to get comfortable and don't strain to move — "
                   "help is on the way.")
+
+# The canned reply when the person's own words matched a first-aid topic: the
+# topic's sourced sentence wrapped in presence and the one promise the session
+# has actually made. skills/first-aid.md owns the middle - never this file.
+REPLY_GUIDED = "I'm right here. {guidance} Help is on the way."
 
 # Cancel is an engine-level interrupt on EXPLICIT phrases only (§6). Word
 # boundaries, so "stopped" and "cancelled the paper" do not close a session -
@@ -365,6 +397,16 @@ class Session:
     final: str = ""
     detected_at: float = 0.0
     last_say_at: float = 0.0
+    # `detected_at` is wall clock (it goes in log lines); the comfort schedule
+    # needs the same instant on the monotonic clock the timers run on.
+    started_mono: float = 0.0
+    # The schedule's cursor (how many slots are behind us), a counter that
+    # rotates the canned sentence shapes, and the last comfort/reply line
+    # spoken - consecutive lines must never repeat word for word (user
+    # finding 2026-08-06: identical status lines read as a recording).
+    comfort_idx: int = 0
+    comfort_count: int = 0
+    last_comfort_text: str = ""
     inbox: asyncio.Queue = field(default_factory=asyncio.Queue)
     task: asyncio.Task | None = None
 
@@ -429,6 +471,93 @@ def elapsed_phrase(seconds: float) -> str:
     return f"{minutes} {unit} and {secs} seconds"
 
 
+# --- first aid as data (skills/first-aid.md) ------------------------------
+#
+# The reply path may relay one or two sentences of sourced lay-rescuer
+# guidance when the person's OWN words name the problem ("i'm cold", "it
+# hurts") - matched on the rails, word-boundary, before any model sees the
+# turn. The sentences live in skills/first-aid.md, §7's rule extended: what
+# the house may say about a bleeding arm is a markdown edit with a citation
+# and a review flag (DESIGN §18), never a Python string. A missing or
+# malformed file means the feature is off and replies acknowledge without
+# guidance - the same "degraded, not broken" rule as `_load_optional`; the
+# fall path never notices.
+
+# `keywords: pain, hurts, ...` - the first line of every `## topic` section.
+_KEYWORDS_LINE_RE = re.compile(r"^[ \t]*keywords:[ \t]*(?P<kw>.+?)[ \t]*$", re.IGNORECASE | re.MULTILINE)
+
+
+@dataclass(frozen=True)
+class FirstAidTopic:
+    """One topic: its trigger words and the one-to-two sentences it may say."""
+
+    id: str
+    keywords: tuple[str, ...]
+    guidance: str
+    pattern: re.Pattern[str]
+
+
+@dataclass(frozen=True)
+class FirstAid:
+    """The loaded skills/first-aid.md - topics in file order, most specific first."""
+
+    topics: tuple[FirstAidTopic, ...]
+    meta: Mapping[str, Any] = field(default_factory=dict)
+
+    def match(self, text: str) -> FirstAidTopic | None:
+        """The first topic whose keywords appear in the person's words, or nothing.
+
+        First match wins and the file's order IS its specificity order (the
+        file says so at the top), so "my head hurts" gets the head-injury
+        sentence, not the generic pain one. Word-boundary and case-insensitive,
+        like every other rails matcher in this module - "fine" must never
+        brush against "faint".
+        """
+        said = (text or "").lower()
+        if not said:
+            return None
+        for topic in self.topics:
+            if topic.pattern.search(said):
+                return topic
+        return None
+
+
+def parse_first_aid(text: str, source: str = "<memory>") -> FirstAid:
+    """Frontmatter + ``## topic`` sections, each a ``keywords:`` line then guidance.
+
+    The same file shape phaselib parses (frontmatter regex and section split
+    are its, so there is exactly one definition of "a skill file"), and the
+    same load-time loudness: anything untrustworthy raises ``SkillError`` and
+    the caller turns that into "feature off", never a dead agent.
+    """
+    match = phaselib._FRONTMATTER_RE.match(text)
+    if not match:
+        raise phaselib.SkillError(f"{source}: no YAML frontmatter - the file must start with a '---' line")
+    try:
+        meta = yaml.safe_load(match.group("meta")) or {}
+    except yaml.YAMLError as exc:
+        raise phaselib.SkillError(f"{source}: frontmatter is not valid YAML: {exc}") from exc
+    if not isinstance(meta, dict):
+        raise phaselib.SkillError(f"{source}: frontmatter must be a mapping, got {type(meta).__name__}")
+
+    topics: list[FirstAidTopic] = []
+    for title, body in phaselib._sections(match.group("body")).items():
+        kw_match = _KEYWORDS_LINE_RE.search(body)
+        guidance = " ".join(_KEYWORDS_LINE_RE.sub("", body, count=1).split()) if kw_match else ""
+        keywords = tuple(
+            k.strip().lower() for k in (kw_match.group("kw").split(",") if kw_match else []) if k.strip()
+        )
+        if not keywords or not guidance:
+            raise phaselib.SkillError(
+                f"{source}: topic {title!r} needs a 'keywords:' line and guidance text under it"
+            )
+        pattern = re.compile(r"\b(?:" + "|".join(re.escape(k) for k in keywords) + r")\b")
+        topics.append(FirstAidTopic(id=title, keywords=keywords, guidance=guidance, pattern=pattern))
+    if not topics:
+        raise phaselib.SkillError(f"{source}: no '## <topic>' sections - nothing to match against")
+    return FirstAid(topics=tuple(topics), meta=meta)
+
+
 class Agent:
     """The MQTT client, the session table and the phase engine. One per house."""
 
@@ -472,9 +601,18 @@ class Agent:
         # Timers scaled so a 30 s phase is testable in 1.5 s (dev.timer_scale).
         self.timer_scale = float((self.config.get("dev") or {}).get("timer_scale", 1.0) or 1.0)
         comfort = self.config.get("comfort") or {}
-        self.comfort_interval_s = float(
-            self.config.get("comfort_interval_s", comfort.get("interval_s", DEFAULT_COMFORT_INTERVAL_S))
-        )
+        # Cadence: `schedule_s` (offsets from detection, last entry repeats) is
+        # the default; a configured `interval_s` is the LEGACY fixed quiet-gap
+        # and wins outright if set, so existing configs and the test harness
+        # keep their exact behaviour. A malformed schedule degrades to the
+        # default with a loud log - cadence is comfort, not safety.
+        legacy = self.config.get("comfort_interval_s", comfort.get("interval_s"))
+        self.comfort_interval_s = float(legacy) if legacy is not None else DEFAULT_COMFORT_INTERVAL_S
+        self.comfort_schedule_s: list[float] | None
+        if legacy is not None:
+            self.comfort_schedule_s = None
+        else:
+            self.comfort_schedule_s = _comfort_schedule(comfort.get("schedule_s"))
         # Which phases get the comfort loop. §6 names escalate and call_help;
         # the data-driven rule that picks exactly those two out of any skill is
         # "a safety phase that has already taken action on the person's behalf".
@@ -484,6 +622,7 @@ class Agent:
         self.skill = phaselib.load_skill(self.skills_dir / "fall.md", tools=self.tools)
         self.find_skill = self._load_optional("find.md")
         self.brief_skill = self._load_optional("responder-brief.md", interrupt=True)
+        self.first_aid = self._load_first_aid("first-aid.md")
 
     def _load_optional(self, filename: str, interrupt: bool = False) -> Any:
         """A second-capability skill file, or ``None`` - never a dead agent (T6.1/T6.2).
@@ -501,6 +640,26 @@ class Agent:
             return phaselib.load_skill(path, tools=self.tools)
         except phaselib.SkillError as exc:
             log.error("skill file %s rejected (%s) - that capability is off, the fall path is not", filename, exc)
+            return None
+
+    def _load_first_aid(self, filename: str) -> FirstAid | None:
+        """``skills/first-aid.md``, or ``None`` - the `_load_optional` rule again.
+
+        Guidance is data, loaded when required (DESIGN §7's sourcing rule):
+        without this file every reply still acknowledges and reports status -
+        it just carries no first-aid sentence. Missing is quiet (the file is
+        optional), malformed is loud (someone edited it and broke it).
+        """
+        path = self.skills_dir / filename
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            log.info("no %s - replies acknowledge without first-aid guidance", filename)
+            return None
+        try:
+            return parse_first_aid(text, source=str(path))
+        except phaselib.SkillError as exc:
+            log.error("first-aid file rejected (%s) - guidance is off, the fall path is not", exc)
             return None
 
     def _build_llm(self) -> Any:
@@ -545,12 +704,18 @@ class Agent:
                 await client.subscribe(topic, qos=1)
             log.info("connected %s:%s - subscribed %s", self.broker, self.port, " ".join(SUBSCRIPTIONS))
             log.info("sessions dir %s", self.sessions_dir.resolve())
+            cadence = (
+                f"every {self.comfort_interval_s * self.timer_scale:g}s (legacy interval)"
+                if self.comfort_schedule_s is None
+                else "at " + "/".join(f"{s:g}" for s in self.comfort_schedule_s)
+                + f"s after detection (x{self.timer_scale:g}, last repeats)"
+            )
             log.info(
-                "skill %s: phases %s | timer_scale %g | comfort every %gs",
+                "skill %s: phases %s | timer_scale %g | comfort %s",
                 self.skill.name,
                 " -> ".join(self.skill.phase_ids),
                 self.timer_scale,
-                self.comfort_interval_s * self.timer_scale,
+                cadence,
             )
             self.start_contact_poller()
             try:
@@ -729,6 +894,7 @@ class Agent:
             path=session_path(self.sessions_dir, room, self.skill.name, time.time()),
             detected_at=detected_at,
             last_say_at=time.monotonic(),  # the comfort clock starts now, not at epoch
+            started_mono=time.monotonic(),  # the schedule's anchor, same clock as the timers
         )
         self.sessions[room] = session
         log.info("[%s] session %s open (%s) -> %s", room, session.id, session.skill, session.path.name)
@@ -811,6 +977,7 @@ class Agent:
             path=session_path(self.sessions_dir, room, skill.name, time.time()),
             detected_at=float(msg.get("ts") or time.time()),
             last_say_at=time.monotonic(),
+            started_mono=time.monotonic(),
         )
         self.sessions[room] = session
         log.info("[%s] session %s open (%s/%s, looking for %r) -> %s",
@@ -1372,8 +1539,27 @@ class Agent:
         if deadline is not None:
             waits.append(deadline - now)
         if comfort:
-            waits.append(session.last_say_at + self.comfort_interval_s * self.timer_scale - now)
+            if self.comfort_schedule_s is None:
+                waits.append(session.last_say_at + self.comfort_interval_s * self.timer_scale - now)
+            else:
+                waits.append(self.comfort_due_at(session) - now)
         return max(0.0, min(waits)) if waits else None
+
+    def comfort_offset_s(self, idx: int) -> float:
+        """Slot ``idx``'s offset from detection, unscaled: 60, 120, 300, 600, ...
+
+        The schedule lists the first offsets; past the end, the last entry
+        repeats as the gap - so ``[60, 120, 300]`` means a status a minute in,
+        at two minutes, at five, then every five.
+        """
+        schedule = self.comfort_schedule_s or list(DEFAULT_COMFORT_SCHEDULE_S)
+        if idx < len(schedule):
+            return schedule[idx]
+        return schedule[-1] * (idx - len(schedule) + 2)
+
+    def comfort_due_at(self, session: Session) -> float:
+        """When (monotonic) the session's next scheduled slot comes due."""
+        return session.started_mono + self.comfort_offset_s(session.comfort_idx) * self.timer_scale
 
     def comforts(self, phase: phaselib.Phase) -> bool:
         """Does the comfort loop run in this phase? §6 says escalate and call_help.
@@ -1394,49 +1580,82 @@ class Agent:
         Grounded in the session log, never filler: what has actually been done
         and how long it has actually been. Positioning guidance is said once in
         the opening and never repeated here (fall.md's Guidance).
+
+        Cadence: the schedule's slots are offsets from detection (60/120/then
+        every 300 by default). A slot that comes due right after another line
+        spoke - a phase opening, a reply, the brief - is consumed but not
+        voiced: that line broke the silence, so the next slot stands and
+        nothing stacks. In the fully-silent ladder this is exactly the 1-2-5
+        minute rhythm the person hears, because call_help's opening lands on
+        the minute-one slot. Legacy `interval_s` keeps the old fixed-gap rule.
         """
         if session.comfort_paused:
             # A responder brief has the floor (§12). Not a missed update - the
             # loop resumes with a fresh interval the moment the brief is spoken.
             return
-        quiet_for = time.monotonic() - session.last_say_at
-        if quiet_for < self.comfort_interval_s * self.timer_scale:
-            # Something else just spoke - drop this update rather than overlap
-            # it. There is exactly one speaker per session by construction.
-            return
-        await self.say(session, await self.comfort_text(session), "comfort")
+        now = time.monotonic()
+        quiet_for = now - session.last_say_at
+        if self.comfort_schedule_s is None:
+            if quiet_for < self.comfort_interval_s * self.timer_scale:
+                # Something else just spoke - drop this update rather than
+                # overlap it. One speaker per session by construction.
+                return
+        else:
+            if now < self.comfort_due_at(session) - 1e-3:
+                return
+            # Consume every slot already behind us - one line, never a burst,
+            # even if the loop was inactive (check phase) through several.
+            while self.comfort_due_at(session) <= now + 1e-3:
+                session.comfort_idx += 1
+            if quiet_for < COMFORT_SLOT_GUARD_S * self.timer_scale:
+                # Something spoke moments ago; it covered this slot.
+                return
+        text = await self.comfort_text(session)
+        await self.say(session, text, "comfort")
+        session.last_comfort_text = text
+        session.comfort_count += 1
 
     async def reply_to(self, session: Session, text: str) -> None:
         """Respond to what the person actually said, mid-escalation (§6 spirit).
 
-        Same seam as ``comfort_text``: Gemma may word the response from the
-        engine's facts (which include the person's own words and fall.md's
-        sourced guidance line), and anything unusable falls back to the canned
-        ``REPLY_FALLBACK`` - so ``--no-llm`` answers too, and the model can
-        acknowledge but never invent a new claim or new medical advice.
+        The person's words are keyword-matched against ``skills/first-aid.md``
+        ON THE RAILS, before any model is consulted. A matched topic's sentence
+        joins the LLM facts as guidance-it-may-use and becomes the canned
+        ``REPLY_GUIDED`` fallback; no match means acknowledgment only - the
+        canned ``REPLY_FALLBACK``, and not one word of first-aid content
+        anywhere in the prompt, so "I'm fine" can never earn bleeding advice.
+        Either way ``--no-llm`` answers too, and the model can acknowledge but
+        never invent a new claim or medical advice beyond the matched sentence.
         """
+        topic = self.first_aid.match(text) if self.first_aid is not None else None
+        fallback = REPLY_GUIDED.replace("{guidance}", topic.guidance) if topic else REPLY_FALLBACK
         line = None
         if self.llm is not None:
-            facts = (
-                [f'the person just said: "{text}" - acknowledge and answer that first, briefly']
-                + self.comfort_facts(session)
-                + ["safe guidance you may repeat: get comfortable, don't strain to move, "
-                   "stay as still as is comfortable if anything hurts"]
-            )
+            facts = [f'the person just said: "{text}" - acknowledge and answer only that, briefly']
+            facts += self.comfort_facts(session)
+            if topic is not None:
+                facts.append(f"relevant guidance (use only if it directly answers them): {topic.guidance}")
+            if session.last_comfort_text:
+                facts.append(f'do not reuse this wording: "{session.last_comfort_text}"')
             started = time.monotonic()
             line = await asyncio.to_thread(self.llm.word_line, "reply", facts)
+            if line == session.last_comfort_text:
+                line = None  # told not to repeat and repeated anyway - the canned shape differs
             await self.append(
                 session,
                 {
                     "event": "llm",
                     "phase": session.phase,
                     "kind": "reply",
+                    "topic": topic.id if topic else None,
                     "facts": facts,
                     "source": "gemma" if line else "fallback",
                     "ms": round((time.monotonic() - started) * 1000),
                 },
             )
-        await self.say(session, line or REPLY_FALLBACK, "comfort")
+        spoken = line or fallback
+        await self.say(session, spoken, "comfort")
+        session.last_comfort_text = spoken
 
     async def comfort_text(self, session: Session) -> str:
         """Gemma words the update; the engine chooses the facts (T3.4).
@@ -1449,8 +1668,15 @@ class Agent:
         if self.llm is None:
             return self.comfort_line(session)
         facts = self.comfort_facts(session)
+        if session.last_comfort_text:
+            # An instruction, not a claim: consecutive updates must not share
+            # wording (user finding 2026-08-06). The canned fallback rotates
+            # its shapes for the same reason.
+            facts = facts + [f'do not reuse this wording: "{session.last_comfort_text}"']
         started = time.monotonic()
         line = await asyncio.to_thread(self.llm.word_line, "comfort", facts)
+        if line == session.last_comfort_text:
+            line = None  # repeated itself despite the instruction - rotate the canned shape instead
         await self.append(
             session,
             {
@@ -1479,13 +1705,26 @@ class Agent:
         return facts
 
     def comfort_line(self, session: Session) -> str:
-        """Assemble the update from facts the session log actually holds."""
+        """Assemble the update from facts the session log actually holds.
+
+        The facts are the content; the frame rotates deterministically
+        (``COMFORT_SHAPES``) so consecutive canned updates never share
+        identical wording - same claims, different sentence. The bump loop
+        only moves past a shape that happens to equal the previous spoken
+        line (possible when the model worded that one).
+        """
         facts = self.comfort_facts(session)
         if len(facts) > 1:
             body = ", ".join(facts[:-1]) + ", and " + facts[-1]
         else:
             body = facts[0]
-        return f"I'm still here with you. {body[0].upper()}{body[1:]}."
+        line = ""
+        for bump in range(len(COMFORT_SHAPES)):
+            shape = COMFORT_SHAPES[(session.comfort_count + bump) % len(COMFORT_SHAPES)]
+            line = shape.replace("{Body}", f"{body[0].upper()}{body[1:]}").replace("{body}", body)
+            if line != session.last_comfort_text:
+                return line
+        return line
 
     def contact_name(self) -> str:
         """The first configured contact's name - the caregiver we say out loud."""
@@ -1685,6 +1924,25 @@ def _topic_pattern(topic_filter: str) -> re.Pattern[str]:
         else:
             parts.append(re.escape(level))
     return re.compile("^" + "/".join(parts) + "$")
+
+
+def _comfort_schedule(raw: Any) -> list[float]:
+    """``comfort.schedule_s`` as a validated list, or the default - never a crash.
+
+    The cadence is comfort, not safety: a malformed schedule logs loudly and
+    degrades to the 60/120/300 default rather than stopping the agent.
+    """
+    if raw is None:
+        return list(DEFAULT_COMFORT_SCHEDULE_S)
+    try:
+        schedule = [float(s) for s in raw] if isinstance(raw, list) else None
+    except (TypeError, ValueError):
+        schedule = None
+    if not schedule or any(s <= 0 for s in schedule):
+        log.error("comfort.schedule_s %r is not a list of positive seconds - using the default %s",
+                  raw, list(DEFAULT_COMFORT_SCHEDULE_S))
+        return list(DEFAULT_COMFORT_SCHEDULE_S)
+    return schedule
 
 
 def _supported(fn, args: dict) -> dict:

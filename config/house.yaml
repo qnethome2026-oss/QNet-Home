@@ -73,7 +73,14 @@ find:
   last_find_window_s: 120 # how long "I still don't see them" keeps meaning the
                           # last object searched for (§13's 2-minute memory).
 comfort:
-  interval_s: 20        # never leave them in silence longer than this (§6, T2.4)
+  # Status cadence: offsets from detection, in seconds - a status about a
+  # minute in, another at two minutes, then one every five (the last entry
+  # repeats as the gap). A slot that lands right after another line spoke (a
+  # phase opening, a reply, the brief) is skipped, not stacked. dev.timer_scale
+  # applies to every offset. 20-second updates read as hovering, not care
+  # (user finding 2026-08-06) - that fixed cadence is still available as
+  # `interval_s: 20` (legacy quiet-gap rule; wins outright if set).
+  schedule_s: [60, 120, 300]
   # phases: [escalate, call_help]   # optional override; default = phases that
   #                                 # fired on_enter actions in a safety skill
 dev:

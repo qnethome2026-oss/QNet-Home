@@ -72,9 +72,16 @@ CHANNEL_MARK = "<channel|>"  # Gemma 4's thinking-channel terminator
 MAX_LINE_CHARS = 200         # a spoken line, not a paragraph
 BRIEF_MAX_CHARS = 900        # ...except the brief, which is a whole timeline
 
+# A reply to something the person just said is one sentence, two at most -
+# answering "I'm cold" with a paragraph is its own kind of not listening.
+REPLY_MAX_TOKENS = 60
+
 # Per-kind caps for `word_line`. A kind that is not listed gets the one-sentence
 # defaults, so adding a new kind never needs an entry here.
-LINE_LIMITS: dict[str, tuple[int, int]] = {"brief": (BRIEF_MAX_TOKENS, BRIEF_MAX_CHARS)}
+LINE_LIMITS: dict[str, tuple[int, int]] = {
+    "brief": (BRIEF_MAX_TOKENS, BRIEF_MAX_CHARS),
+    "reply": (REPLY_MAX_TOKENS, MAX_LINE_CHARS),
+}
 LINE_TIMEOUTS: dict[str, float] = {"brief": BRIEF_TIMEOUT_S}
 
 _WS_RE = re.compile(r"\s+")
@@ -302,8 +309,10 @@ class LlmClient:
         is wording, never content. §6: "grounded in what tools actually
         returned, never filler".
 
-        **Three kinds share this one method and one recipe** (T6.1, T6.2):
-        ``comfort`` is the fall loop's status line, ``find`` is the answer to
+        **Four kinds share this one method and one recipe** (T6.1, T6.2):
+        ``comfort`` is the fall loop's status line, ``reply`` answers what the
+        person just said mid-escalation (any first-aid content arrives as an
+        engine-matched fact, never the model's own), ``find`` is the answer to
         "where are my glasses", ``brief`` is the responder timeline. Only the
         prompt and the caps differ - a kind with no entry in ``LINE_LIMITS``
         gets the one-sentence defaults, so ``comfort``'s measured behaviour
@@ -353,6 +362,21 @@ class LlmClient:
                 "- No quotes around the whole answer, no emoji. Under 120 words.\n"
                 "Summary:"
             )
+        if kind == "reply":
+            return (
+                "You are a calm home assistant staying with an older person who has fallen. "
+                "Help is already being arranged, and they just said something to you.\n\n"
+                f"What you know:\n{listed}\n\n"
+                "Write ONE short reply they will hear out loud - one sentence, two at most. Rules:\n"
+                "- Answer only what they just said, warmly and briefly. No status recap unless they asked.\n"
+                "- If a fact is marked 'relevant guidance', use it only if it directly answers what "
+                "they said; otherwise leave it out entirely.\n"
+                "- Never add medical advice beyond that guidance line. Never invent a fact, a name, "
+                "a time or a promise.\n"
+                "- If a fact says 'do not reuse this wording', say it differently.\n"
+                "- No quotes, no emoji, no lists. Under 30 words.\n"
+                "Reply:"
+            )
         if kind == "find":
             return (
                 "You are a calm home assistant answering someone who asked where one of their "
@@ -387,6 +411,12 @@ class LlmClient:
                 f"Facts, in order: {joined}.\n"
                 "Tell a first responder what happened, out loud, using only those facts. "
                 "One flowing summary, no list, under 120 words."
+            )
+        if kind == "reply":
+            return (
+                f"Facts: {joined}.\n"
+                "Reply warmly, in one short spoken sentence, to what the person just said. Use only "
+                "those facts, add no medical advice beyond any guidance given, under 25 words, no quotes."
             )
         if kind == "find":
             return (
