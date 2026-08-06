@@ -1,0 +1,178 @@
+T4.2 - node/vision.py: fall detection on the Ventuno Q NPU
+==========================================================
+Date: 2026-08-06 (board clock UTC). Board: Arduino Ventuno Q (QCS8300, Hexagon
+HTP v75), Ubuntu 24.04, ssh alias `ventuno`, sharing NPU/RAM with a teammate's
+live VLM + voice Docker containers (untouched throughout). Broker: the REAL
+IQ-9075 Mosquitto at 10.73.51.175:11883 (verify/T1.1-resolved.txt) - reachable
+from the board, checked before use. Model: /data/local/tmp/quad/models/best.bin
+(FP32 QNN context binary, models/fall-detection/README.md), via qnn-net-run.
+Deployment: scripts/deploy_vision_ventuno.sh -> ~/qnet-node, venv ~/qnet-venv
+(numpy, opencv-python-headless, paho-mqtt, pyyaml added; nothing system-wide).
+Subscriber in all runs: dev/spy.py on the board against the IQ9 broker.
+
+Clips are REAL fall footage (UR Fall dataset, clips/README.md). The one
+stitched arc is labelled STITCHED in its filename and everywhere below.
+
+--------------------------------------------------------------------------
+1. One fall -> EXACTLY one fall.detected (real clip, real broker)
+--------------------------------------------------------------------------
+Clip: clips/fall-02-cam0-rgb.mp4 (110 frames: sits, falls, stays down).
+
+$ python -m qnet.node.vision --room kitchen \
+    --source 'filesrc location=clips/fall-02-cam0-rgb.mp4 ! decodebin' \
+    --broker 10.73.51.175 --port 11883
+vision: room=kitchen source='filesrc location=clips/fall-02-cam0-rgb.mp4 ! decodebin' conf>=0.6 rule=5/8 rearm=60s|8f batch=1 -> 10.73.51.175:11883
+vision: fall.detected #1 conf=0.8628 (5/8)
+vision: 110 frames in 36.9s = 2.98 fps | per frame: pre 22.7 ms, npu(spawn+io+infer) 307.7 ms, decode 1.5 ms | events: 1
+
+Subscriber (dev/spy.py, topic qnet/kitchen/#) - full event list for the run,
+count = 1:
+00:24:59.721 qnet/kitchen/event {"id": "01KZA7B1ANPAV089QSY209T2VV", "ts": 1785975899.477271, "room": "kitchen", "kind": "fall.detected", "conf": 0.8628, "meta": {"cls": "Fallen", "frames": "5/8"}}
+
+Payload shape matches contracts/fixtures/event_fall.json field-for-field
+(id ULID, ts, room, kind, conf, meta.cls, meta.frames). conf is the median
+fallen confidence over the 8-frame window that fired.
+
+Honest caveat: fall-01 (person walks in close to the camera first) fires an
+extra event if processed from frame 0 - the walk-in reads fallen 0.84-0.86 for
+~10 frames (motion blur / partial body). Real model flicker, longer than the
+5-of-8 window, so thresholds/N-of-M must absorb it - that tuning is T4.3's
+charter. fall-02/fall-03 (no walk-in) are clean one-fall clips.
+
+--------------------------------------------------------------------------
+2. fall -> recover -> fall: two events honoring the re-arm rule
+--------------------------------------------------------------------------
+Clip: clips/fall_recover_fall-STITCHED.mp4 (215 frames of real UR Fall footage,
+stitched arc: fall-02 fall, fall-01 upright recovery segment, fall-03 fall).
+
+$ python -m qnet.node.vision ... --source '...fall_recover_fall-STITCHED.mp4 ! decodebin'
+vision: 215 frames in 70.1s = 3.07 fps | per frame: pre 19.0 ms, npu(spawn+io+infer) 302.8 ms, decode 1.3 ms | events: 2
+
+Subscriber (topic qnet/kitchen/event) - both events, count = 2:
+00:26:53.205 qnet/kitchen/event {"id": "01KZA7EGAD67FFGWMSWP1450MJ", "ts": 1785976013.1332994, "room": "kitchen", "kind": "fall.detected", "conf": 0.8472, "meta": {"cls": "Fallen", "frames": "5/8"}}
+00:27:30.743 qnet/kitchen/event {"id": "01KZA7FM0THQFV8Q7N9BCE483W", "ts": 1785976049.6905015, "room": "kitchen", "kind": "fall.detected", "conf": 0.939, "meta": {"cls": "Fallen", "frames": "5/8"}}
+
+37.5 s apart - INSIDE the 60 s cooldown, so the second event is the upright
+re-arm path doing its job: >= 8 consecutive sitting/standing frames during the
+recovery segment re-armed the gate (window cleared), and the second fall
+produced fresh 5-of-8 evidence. The state machine itself is unit-tested
+exhaustively in tests/test_vision_logic.py (fire-once over 100 fallen frames,
+streak reset, cooldown re-arm, window clearing).
+
+--------------------------------------------------------------------------
+3. Heartbeats on qnet/<room>/status (shape settled here, contracts/mqtt.md)
+--------------------------------------------------------------------------
+From run 1's subscriber - every ~5 s, state visibly armed -> holdoff after the
+event at 00:24:59:
+00:24:37.180 qnet/kitchen/status {"node": "kitchen-01", "room": "kitchen", "ts": 1785975877.1140716, "state": "armed", "fps": 0.0, "frames": 0, "detector": "fall-yolo11n@hexagon-npu"}
+00:24:42.377 qnet/kitchen/status {"node": "kitchen-01", "room": "kitchen", "ts": 1785975882.2023559, "state": "armed", "fps": 3.14, "frames": 16, "detector": "fall-yolo11n@hexagon-npu"}
+00:24:47.375 qnet/kitchen/status {"node": "kitchen-01", ... "state": "armed", "fps": 2.95, "frames": 30, ...}
+00:25:02.973 qnet/kitchen/status {"node": "kitchen-01", ... "state": "holdoff", "fps": 3.03, "frames": 78, ...}
+00:25:13.160 qnet/kitchen/status {"node": "kitchen-01", ... "state": "holdoff", "fps": 2.98, "frames": 107, ...}
+
+--------------------------------------------------------------------------
+4. /dev/shm/qnet_<room>_frame.jpg fresh while running (atomic os.replace)
+--------------------------------------------------------------------------
+stat'd twice mid-run (run 1), age 0.38 s / 0.23 s:
+2026-08-06 00:25:03.107980279 +0000 9340 /dev/shm/qnet_kitchen_frame.jpg
+2026-08-06 00:25:03.483772777 now
+2026-08-06 00:25:06.264994700 +0000 9298 /dev/shm/qnet_kitchen_frame.jpg
+2026-08-06 00:25:06.497342532 now
+And during the live-camera run (age 0.48 s):
+frame export: 2026-08-06 00:41:50.234565733 +0000 30278 bytes
+now:          2026-08-06 00:41:50.712684084
+
+--------------------------------------------------------------------------
+5. Measured cadence - the honest number (also in measurements.md)
+--------------------------------------------------------------------------
+qnn-net-run is a CLI: every inference pays process spawn + context reload +
+raw file IO on top of the 34.8 ms NPU execute. Measured end-to-end on the board
+(110-frame real clip, per-stage wall clock accumulated around each call):
+
+  batch 1:  2.98 fps  (pre 22.7 ms + npu-call 307.7 ms + decode 1.5 ms/frame)
+  batch 8: 14.55 fps  (pre  8.9 ms + npu-call  56.9 ms + decode 0.7 ms/frame)
+  live camera, batch 1: 2.56 fps (npu-call 339.2 ms)
+
+Batching 8 frames per invocation amortises the ~273 ms CLI overhead 8x and
+produced the IDENTICAL single event with identical confidence; it costs up to
+8 frames (~0.5 s) of event latency, so batch 1 stays the live default. No CPU
+fallback exists in the code - NPU or nothing, as specified.
+
+--------------------------------------------------------------------------
+6. Real image through the pipeline - decode is sane, not just structural
+--------------------------------------------------------------------------
+(Closes the runbook's "synthetic random input only" gap.) Real UR Fall frames
+through the full letterbox -> NPU -> decode path on the board:
+
+[standing] clips/fall-01-cam0-rgb.mp4 frame 60 (320x240) npu-call 238 ms
+  standing  conf=0.929 box640=(338, 164, 440, 431) box_src=(169, 42, 220, 175)
+  sitting   conf=0.817 box640=(2, 309, 122, 544)  box_src=(1, 115, 61, 232)   <- empty office chair, known model quirk
+[fallen] clips/fall-02-cam0-rgb.mp4 frame 100 (320x240) npu-call 363 ms
+  fallen    conf=0.943 box640=(290, 404, 457, 559) box_src=(145, 162, 228, 239)
+
+Boxes land on the person (standing: upright aspect, mid-frame; fallen: wide
+aspect, floor of the image), and were verified against the actual JPEGs
+(tests/fixtures/fix_standing.jpg / fix_fallen.jpg). These two raw output
+tensors are saved as tests/fixtures/fix_*.npz - the hermetic laptop tests
+decode the exact bytes the NPU produced.
+
+Live camera additionally verified end-to-end (12 frames, real UVC capture,
+frame export fresh, zero false events): the only person in view was a teammate
+at extreme close range (face filling the frame) - correctly NO fallen/standing
+detection (the model detects bodies, not faces), and the captured image was
+deliberately not kept as evidence: it identifiably shows a person who didn't
+opt in. The privacy-first project does not ship a teammate's face in its repo.
+
+--------------------------------------------------------------------------
+7. Hermetic pytest suite on the laptop - still green
+--------------------------------------------------------------------------
+$ .venv/Scripts/python.exe -m pytest -q
+84 passed, 7 deselected in 17.16s
+(the baseline moves as parallel lanes land - it was 64 at T4.2 start, 67 by
+T4.2 end after T0.5 merged; the +17 are tests/test_vision_logic.py -
+decode against the recorded NPU tensors, NMS class-awareness, letterbox
+round-trip, source-string parsing, and the full FallGate state machine.)
+
+--------------------------------------------------------------------------
+8. Camera contention finding
+--------------------------------------------------------------------------
+Checked before touching the device (root lsof + fuser on /dev/video0 and
+/dev/video1, plus non-root): NO process held either node - the camera was FREE,
+despite three teammate containers running (genai-llm-vlm-service,
+qhome-voice-node-main-1, qhome-voice-node-audio-analytics-runner-1). The VLM
+container serves Qwen2.5-VL over pre-supplied images on :9001 and does not hold
+/dev/video*. vision.py therefore owns the camera per DESIGN §5, and look.py
+must consume the /dev/shm frame export, never a second capture.
+
+Related contention that IS real: the NPU. qnn-net-run intermittently failed
+(rc=11 once mid-run; once a ~1 min burst of fastrpc "Failed to create
+transport for device, error: 1002 / Failed to load skel") while the teammate's
+containers were active, with the identical invocation succeeding on manual
+retry seconds later. vision.py now retries x3 with 0.2 s backoff and rode
+through subsequent runs; a persistent failure still propagates loudly. The
+shared-NPU risk is worth knowing for the demo: if the VLM is mid-generation
+when a fall happens, the fall inference may be delayed by a retry cycle
+(~0.5 s), not lost.
+
+--------------------------------------------------------------------------
+9. Unit tests for the pure logic
+--------------------------------------------------------------------------
+tests/test_vision_logic.py (hermetic, numpy only - no cv2, no board, no
+broker): decode/NMS/letterbox against the recorded (1,7,8400) NPU tensors in
+tests/fixtures/*.npz, and the FallGate: fires on 5-of-8 and not 4-of-8,
+flicker never fires, fire-once over 100 continuous fallen frames, conf is the
+window median, upright re-arm at exactly 8 consecutive frames with streak
+reset on a fallen frame, cooldown re-arm fires a fresh event if they are still
+down, window cleared on re-arm, bad N/M rejected. All pass in the laptop suite
+(item 7).
+
+--------------------------------------------------------------------------
+Not done here / gated
+--------------------------------------------------------------------------
+- "live camera + prop -> same single-event behaviour, observed once": needs a
+  person to fall in front of the bench camera - human-gated, belongs with
+  T4.3's recorded clips and G4.
+- Threshold/N-of-M tuning against labelled clips (walk-in flicker, chair
+  sitting hits, deliberate-lying-down = fallen): T4.3.
+- systemd unit for boot persistence: T7/deployment task, alongside voice.py
+  and look.py.

@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qnet"
+version = "0.1.0"
+description = "QNet Home - a privacy-first, multi-device home safety system"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
+dependencies = [
+    "paho-mqtt>=2.1",
+    "aiomqtt>=2.5",   # asyncio wrapper over paho, not a fifth library
+    "pyyaml",
+    "httpx",
+    "openai",
+]
+
+[project.optional-dependencies]
+# amqtt is the laptop stand-in for Mosquitto (dev/broker.py) - Windows has no
+# mosquitto package, and the spine has to be developable off the hardware.
+# pyinstaller builds the Windows .EXE/.MSIX (T5.3, packaging/): a build tool,
+# not something the shipped app imports, so it stays out of `dependencies`.
+# NOTE: no pywebview, though DESIGN §14 says "WebView". Its Windows backends
+# need pythonnet, which cannot host a CLR inside native ARM64 CPython on this
+# laptop - see qnet/app.py's docstring and verify/T5.3.txt. The wrapper opens
+# the system browser instead and imports stdlib only, which is also why the
+# packaged app is ~10 MB rather than ~60.
+dev = ["pytest", "amqtt>=0.11", "pyinstaller>=6.10"]
+
+[tool.setuptools.packages.find]
+include = ["qnet*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The default suite is hermetic - no broker, no device, no model - so it runs on
+# a laptop with nothing plugged in. The T3.3 replay harness needs the real
+# IQ-9075 endpoint, so it is opt-in: `pytest tests/test_llm_replay.py -m live`
+# (SSH tunnel up first). Everything else still runs by default.
+addopts = "-m \"not live\""
+markers = [
+    "live: needs the live GenieX/Gemma endpoint on 127.0.0.1:18181 (T3.3) - skipped by default",
+]

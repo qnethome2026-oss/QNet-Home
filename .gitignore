@@ -1,0 +1,23 @@
+.venv/
+*.egg-info/
+__pycache__/
+*.pyc
+data/
+verify/*.tmp
+
+# T5.3 build output. Everything here is reproducible from packaging/build.ps1
+# and packaging/make_msix.ps1 - the 20 MB onedir tree, the 8.6 MB msix, the
+# exported cert, and PyInstaller's generated spec and work dir. The scripts are
+# the artifact; the binaries are not.
+build/
+dist/
+packaging/QNetHome.spec
+
+# Local config overlays - secrets (Telegram token, real chat ids). Never commit.
+config/*.local.yaml
+
+# Test clips: UR Fall dataset footage - public for research, no explicit
+# redistribution license, so the videos stay local (clips/README.md has the
+# exact reproduction recipe). The README itself is tracked.
+clips/*.mp4
+tests/fixtures/fix_*.jpg

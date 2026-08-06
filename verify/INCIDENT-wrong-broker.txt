@@ -1,0 +1,48 @@
+Incident: the IQ9 agent silently joined the WRONG BROKER for ~26 minutes
+========================================================================
+2026-08-06, 02:42-03:08 UTC. Symptom: laptop-published kitchen asks vanished
+without a journal trace while bedroom "asks" (garbled STT) kept processing.
+
+Root cause: config/house.local.yaml is BOARD-SPECIFIC (it carries the mqtt
+port override 11883 on the IQ9). The two-contact update scp'd the LAPTOP's
+house.local.yaml (token+contacts only, no mqtt block) over the board's copy,
+so on the next restart the agent fell back to the default port 1883 - which
+on this board is the TEAMMATE's coexisting stack (verify/T1.1-resolved.txt).
+The agent then served their broker: their voice node's ungated STT became
+find sessions ("starry star", "lost object" - including transcripts of us
+being read aloud near their mic), while our mosquitto had no agent at all.
+The contact-ack rehearsal fall (02:43) was published to our broker and was
+therefore never processed - the phones never got the question. No misbehavior
+of the engine itself; every component did exactly what it was told.
+
+Diagnosis trail (all reproduced before the fix): agent journal had ZERO trace
+of kitchen asks at any QoS; loopback mosquitto_sub on the explicit topic AND
+the qnet/+/ask wildcard received them; a probe running the agent's exact
+aiomqtt stack received them; mosquitto's log then showed the agent had NO
+connection since 02:42 (only auto-* short-lived clients) - i.e. the "agent"
+processing bedroom asks was connected elsewhere. One line closed the case:
+its startup log said "connected 127.0.0.1:1883".
+
+Fix: mqtt block restored in the board's house.local.yaml (with a DO-NOT-
+OVERWRITE warning), restart -> "connected 127.0.0.1:11883", e2e verified:
+  ask "where's my glasses i can't find them anywhere" (trailing clause) ->
+  extraction 'glasses' on the rails -> real VLM look on the kitchen node ->
+  say "I looked in the kitchen and don't see your glasses - I couldn't reach
+  the bedroom."
+
+Guards that came out of this window (committed earlier tonight, 2059a93):
+  - unknown-room event/ask/heard dropped when a rooms: map is configured
+  - find answers never LLM-worded (a fabricated "The item is in the living
+    room" was observed live during the cross-broker period)
+
+Standing rules so it cannot recur:
+  1. NEVER scp a laptop house.local.yaml to a board. Edit board copies in
+     place (they differ by design: mqtt override, and only boards are
+     localhost to the broker).
+  2. After ANY agent restart, read the connect line:
+     journalctl -u qnet-agent | grep connected -> must say 127.0.0.1:11883.
+     (Added to DEMO.md pre-flight.)
+  3. Teammate coordination still open: her voice node publishes ungated STT
+     as ask/query on HER broker today; when she moves to ours per the
+     contract, the wake-phrase gate node-side is required (contracts/mqtt.md
+     ask.text is "transcript with the wake phrase stripped").

@@ -1,0 +1,121 @@
+T1.1 — Mosquitto broker on IQ-9075 — BLOCKED on a port conflict (not a sudo/install problem)
+================================================================================================
+Date: 2026-08-05 (device local time, ~19:53 UTC)
+
+STATUS OF THE INSTALL ITSELF: complete and working.
+  - mosquitto, mosquitto-clients, libmosquitto1, python3-paho-mqtt installed cleanly via the
+    apt-get download + dpkg -i workaround (gotcha #1 respected — no apt --fix-broken install
+    was run; the pre-existing qimsdk/GStreamer-qcom breakage is untouched, confirmed via
+    `sudo apt-get check` before and after — same set of unmet deps, nothing new).
+  - Extra deps needed beyond the obvious set: libdlt2, libwebsockets19t64 (mosquitto's declared
+    deps not present on this image) — downloaded and installed the same way.
+  - Config written and deployed to /etc/mosquitto/conf.d/qnet.conf (mirrors this repo's
+    infra/mosquitto.conf): listener 1883 0.0.0.0, listener 9001 0.0.0.0 protocol websockets,
+    allow_anonymous true on both. Config is syntactically valid (mosquitto -v loads it fine).
+
+THE BLOCKER: something else on the device already owns TCP/1883.
+
+  $ sudo ss -tlnp | grep 1883
+  LISTEN 0 100 0.0.0.0:1883 0.0.0.0:* users:(("python",pid=3674,fd=6))
+
+  That PID is NOT geniex-serve. It is:
+    /home/ubuntu/QNet-Home/.venv-iq9/bin/python -m services.iq9_native.main
+  — a separate, unrelated deployment living at /home/ubuntu/QNet-Home (note: NOT this repo,
+  which is checked out on the laptop as QNet-Home-impl; there is no .git in this on-device
+  directory, so provenance/owner is unknown from the device alone). It runs an embedded
+  Python MQTT broker (the `amqtt` library) on 0.0.0.0:1883, plus a child process
+  `services.iq9_voice_router.main` (PID 3676). Config at
+  /home/ubuntu/QNet-Home/config/home.example.yaml describes a "demo-home" with devices
+  ventuno-living-room / ventuno-bedroom / ventuno-kitchen — a "QHome" naming scheme, distinct
+  from this project's "QNet Home" / qnet/<room>/... topic scheme.
+
+  Critically, this is NOT a dead leftover — it has a LIVE external client attached right now:
+
+  $ sudo ss -tnp | grep :1883
+  ESTAB  10.73.51.175:1883  10.73.51.123:51447  (python pid 3674)   <- real LAN peer
+  ESTAB  10.73.51.175:1883  10.73.51.123:33175  (python pid 3674)
+  ESTAB  127.0.0.1:1883     127.0.0.1:53329      (its own child, pid 3676, the voice router)
+
+  10.73.51.123 is a real, ARP-reachable device on the workshop LAN (not localhost), and the
+  broker's log shows it connected at 16:21:26 today as clientId "qhome-ventuno-living-room"
+  and has stayed connected for ~3.5 h since:
+
+    2026-08-05 16:21:26,529 INFO Connection from 10.73.51.123:51447 on listener 'default'
+    2026-08-05 16:21:26,531 INFO ... Session(clientId=qhome-ventuno-living-room, state=connected)
+
+  This process was started at 02:26 today with PPID 1 (orphaned — no systemd unit, no cron
+  entry found) — someone likely nohup'd/backgrounded it by hand and disconnected. It is
+  currently NOT documented anywhere in QNet-Home-impl/docs, and was not mentioned in the task
+  briefing (only geniex-serve was flagged as production-critical).
+
+WHY I STOPPED HERE instead of just killing it:
+  Freeing port 1883 for mosquitto would require killing PID 3674 (and its child 3676), which
+  would immediately drop a LIVE MQTT session with a real physical device (10.73.51.123,
+  apparently a "ventuno" room node) that's been connected for hours. That may be an active
+  demo/workshop activity by another teammate, entirely outside anything I was told about or
+  authorized to touch. This is exactly the kind of irreversible, other-people's-work action
+  that needs a human call, not an agent guess.
+
+WHAT I DID (non-destructive):
+  - Left PID 3674/3676 running untouched.
+  - `sudo systemctl stop mosquitto` — stopped our new mosquitto instance (it was crash-looping
+    on "Address already in use" every ~2s after `systemctl enable --now`; stopping it silences
+    the spam). It remains `systemctl enable`d (will attempt-and-fail once at next boot, same as
+    now, then settle into `failed` — harmless but worth knowing).
+  - Did not touch /home/ubuntu/QNet-Home/config/home.example.yaml or anything in that tree.
+
+EXACT COMMANDS A HUMAN SHOULD RUN (pick one path):
+
+  Path A — that broker is obsolete/abandoned, safe to retire:
+    ssh iq9 'kill 3674'                     # graceful SIGTERM; PID may differ, re-check first:
+    ssh iq9 'ps aux | grep iq9_native | grep -v grep'
+    ssh iq9 'sudo systemctl restart mosquitto'
+    ssh iq9 'systemctl status mosquitto --no-pager'
+  (do NOT use `pkill -f` — matches broadly; use the exact PID from `ps aux`, or better,
+   `pkill -x python` is also wrong since geniex/others may use plain "python" too — use the
+   numeric PID.)
+
+  Path B — that broker must keep running (someone's live demo):
+    Reassign QNet Home's mosquitto to non-standard ports (breaks T1.1's verify recipe, which
+    hard-codes mosquitto_sub/mosquitto_pub -h <broker-ip> against the *standard* 1883/9001,
+    and breaks dev/sim.html's assumption of :9001) OR ask the QHome/iq9_native owner to move
+    their embedded broker off 1883/9001 OR move QNet Home's broker to a different NIC/port and
+    update docs/DESIGN.md §4 + all dependent tasks (T1.2, T1.2b, T5.1) accordingly. This needs
+    a design decision, not just a device tweak.
+
+  Either way, first confirm who owns it:
+    ssh iq9 'cat /home/ubuntu/QNet-Home/.runtime/iq9-native.pid'
+    ssh iq9 'ls -la /home/ubuntu/QNet-Home; tail -50 /home/ubuntu/QNet-Home/.runtime/iq9-native.log'
+    ssh iq9 'cat /proc/3674/environ 2>/dev/null | tr "\0" "\n"'   # may reveal who/what launched it (needs sudo)
+
+ONCE UNBLOCKED, resume at:
+  sudo systemctl restart mosquitto
+  systemctl status mosquitto --no-pager     # expect: active (running), listeners on 1883 + 9001
+  mosquitto_sub -h 127.0.0.1 -t 'qnet/#' -v &
+  mosquitto_pub -h 127.0.0.1 -t 'qnet/test' -m 'hello'
+  # then the laptop-side paho-mqtt + websocket verification (script ready, not yet run)
+
+PRE-VALIDATION DONE (non-destructive, proves the config itself is correct so the finish is
+just the two commands above — the ONLY unresolved thing is the port 1883 conflict):
+
+  Ran mosquitto with the exact same qnet.conf listener stanzas but on throwaway ports
+  (11883/mqtt, 19001/websockets, temp file /tmp/qnet-test.conf, not written to conf.d),
+  confirmed both listeners open cleanly ("Opening ipv4 listen socket on port 11883" /
+  "Opening websockets listen socket on port 19001" — proves libwebsockets19t64 works),
+  and ran the full round-trip:
+    - on-device: mosquitto_pub -> mosquitto_sub round trip over the alt TCP port: PASS
+    - from the laptop: paho-mqtt script (both TCP and websockets transport) against
+      10.73.51.175:11883 and :19001: BOTH PASS
+      TCP :11883: PASS (received=[('qnet/test', 'hello-70b4ebd8')])
+      WebSockets :19001: PASS (received=[('qnet/test', 'hello-70b4ebd8')])
+  Temp instance and temp conf/log fully cleaned up afterward (pkill -x mosquitto, rm temp
+  files) — confirmed no stray mosquitto processes remain and port 1883 is back to being
+  held solely by the pre-existing PID 3674 (untouched throughout).
+
+  i.e. mosquitto + qnet.conf + both transports are proven correct end-to-end on this exact
+  device; the only remaining step is freeing 1883/9001 and running `systemctl restart
+  mosquitto` for real, per Path A or Path B above.
+
+  Measured on-device pub->sub round trip (paho-mqtt client, loopback, alt port 11883):
+    1.2 ms
+  (well within the T1.1 design spec's "within 1 s" requirement, by three orders of magnitude)

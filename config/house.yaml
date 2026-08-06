@@ -1,0 +1,82 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# QNet Home - house configuration template (DESIGN.md §5).
+# Everything tunable lives in this one file, so nothing here is a code change.
+# The "TODO" values are filled in by T0.5 (Telegram bot + chat id + real names).
+
+mqtt:
+  # Where the broker lives. The agent, nodes, and dev tools all read this (or
+  # override with --broker/--port); the dashboard takes the ws:// URL in its
+  # Settings panel. Local dev: dev/broker.py serves 127.0.0.1 1883/ws 9001.
+  # DEPLOYED (IQ-9075): 11883 tcp / 19001 websockets — NOT the standard ports,
+  # because a teammate's separate stack holds :1883 on that board for now
+  # (verify/T1.1-blocked.txt). When their stack retires, switch the two numbers
+  # in infra/mosquitto.conf and here, restart mosquitto, done.
+  host: "127.0.0.1"
+  port: 1883
+  ws_port: 9001
+
+resident: { name: "Tony" }
+contacts:
+  # A contact with a real chat id gets the escalation QUESTION and can reply
+  # (T-contact-ack): "ok"/"on my way"/... engages them - the house holds off
+  # the (SIMULATED) emergency call for 3 minutes - and "call 911" places it
+  # immediately. Replies are matched on the engine rails; the model never
+  # routes them. The inbound poller starts only when telegram_bot_token AND at
+  # least one chat id here are real (both live in house.local.yaml).
+  - { name: "Sarah", telegram_chat_id: "TODO" }
+telegram_bot_token: "TODO"
+emergency_number: "911"
+rooms:
+  # Every room listed here is a node the agent expects to answer a `look`
+  # broadcast (§13) - which is how "I couldn't reach the bedroom" is possible
+  # at all. Add a room when its node exists; remove one and the house simply
+  # stops expecting it.
+  kitchen:
+    node: kitchen-01
+    source: "v4l2src device=/dev/video2"
+  bedroom:
+    node: bedroom-01
+    source: "v4l2src device=/dev/video2"
+vision:  { conf_floor: 0.6, fire_on: "5/8", rearm_after_s: 60 }
+voice:
+  speech_service_url: "http://localhost:8080"   # her service; it owns the audio devices
+  wake_phrase: "hey home"
+  responder_phrase: "i'm the first responder"    # checked before wake_phrase, any state
+  idle_listen_timeout_s: 30
+llm:
+  # GenieX serving Gemma 4 E2B on the IQ-9075 (§10). The agent runs on that same
+  # board, so this is localhost; from a laptop, SSH-tunnel port 18181 first.
+  # Optional - drop the block and this exact URL is the default. --no-llm
+  # ignores it entirely: no client is built at all.
+  base_url: "http://127.0.0.1:18181/v1"
+look:
+  # The node-side half of "where's my stuff" (§13, T6.3): each node's look.py
+  # asks its OWN local VLM - the Qualcomm container on the node, Hexagon NPU
+  # (setup/ventuno-vlm/README.md). Frames never leave the node; only the
+  # one-sentence answer crosses the wire.
+  vlm_url: "http://127.0.0.1:9001/v1"
+  model: "qwen3_vl_4b_instruct"
+  fresh_s: 3        # vision.py's /dev/shm frame export older than this means
+                    # vision is down -> look.py grabs one frame itself.
+find:
+  # "Where's my stuff" (§13). No timers in the skill - these two are the only
+  # numbers the find flow has.
+  look_timeout_s: 6       # how long to wait for `looked` replies before
+                          # answering with whatever came back. §13's ceiling is
+                          # 8; T6.3 measured the real look->looked round trip on
+                          # the Ventuno Q (Qwen3-VL-4B on the NPU, 640 px):
+                          # median 4.1 s, worst observed 5.4 s -> worst + margin,
+                          # so a dead node does not make every answer slow.
+  last_find_window_s: 120 # how long "I still don't see them" keeps meaning the
+                          # last object searched for (§13's 2-minute memory).
+comfort:
+  interval_s: 20        # never leave them in silence longer than this (§6, T2.4)
+  # phases: [escalate, call_help]   # optional override; default = phases that
+  #                                 # fired on_enter actions in a safety skill
+dev:
+  timer_scale: 1.0      # multiply every phase timer + the comfort interval;
+                        # 0.05 replays the whole fall ladder in seconds (tests,
+                        # scripts/demo_fallback.sh). Also --timer-scale.
+storage:
+  sessions_dir: "data/sessions"   # one file per session, see §6
+  skills_dir: "skills"            # where fall.md lives (§7)

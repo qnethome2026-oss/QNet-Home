@@ -1,0 +1,75 @@
+T1.2 - Event injector - VERIFY (docs/IMPLEMENTATION.md, Phase 1)
+Run on: 2026-08-05 13:12:30 PDT  host: windows 11 arm64  python: Python 3.12.10
+Broker: python dev/broker.py (amqtt, 127.0.0.1:1883 + ws 9001) running in another terminal.
+Agent:  NOT running - this block verifies the injector alone.
+mosquitto_sub has no Windows build, so dev/spy.py stands in for it:
+  spy.py -C 1  ==  mosquitto_sub -t 'qnet/#' -v -C 1
+
+=== the key/override checker used after every subcommand ================
+$ CHECK='import json,sys
+line=[l for l in open("verify/cap.tmp",encoding="utf-8") if not l.startswith("#")][0]
+_,topic,payload=line.rstrip("\n").split(" ",2)
+cap=json.loads(payload); fx=json.load(open(sys.argv[1],encoding="ascii"))
+print("topic          :",topic)
+print("fixture        :",sys.argv[1])
+print("required keys  :","MATCH" if set(cap)==set(fx) else "MISMATCH "+str(set(cap)^set(fx)),sorted(fx))
+print("overrides      :",{k:v for k,v in cap.items() if fx.get(k)!=v} or "(none)")'
+========================================================================
+
+$ python dev/spy.py -C 1 > verify/cap.tmp &
+$ python dev/inject.py fall --room kitchen
+qnet/kitchen/event {"id": "01KZ9RWRT0QB9V5C5AQNR4B2S5", "ts": 1785960751.9, "room": "kitchen", "kind": "fall.detected", "conf": 0.87, "meta": {"cls": "Fallen", "frames": "5/8"}}
+$ python -c "$CHECK" contracts/fixtures/event_fall.json
+topic          : qnet/kitchen/event
+fixture        : contracts/fixtures/event_fall.json
+required keys  : MATCH ['conf', 'id', 'kind', 'meta', 'room', 'ts']
+overrides      : {'id': '01KZ9RWRT0QB9V5C5AQNR4B2S5', 'ts': 1785960751.9}
+
+$ python dev/spy.py -C 1 > verify/cap.tmp &
+$ python dev/inject.py heard --room kitchen --text "i'm fine"
+qnet/kitchen/heard {"text": "i'm fine", "silence": false}
+$ python -c "$CHECK" contracts/fixtures/heard.json
+topic          : qnet/kitchen/heard
+fixture        : contracts/fixtures/heard.json
+required keys  : MATCH ['silence', 'text']
+overrides      : (none)
+
+$ python dev/spy.py -C 1 > verify/cap.tmp &
+$ python dev/inject.py heard --room kitchen --silence
+qnet/kitchen/heard {"text": "", "silence": true}
+$ python -c "$CHECK" contracts/fixtures/heard.json
+topic          : qnet/kitchen/heard
+fixture        : contracts/fixtures/heard.json
+required keys  : MATCH ['silence', 'text']
+overrides      : {'text': '', 'silence': True}
+
+$ python dev/spy.py -C 1 > verify/cap.tmp &
+$ python dev/inject.py ask --room kitchen --kind query --text "where are my glasses"
+qnet/kitchen/ask {"id": "01KZ9RX3TD75WDTP9M2ECZZ7VQ", "ts": 1785960763.2, "room": "kitchen", "text": "where are my glasses", "kind": "query"}
+$ python -c "$CHECK" contracts/fixtures/ask_query.json
+topic          : qnet/kitchen/ask
+fixture        : contracts/fixtures/ask_query.json
+required keys  : MATCH ['id', 'kind', 'room', 'text', 'ts']
+overrides      : {'id': '01KZ9RX3TD75WDTP9M2ECZZ7VQ', 'ts': 1785960763.2}
+
+$ python dev/spy.py -C 1 > verify/cap.tmp &
+$ python dev/inject.py ask --room kitchen --kind responder_brief
+qnet/kitchen/ask {"id": "01KZ9RX7GDH01PKNYGDZWGY7M4", "ts": 1785960767.0, "room": "kitchen", "text": "", "kind": "responder_brief"}
+$ python -c "$CHECK" contracts/fixtures/ask_responder_brief.json
+topic          : qnet/kitchen/ask
+fixture        : contracts/fixtures/ask_responder_brief.json
+required keys  : MATCH ['id', 'kind', 'room', 'text', 'ts']
+overrides      : {'id': '01KZ9RX7GDH01PKNYGDZWGY7M4', 'ts': 1785960767.0}
+
+$ python dev/spy.py -C 1 > verify/cap.tmp &
+$ python dev/inject.py looked --room bedroom --qid q1 --found --answer "on the nightstand"
+qnet/bedroom/looked {"qid": "q1", "room": "bedroom", "found": true, "answer": "on the nightstand"}
+$ python -c "$CHECK" contracts/fixtures/looked.json
+topic          : qnet/bedroom/looked
+fixture        : contracts/fixtures/looked.json
+required keys  : MATCH ['answer', 'found', 'qid', 'room']
+overrides      : {'qid': 'q1', 'room': 'bedroom', 'answer': 'on the nightstand'}
+
+=== the explicit extra assertion from the Verify block =================
+$ python dev/inject.py heard --room kitchen --silence   (payload above)
+  -> silence:true and text:""  ... confirmed in the 3rd block above

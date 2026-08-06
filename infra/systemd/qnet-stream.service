@@ -1,0 +1,20 @@
+# QNet Home - LAN-only camera preview for the dashboard room modal (O14/T7.1).
+#   sudo cp infra/systemd/qnet-stream.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now qnet-stream
+# Serves vision.py's /dev/shm frame export over HTTP :8090; never opens the
+# camera itself. LAN trust domain only - do not port-forward (qnet/node/stream.py).
+
+[Unit]
+Description=QNet Home node stream - latest-frame preview for the dashboard
+After=network-online.target
+
+[Service]
+Type=simple
+User=arduino
+WorkingDirectory=/home/arduino/qnet-node
+ExecStart=/home/arduino/qnet-venv/bin/python -u -m qnet.node.stream --port 8090
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

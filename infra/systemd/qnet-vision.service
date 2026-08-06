@@ -1,0 +1,22 @@
+# QNet Home - fall detection on the Ventuno Q room node (T7.1). Install:
+#   sudo cp infra/systemd/qnet-vision.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now qnet-vision
+# Assumes node code at /home/arduino/qnet-node (scripts/deploy_vision_ventuno.sh),
+# venv at /home/arduino/qnet-venv, the compiled model in /data/local/tmp/quad/models
+# (models/fall-detection/README.md). The broker address is the IQ-9075 - corp
+# DHCP can move it; edit here and daemon-reload if the IP changes.
+
+[Unit]
+Description=QNet Home node vision - fall detection on the Hexagon NPU
+After=network-online.target
+
+[Service]
+Type=simple
+User=arduino
+WorkingDirectory=/home/arduino/qnet-node
+ExecStart=/home/arduino/qnet-venv/bin/python -u -m qnet.node.vision --room kitchen --source /dev/video0 --broker 10.73.51.175 --port 11883
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

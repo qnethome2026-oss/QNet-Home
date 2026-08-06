@@ -1,0 +1,110 @@
+Gate G2 - scripts/demo_fallback.sh - VERIFY (docs/IMPLEMENTATION.md, Phase 2)
+Run on: 2026-08-05  host: windows 11 arm64 (git-bash)  python: 3.12.10 (.venv)
+One command starts the dev broker + the agent (--no-llm) and replays the whole
+incident through dev/inject.py. No speech stack, no model, no mocks: a real
+broker, the real agent process, the real qnet/tools registry. The script refuses
+to run if port 1883 is already held, so it can never quietly test somebody
+else's broker; it kills everything it started on the way out (trap on EXIT).
+
+$ QNET_TIMER_SCALE=0.05 scripts/demo_fallback.sh      # the "<30 s" requirement
+=== G2 fallback demo ===================================================
+timer scale : 0.05   (fall.md's 30 s/15 s ladder -> 1.5 0.75)
+room        : kitchen
+work dir    : data/demo
+
+--- starting broker, agent and bus spy ---------------------------------
+ok
+
+--- the incident: a fall, then silence ---------------------------------
+  inject > qnet/kitchen/event {"id": "01KZ9V1W86EVVW9T6SPYAX599E", "ts": 1785963016.5, "room": "kitchen", "kind": "fall.detected", "conf": 0.87, "meta": {"cls": "Fallen", "frames": "5/8"}}
+  (silence held for 5.25s of wall clock)
+
+--- what the bus and the disk say --------------------------------------
+  session file: data/demo/sessions/kitchen__fall-response__2026-08-05T13-50-16.jsonl
+    {"ts": 1785963016.5, "event": "detected", "kind": "fall.detected", "conf": 0.87}
+    {"ts": 1785963016.5, "event": "say", "text": "I saw you fall. Take a breath — are you okay?"}
+    {"ts": 1785963017.8, "event": "heard", "text": "", "silence": true}
+    {"ts": 1785963018.0, "event": "phase", "from": "check", "to": "escalate"}
+    {"ts": 1785963018.0, "event": "say", "text": "It's okay — I'm getting you help. Try to get comfortable, and don't strain to move."}
+    {"ts": 1785963018.0, "event": "tool", "tool": "notify_contacts", "result": "console"}
+    {"ts": 1785963018.7, "event": "phase", "from": "escalate", "to": "call_help"}
+    {"ts": 1785963018.7, "event": "say", "text": "You haven't answered, so I'm calling emergency services now."}
+    {"ts": 1785963018.7, "event": "tool", "tool": "call_emergency", "result": "SIMULATED"}
+    {"ts": 1785963018.7, "event": "tool", "tool": "notify_contacts", "result": "console"}
+    {"ts": 1785963019.6, "event": "heard", "text": "", "silence": true}
+    {"ts": 1785963019.7, "event": "say", "text": "I'm still here with you. Sarah has been messaged, emergency services are on the way, and it's been about 5 seconds since I saw you fall."}
+    {"ts": 1785963020.7, "event": "say", "text": "I'm still here with you. Sarah has been messaged, emergency services are on the way, and it's been about 5 seconds since I saw you fall."}
+    {"ts": 1785963021.4, "event": "heard", "text": "", "silence": true}
+    {"ts": 1785963021.7, "event": "say", "text": "I'm still here with you. Sarah has been messaged, emergency services are on the way, and it's been about 5 seconds since I saw you fall."}
+    {"ts": 1785963022.7, "event": "say", "text": "I'm still here with you. Sarah has been messaged, emergency services are on the way, and it's been about 5 seconds since I saw you fall."}
+    {"ts": 1785963023.7, "event": "say", "text": "I'm still here with you. Sarah has been messaged, emergency services are on the way, and it's been about 5 seconds since I saw you fall."}
+
+  [x] say seen on qnet/kitchen/say
+  [x] the canned opening was spoken first
+  [x] notify_contacts fired (session log)
+  [x] notification rendered (console marker or data/outbox/telegram.log)
+  [x] call_emergency fired
+  [x] SIMULATED emergency payload rendered
+  [x] session file: detected line
+  [x] session file: check -> escalate
+  [x] session file: escalate -> call_help
+  [x] session file: call_help opening spoken
+  [x] session file: every line is valid JSON
+  [x] session document published to qnet/session/<id>
+
+=== PASS ===============================================================
+
+real	0m11.933s
+user	0m0.725s
+sys	0m0.788s
+exit=0
+
+$ scripts/demo_fallback.sh        # unscaled: fall.md's real 30 s / 15 s ladder
+=== G2 fallback demo ===================================================
+timer scale : 1   (fall.md's 30 s/15 s ladder -> 30 15)
+room        : kitchen
+work dir    : data/demo
+
+--- starting broker, agent and bus spy ---------------------------------
+ok
+
+--- the incident: a fall, then silence ---------------------------------
+  inject > qnet/kitchen/event {"id": "01KZ9V2EXDV6Q76ABDT776ZNEG", "ts": 1785963035.6, "room": "kitchen", "kind": "fall.detected", "conf": 0.87, "meta": {"cls": "Fallen", "frames": "5/8"}}
+  (silence held for 48s of wall clock)
+
+--- what the bus and the disk say --------------------------------------
+  session file: data/demo/sessions/kitchen__fall-response__2026-08-05T13-50-35.jsonl
+    {"ts": 1785963035.6, "event": "detected", "kind": "fall.detected", "conf": 0.87}
+    {"ts": 1785963035.6, "event": "say", "text": "I saw you fall. Take a breath — are you okay?"}
+    {"ts": 1785963036.9, "event": "heard", "text": "", "silence": true}
+    {"ts": 1785963048.3, "event": "heard", "text": "", "silence": true}
+    {"ts": 1785963059.6, "event": "heard", "text": "", "silence": true}
+    {"ts": 1785963065.6, "event": "phase", "from": "check", "to": "escalate"}
+    {"ts": 1785963065.6, "event": "say", "text": "It's okay — I'm getting you help. Try to get comfortable, and don't strain to move."}
+    {"ts": 1785963065.6, "event": "tool", "tool": "notify_contacts", "result": "console"}
+    {"ts": 1785963071.0, "event": "heard", "text": "", "silence": true}
+    {"ts": 1785963080.6, "event": "phase", "from": "escalate", "to": "call_help"}
+    {"ts": 1785963080.6, "event": "say", "text": "You haven't answered, so I'm calling emergency services now."}
+    {"ts": 1785963080.6, "event": "tool", "tool": "call_emergency", "result": "SIMULATED"}
+    {"ts": 1785963080.6, "event": "tool", "tool": "notify_contacts", "result": "console"}
+    {"ts": 1785963082.3, "event": "heard", "text": "", "silence": true}
+
+  [x] say seen on qnet/kitchen/say
+  [x] the canned opening was spoken first
+  [x] notify_contacts fired (session log)
+  [x] notification rendered (console marker or data/outbox/telegram.log)
+  [x] call_emergency fired
+  [x] SIMULATED emergency payload rendered
+  [x] session file: detected line
+  [x] session file: check -> escalate
+  [x] session file: escalate -> call_help
+  [x] session file: call_help opening spoken
+  [x] session file: every line is valid JSON
+  [x] session document published to qnet/session/<id>
+
+=== PASS ===============================================================
+
+real	1m3.213s
+user	0m0.605s
+sys	0m0.987s
+exit=0

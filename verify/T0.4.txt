@@ -1,0 +1,91 @@
+T0.4 - Repo scaffold (lane C)
+Run 2026-08-05 on the Snapdragon X Elite laptop (win32), Git Bash,
+cwd = C:\Users\QCWorkshop26\Workspace\QNet-Home-impl (worktree, branch implementation),
+Python 3.12.10 from .venv (empty venv before this task: pip only).
+
+Verify block from docs/IMPLEMENTATION.md, run verbatim (venv-qualified paths):
+
+$ .venv/Scripts/pip install -e ".[dev]"
+  # The block says `pip install -e .`; the [dev] extra additionally installs
+  # pytest, which T0.1's verify needs. First (clean) run:
+Building wheels for collected packages: qnet
+  Building editable for qnet (pyproject.toml): started
+  Building editable for qnet (pyproject.toml): finished with status 'done'
+  Created wheel for qnet: filename=qnet-0.1.0-0.editable-py3-none-any.whl size=17188
+Successfully built qnet
+Installing collected packages: typing_extensions, sniffio, pyyaml, pygments, pluggy,
+ paho-mqtt, packaging, jiter, iniconfig, idna, h11, distro, colorama, certifi,
+ annotated-types, typing-inspection, tqdm, pytest, pydantic-core, httpcore, anyio,
+ pydantic, httpx, openai, qnet
+Successfully installed annotated-types-0.8.0 anyio-4.14.2 certifi-2026.7.22
+ colorama-0.4.6 distro-1.9.0 h11-0.16.0 httpcore-1.0.9 httpx-0.28.1 idna-3.18
+ iniconfig-2.3.0 jiter-0.16.0 openai-2.53.0 packaging-26.3 paho-mqtt-2.1.0
+ pluggy-1.6.0 pydantic-2.13.4 pydantic-core-2.46.4 pygments-2.20.0 pytest-9.1.1
+ pyyaml-6.0.3 qnet-0.1.0 sniffio-1.3.1 tqdm-4.70.0 typing-inspection-0.4.2
+ typing_extensions-4.16.0
+exit=0
+  -> exit 0. The four DESIGN §5 libraries resolved on win32-arm64 with no
+     wheels missing: paho-mqtt 2.1.0, pyyaml 6.0.3, httpx 0.28.1, openai 2.53.0.
+     PASS
+
+  Re-run (idempotency check):
+Installing collected packages: qnet
+  Attempting uninstall: qnet
+    Found existing installation: qnet 0.1.0
+    Uninstalling qnet-0.1.0:
+      Successfully uninstalled qnet-0.1.0
+Successfully installed qnet-0.1.0
+exit=0
+
+$ .venv/Scripts/python -m qnet.agent --help
+usage: python -m qnet.agent [-h] [--config PATH] [--no-llm]
+
+QNet Home agent - the brain. Subscribes to the MQTT fabric
+(contracts/mqtt.md), runs skills on engine-enforced rails.
+
+options:
+  -h, --help     show this help message and exit
+  --config PATH  house config to load (default: config/house.yaml)
+  --no-llm       walk the phases on their timers with canned openings and
+                 regex exit matching - no model in the loop (the G2 fallback
+                 build)
+exit=0
+  -> prints usage, exit 0. PASS
+
+$ grep -rL "GNU Affero" qnet/ --include='*.py'
+exit=0
+  -> empty output: every .py under qnet/ carries the AGPL header. PASS
+     Files scanned (find qnet -name '*.py' | sort):
+       qnet/__init__.py
+       qnet/agent/__init__.py
+       qnet/agent/__main__.py
+       qnet/agent/engine.py
+       qnet/agent/llm.py
+       qnet/node/__init__.py
+       qnet/node/look.py
+       qnet/node/vision.py
+       qnet/node/voice.py
+       qnet/tools/__init__.py
+
+$ test -f config/house.yaml && test -f config/node.yaml
+exit=0
+  -> both exist. PASS
+
+$ .venv/Scripts/python -c "import yaml,sys; yaml.safe_load(open('config/house.yaml'))"
+exit=0
+$ .venv/Scripts/python -c "import yaml,sys; yaml.safe_load(open('config/node.yaml'))"
+exit=0
+  -> both parse. PASS
+
+RESULT: T0.4 PASS.
+
+Notes recorded with the evidence:
+- config/ sits at the repo root, not inside qnet/. DESIGN §5's tree draws
+  config/house.yaml under qnet/, but this same Verify block reads
+  config/house.yaml relative to the repo root, as do T0.5's greps. Root wins.
+- qnet/node/{vision,voice,look}.py, qnet/agent/{engine,llm}.py and
+  qnet/tools/__init__.py are documented stubs: they import cleanly and raise
+  NotImplementedError, naming the task that fills them in (T4.2, T1.4, T6.3,
+  T1.3/T2.2, T3.3, T2.3). Only qnet/agent/__main__.py has real behaviour, and
+  only its --help path.
+- Telegram values in config/house.yaml stay "TODO" - that is T0.5's job.

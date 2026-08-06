@@ -1,0 +1,83 @@
+T2.4 - Comfort loop - VERIFY (docs/IMPLEMENTATION.md, Phase 2)
+Run on: 2026-08-05  host: windows 11 arm64  python: 3.12.10 (.venv)
+Deliverable: Agent.comfort / Agent.comfort_line in qnet/agent/engine.py
+Harness:     dev/soak_comfort.py (this task's addition - the Verify block's script)
+
+=== the Verify block, verbatim =========================================
+Terminal 1: .venv/Scripts/python dev/broker.py
+Terminal 2: .venv/Scripts/python -m qnet.agent --config <copy> --no-llm
+            (no --timer-scale: real 30 s / 15 s / 20 s timings)
+Terminal 3:
+
+$ .venv/Scripts/python dev/soak_comfort.py --minutes 2
+soak: injected fall in kitchen; staying silent for 2 minute(s)
+
+     0.0s  say[safety] I saw you fall. Take a breath — are you okay?
+    30.0s  say[safety] It's okay — I'm getting you help. Try to get comfortable, and don't strain to move.
+    45.0s  say[safety] You haven't answered, so I'm calling emergency services now.
+    65.0s  say[comfort] I'm still here with you. Sarah has been messaged, emergency services are on the way, and it's been about 1 minute and 5 seconds since I saw you fall.
+    85.0s  say[comfort] I'm still here with you. Sarah has been messaged, emergency services are on the way, and it's been about 1 minute and 25 seconds since I saw you fall.
+   105.1s  say[comfort] I'm still here with you. Sarah has been messaged, emergency services are on the way, and it's been about 1 minute and 45 seconds since I saw you fall.
+   125.1s  say[comfort] I'm still here with you. Sarah has been messaged, emergency services are on the way, and it's been about 2 minutes and 5 seconds since I saw you fall.
+
+soak: 126s watched, 7 utterances, 4 of them comfort updates
+
+  [x] >= 4 comfort utterances: 4
+  [x] never more than 35s of silence: worst gap 30.0s
+  [x] comfort gaps within 15-30s: 20.0, 20.0, 20.0, 20.0
+  [x] zero overlapping speech (say timestamps strictly sequential)
+  [x] every elapsed-time claim within +/-5s of truth: worst 0.1s
+  [x] every update states a fact from the tool log, not filler
+
+soak: PASS
+$ echo $?
+0
+  (broker log checked clean before the run - this is our own broker on 1883,
+   not a leftover one from an earlier session.)
+
+  Every item of the Verify block, checked:
+  [x] >= 4 comfort utterances                          -> 4
+  [x] gaps between speech 15-30 s                      -> 30.0 (check timer),
+      15.0 (escalate timer), then 20.0 / 20.0 / 20.0 / 20.0 (the loop itself)
+  [x] never > 35 s of silence                          -> worst 30.0 s
+  [x] zero overlapping speech                          -> strictly sequential
+  [x] every elapsed-time claim within +/-5 s of truth  -> worst error 0.1 s
+
+  The window is 120 s and the loop speaks every 20 s, so the soak runs the full
+  two minutes and then waits (capped at +40 s) for the pending fourth update
+  rather than cutting the last gap in half - it stopped at 125.1 s.
+
+=== unit-level cover, in the permanent suite ============================
+$ .venv/Scripts/python -m pytest tests/test_scenarios.py -v -k "comfort or elapsed"
+collecting ... collected 14 items / 11 deselected / 3 selected
+
+tests/test_scenarios.py::test_comfort_loop_speaks_grounded_updates PASSED [ 33%]
+tests/test_scenarios.py::test_comfort_drops_rather_than_overlapping PASSED [ 66%]
+tests/test_scenarios.py::test_elapsed_phrase_is_accurate PASSED          [100%]
+
+====================== 3 passed, 11 deselected in 4.29s =======================
+
+  - speaks_grounded_updates: >= 3 updates at prio "comfort", every one naming a
+    fact from the tool log ("Sarah has been messaged"), every elapsed claim
+    within +/-5 s of the truth, the positioning line NEVER repeated
+    ("get comfortable" appears only in escalate's opening, per fall.md's
+    Guidance), and the wording changes once the emergency call has gone out.
+  - drops_rather_than_overlapping: with a say "just" sent, calling comfort()
+    produces nothing at all - the update is dropped, never queued behind it.
+  - elapsed_phrase_is_accurate: every value 0..400 s round-trips within 5 s.
+
+=== how the loop is scoped, and why (a design judgement) ================
+DESIGN §6 names escalate and call_help by name. The engine picks them out of the
+skill data instead of hardcoding them: the comfort loop runs in a phase of a
+`safety` skill that fires on_enter actions - i.e. one where the engine has
+already acted on the person's behalf. In fall.md that is exactly escalate and
+call_help, and it is the right default for any future safety skill.
+`comfort: {phases: [...]}` in house.yaml overrides it outright.
+The interval is `comfort.interval_s` (default 20 s) and is scaled by
+dev.timer_scale along with the phase timers.
+
+=== what is NOT in this task ============================================
+The line is assembled by the engine from logged facts, not worded by a model.
+DESIGN §6 wants Gemma to word it ("give a brief, true update") with the facts
+injected - that is T3.4, and it swaps only the sentence, not the schedule, the
+drop rule, or the facts themselves.

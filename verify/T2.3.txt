@@ -1,0 +1,232 @@
+T2.3 - Tools v0 - VERIFY (docs/IMPLEMENTATION.md, Phase 2)
+Run on: 2026-08-05 13:31:03 PDT  host: windows 11 arm64  python: 3.12.10
+Files: qnet/tools/__init__.py, qnet/tools/notify_contacts.py,
+       qnet/tools/call_emergency.py, qnet/tools/get_session_summary.py,
+       qnet/tools/look_in_rooms.py, tests/test_tools.py
+
+=== pytest tests/test_tools.py tests/test_contracts.py -v ================
+$ .venv\Scripts\python -m pytest tests/test_tools.py tests/test_contracts.py -v
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\Users\QCWorkshop26\Workspace\QNet-Home-impl
+configfile: pyproject.toml
+plugins: anyio-4.14.2
+collecting ... collected 23 items
+
+tests/test_tools.py::test_notify_message_contains_room PASSED            [  4%]
+tests/test_tools.py::test_notify_console_fallback_when_todo_creds PASSED [  8%]
+tests/test_tools.py::test_notify_false_alarm_message PASSED              [ 13%]
+tests/test_tools.py::test_notify_delivers_via_telegram_with_real_creds PASSED [ 17%]
+tests/test_tools.py::test_notify_never_raises_on_network_failure PASSED  [ 21%]
+tests/test_tools.py::test_call_emergency_payload_marked_simulated PASSED [ 26%]
+tests/test_tools.py::test_call_emergency_never_raises_if_outbox_unwritable PASSED [ 30%]
+tests/test_tools.py::test_get_session_summary_reads_latest_file PASSED   [ 34%]
+tests/test_tools.py::test_get_session_summary_terminal_state PASSED      [ 39%]
+tests/test_tools.py::test_get_session_summary_no_history PASSED          [ 43%]
+tests/test_tools.py::test_get_session_summary_live_mid_write PASSED      [ 47%]
+tests/test_tools.py::test_console_print_never_raises_on_narrow_console PASSED [ 52%]
+tests/test_tools.py::test_registry_engine_only_flags PASSED              [ 56%]
+tests/test_tools.py::test_all_tools_async_and_registered PASSED          [ 60%]
+tests/test_tools.py::test_look_in_rooms_stub_shape PASSED                [ 65%]
+tests/test_contracts.py::test_event_fall PASSED                          [ 69%]
+tests/test_contracts.py::test_ask_query PASSED                           [ 73%]
+tests/test_contracts.py::test_ask_responder_brief PASSED                 [ 78%]
+tests/test_contracts.py::test_say PASSED                                 [ 82%]
+tests/test_contracts.py::test_heard PASSED                               [ 86%]
+tests/test_contracts.py::test_look PASSED                                [ 91%]
+tests/test_contracts.py::test_looked PASSED                              [ 95%]
+tests/test_contracts.py::test_session PASSED                             [100%]
+
+============================= 23 passed in 0.13s ==============================
+
+Rule 4 check (T0.1's fixture contract stays green): test_contracts.py's 8
+tests are in the run above, unaffected by T2.3 - "8 passed" within the 23.
+
+=== Full suite, no regressions anywhere in tests/ =========================
+$ .venv\Scripts\python -m pytest tests/ -q
+.......................                                                  [100%]
+23 passed in 0.17s
+(tests/test_tools.py=15, tests/test_contracts.py=8 -> 23 total; `tests/`
+picks up both files, same result as the -v run above.)
+
+=== registry engine_only flags (DESIGN §11 table) =========================
+notify_contacts        engine_only=True   (on_enter only, never the LLM)
+call_emergency          engine_only=True   (on_enter only, never the LLM)
+get_session_summary     engine_only=False  (engine calls it in the brief
+                                             interrupt, §12 - LLM only words
+                                             the result, but the flag itself
+                                             is reserved for "never offered
+                                             to the model at all", per §11)
+look_in_rooms            engine_only=False  (LLM chooses to call it, find.md)
+
+=== Demo transcript - every tool called once, tiny asyncio snippet ========
+Script (not committed - scratchpad only, per the task's file-ownership rule):
+  reads the real config/house.yaml (TODO creds - the honest, reproducible
+  demo path), builds one ToolContext, calls each of the four registered
+  tools, and prints ctx.log()/data/outbox output alongside the return values.
+
+$ .venv\Scripts\python <scratchpad>/t23_demo.py
+=== registry ===
+call_emergency         engine_only=True
+get_session_summary    engine_only=False
+look_in_rooms          engine_only=False
+notify_contacts        engine_only=True
+
+=== notify_contacts(kind=escalate) - TODO creds -> console fallback ===
+[notify_contacts:console] escalate: (fall emoji) Possible fall - Margaret, kitchen. Checking on them now.
+{'channel': 'console',
+ 'delivered': False,
+ 'text': '(fall emoji) Possible fall - Margaret, kitchen. Checking on them now.'}
+
+=== notify_contacts(kind=call_help) ===
+[notify_contacts:console] call_help: (phone emoji) No response from Margaret - calling emergency services now (kitchen).
+{'channel': 'console',
+ 'delivered': False,
+ 'text': '(phone emoji) No response from Margaret - calling emergency services now (kitchen).'}
+
+=== notify_contacts(kind=false_alarm) ===
+[notify_contacts:console] false_alarm: (check emoji) False alarm - Margaret confirmed they're okay (kitchen). No action needed.
+{'channel': 'console',
+ 'delivered': False,
+ 'text': "(check emoji) False alarm - Margaret confirmed they're okay (kitchen). No action needed."}
+
+=== call_emergency() - SIMULATED ===
+{'SIMULATED': True,
+ 'number': '911',
+ 'reason': 'no_response_after_escalation',
+ 'resident': 'Margaret',
+ 'room': 'kitchen',
+ 'session_id': 'demo-session-1',
+ 'ts': 1785961830.7}
+
+=== get_session_summary(room=kitchen) - reads the real T1.3 session file live ===
+{'elapsed_s': 5.8,
+ 'events': [{'conf': 0.87, 'event': 'detected', 'kind': 'fall.detected',
+             'offset_human': '+0s', 'offset_s': 0.0, 'ts': 1785961292.2},
+            {'event': 'say', 'offset_human': '+0s', 'offset_s': 0.0,
+             'text': 'I saw you fall. Take a breath - are you okay?',
+             'ts': 1785961292.2},
+            {'event': 'heard', 'offset_human': '+3s', 'offset_s': 3.4,
+             'silence': False, 'text': "i'm fine", 'ts': 1785961295.6},
+            {'ask_id': '01KZ9SDE1H12WW2S5KEEA5F82Q', 'event': 'brief',
+             'note': 'responder brief is an interrupt, not a session; composed in T6.1',
+             'offset_human': '+6s', 'offset_s': 5.8, 'state': 'acknowledged',
+             'ts': 1785961298.0}],
+ 'file': 'kitchen__fall-response__2026-08-05T13-21-32.jsonl',
+ 'phase': 'check',
+ 'read_at': 1785961830.7,
+ 'room': 'kitchen',
+ 'started_at': 1785961292.2,
+ 'state': 'active'}
+
+=== get_session_summary(room=bedroom) - no history ===
+{'no_history': True, 'room': 'bedroom'}
+
+=== look_in_rooms(object='glasses') - T6.2 stub ===
+{'replies': [], 'stub': True, 'unreachable': ['kitchen']}
+
+=== ctx.log() calls captured by the harness (what the engine would append) ===
+{"event": "tool", "tool": "notify_contacts", "result": "console"}
+{"event": "tool", "tool": "notify_contacts", "result": "console"}
+{"event": "tool", "tool": "notify_contacts", "result": "console"}
+{"event": "tool", "tool": "call_emergency", "result": "SIMULATED"}
+{"event": "tool", "tool": "get_session_summary", "result": "4 events, phase=check"}
+{"event": "tool", "tool": "look_in_rooms", "result": "stub - no broadcast (T6.2); object='glasses' mode=find room=None"}
+
+=== data/outbox/telegram.log tail =========================================
+{"ts": 1785961830.7, "kind": "escalate", "text": "(fall emoji) Possible fall - Margaret, kitchen. Checking on them now."}
+{"ts": 1785961830.7, "kind": "call_help", "text": "(phone emoji) No response from Margaret - calling emergency services now (kitchen)."}
+{"ts": 1785961830.7, "kind": "false_alarm", "text": "(check emoji) False alarm - Margaret confirmed they're okay (kitchen). No action needed."}
+
+(The real transcript has the literal emoji, UTF-8 in the file and correctly
+printed to a UTF-8-reconfigured stdout; they are spelled out here only
+because this .txt is pasted through tooling that mangles non-ASCII. See
+data/outbox/telegram.log directly, or re-run the demo, for the literal text.)
+
+$ ls data/outbox/
+emergency_1785961830682.json
+telegram.log
+$ cat data/outbox/emergency_1785961830682.json
+{
+  "SIMULATED": true,
+  "number": "911",
+  "room": "kitchen",
+  "resident": "Margaret",
+  "session_id": "demo-session-1",
+  "ts": 1785961830.7,
+  "reason": "no_response_after_escalation"
+}
+
+=== BLOCKED - the live Telegram check (IMPLEMENTATION.md T2.3) ============
+"Live check: run scenario test_silence_full_escalation with the real token ->
+caregiver's phone shows '(fall emoji) Possible fall - <name>, kitchen...'"
+This cannot be run yet, for two independent reasons, neither owned by T2.3:
+  1. T0.5 (Telegram bot token + chat id into config/house.yaml) is still
+     TODO - `grep -c TODO config/house.yaml` is nonzero. Confirmed above:
+     every notify_contacts call in this demo took the console-fallback path,
+     which is the CORRECT and tested behaviour for TODO creds.
+  2. test_silence_full_escalation lives in tests/test_scenarios.py (T2.2),
+     which is lane A's engine work, not yet landed as of this task (only
+     qnet/agent/engine.py's T1.3 skeleton exists; run_phase raises
+     NotImplementedError).
+The mocked-httpx path (test_notify_delivers_via_telegram_with_real_creds)
+proves the delivery code itself is correct without a live token; the real
+phone check is a T0.5+T2.2-gated follow-up, not a T2.3 gap.
+
+=== Decisions worth flagging for the engine integration (T2.2/T3.x) =======
+
+1. ToolContext.log is documented as a SYNC callable
+   ("log: Any  # (event: dict) -> None") while Agent.append in
+   qnet/agent/engine.py (T1.3) is async (it awaits self.publish after the
+   file write). Every tool here calls `ctx.log(...)` synchronously, per the
+   given interface. Whatever the engine wires as ctx.log for a real session
+   needs to be sync-callable from a tool's perspective - e.g. a small
+   non-async wrapper that appends to session.log and the file, and schedules
+   the qnet/session/<id> publish separately (or the engine calls ctx.publish
+   itself around the tool call). This repo's ToolContext.publish is separately
+   available (async) for anything a tool needs to put on the bus directly -
+   none of the four tools currently use it themselves; all consequential
+   bus traffic for these two (notify/emergency) stays off MQTT entirely, by
+   design (§11: emergency call is simulated, notify only goes to Telegram).
+
+2. notify_contacts sends to EVERY contact in house.yaml's `contacts:` list
+   that has a real (non-TODO) telegram_chat_id, not just the first one. With
+   today's house.yaml (one contact, "Sarah") this is unobservable, but if a
+   second contact is added, both get messaged. `delivered` is True only if
+   ALL sends succeeded; a partial failure reports delivered=False/console
+   even though some contacts *did* get the message - the outbox log has the
+   text either way. Flagging in case the engine wants per-contact delivery
+   detail later (not in this tool's return shape today).
+
+3. get_session_summary's "current/final state" is INFERRED, not read off an
+   explicit field - see the module's docstring in
+   qnet/tools/get_session_summary.py for the full reasoning. Short version:
+   contracts/mqtt.md's six JSONL line kinds (detected/say/heard/phase/tool/
+   refusal) have no explicit "session ended" line. This tool takes the last
+   `phase` event's `to` field and treats it as a phase-jump if it's one of
+   {check, escalate, call_help} (state stays "active"), or as a terminal
+   label otherwise (state = that label, e.g. "ok"/"resolved"/whatever the
+   T2.2 cancel path logs). If T2.2 lands a different, more explicit way to
+   mark closed/cancelled in the JSONL, this is the one place to update -
+   KNOWN_FALL_PHASES and the inference block, both near the top of the file.
+
+4. call_emergency's output filename is `emergency_<epoch-ms>.json`
+   (millisecond integer, not a formatted timestamp) specifically so two
+   calls within the same second never collide - relevant if a test or a
+   demo run fires it more than once quickly.
+
+5. Every tool is wrapped so it truly cannot raise, including the FALLBACK
+   paths: printing a Telegram template with emoji to a real Windows console
+   (cp1252) raises UnicodeEncodeError from plain print() - caught the first
+   time in testing this file's own demo script, not in a unit test. Fixed
+   with qnet.tools.console_print (a print() that retries ASCII-safe on
+   UnicodeEncodeError), used everywhere qnet/tools/*.py prints anything to
+   stdout. Covered by test_console_print_never_raises_on_narrow_console.
+   Worth the engine integrator knowing about if any other on-console logging
+   is added near these templates.
+
+6. look_in_rooms's stub `unreachable` list is simply
+   `list(config["rooms"].keys())` - with today's house.yaml (only "kitchen"
+   configured) that's `["kitchen"]`; it will show every configured room once
+   bedroom/etc. are added, which is the point (T6.2 replaces the body, not
+   the signature).

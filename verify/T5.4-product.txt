@@ -1,0 +1,451 @@
+T5.4 - Product-facing dashboard + admin portal split
+====================================================================
+Run 2026-08-05 on the Snapdragon X Elite laptop (win32), Git Bash / PowerShell,
+cwd = C:\Users\QCWorkshop26\Workspace\QNet-Home-impl (worktree, branch
+implementation, on top of checkpoint F). node v22.20.0, python venv at .venv
+(paho-mqtt 2.x) - the same environment T5.1/T5.2/T5.3 were verified in.
+The demo broker was already running on 127.0.0.1:1883 / :9001 (PID 14436) with
+the old dashboard attached; it was REUSED, never restarted and never killed.
+
+Deliverables:
+  dashboard/index.html   NEW - the product-facing page (this file's subject)
+  dashboard/admin.html   the former dashboard/index.html, moved intact
+  packaging/build.ps1    now ships both HTML files
+  qnet/app.py            now stages both HTML files side by side
+
+--------------------------------------------------------------------
+WHAT THE SPLIT ACTUALLY DID
+--------------------------------------------------------------------
+`git mv dashboard/index.html dashboard/admin.html`, then four edits to that
+file and nothing else:
+  1. header comment retitled + a paragraph recording the split
+  2. <title> -> "QNet Home - Admin portal"
+  3. the <h1> line became a flex row: "QNet Home - Admin portal" on the left,
+     "<- Back to QNet Home" (href="index.html") on the right
+  4. ~7 lines of CSS for that row (.admin-bar)
+Everything the admin page ever showed is still there and still works: the raw
+colour-coded feed with per-line event kinds, the session list with id / skill /
+urgency / phase / state, the transcript, tools-called and refused-tool-call
+pill lists, the latency waterfall, the bytes-on-the-wire panel with the video
+comparison, the per-topic message table, the llm decision lines, the broker URL
+box, both "Reset room" buttons and the 24-case ?selftest=1 panel. Nothing was
+moved OUT of it: the product page re-derives what it needs from the same wire
+messages and carries its OWN copy of the MiniMQTT client and the session
+indexing (attribution comments in both files name the source).
+
+dashboard/index.html is new. Its whole design premise is one pure function,
+humanize(event, ctx) -> {icon, text, tone, badge?} | null, which is the ONLY
+path from a wire event to something on screen. Anything it returns null for is
+not rendered on this page at all - refusals, llm decision lines, look_in_rooms
+and every non-escalating phase move. Those are admin-portal material and the
+admin portal still shows every one of them.
+
+--------------------------------------------------------------------
+PART 1 - MACHINE-VERIFIED
+--------------------------------------------------------------------
+
+1a. LOGIC CORE self-test - 53/53, run from the SHIPPED file
+-----------------------------------------------------------
+Method, same as T5.1/T5.2: the block between the "LOGIC CORE BEGIN" and
+"LOGIC CORE END" banner comments in dashboard/index.html is sliced out of the
+file at runtime (from the end of the BEGIN banner to the start of the END
+banner, so not one character of executable code is altered), compiled as a
+module and run under node. runSelfTest() lives INSIDE that block, so the
+browser's ?selftest=1 panel and this node run execute byte-identical cases.
+
+  $ QNET_HTML=dashboard/index.html node <harness>
+  # extracted 484 lines of LOGIC CORE from dashboard/index.html
+  QNet Home product-page self-test: 53/53 passed
+
+  [PASS] detected -> named-room fall sentence, alert
+  [PASS] say -> QNet quoted, neutral
+  [PASS] heard silence -> 'No response yet', dim
+  [PASS] heard with text -> derived resident name, quoted
+  [PASS] heard with text, unknown resident -> 'Resident', never a crash
+  [PASS] phase -> escalate -> 'QNet is getting help', alert
+  [PASS] phase -> call_help -> 'Calling for emergency help', alert
+  [PASS] tool notify_contacts -> derived contact name was notified, good
+  [PASS] tool notify_contacts, unknown contact -> generic noun, still English
+  [PASS] SIMULATED survives humanization: in the TEXT and as a badge
+  [PASS] brief -> responder sentence
+  [PASS] terminal 'resolved' -> 'All clear'
+  [PASS] terminal 'cancelled' -> 'False alarm - all clear'
+  [PASS] refusal -> null (hidden here; admin portal shows it)
+  [PASS] llm decision line -> null (hidden here; admin portal shows it)
+  [PASS] unknown/future event kind -> null, never a crash
+  [PASS] unknown tool (look_in_rooms) -> null
+  [PASS] non-escalating phase move -> null
+  [PASS] malformed entries -> null, never a crash
+  [PASS] NO JARGON: no rendered sentence in a full fall run leaks wire vocabulary
+  [PASS] NO JARGON: same for a full find run
+  [PASS] find: the question renders as 'You asked: ...'
+  [PASS] find: the answer renders as a QNet sentence
+  [PASS] find: 'found' exit is not announced as an all-clear
+  [PASS] takeover: safety + active -> true
+  [PASS] takeover: a find run NEVER takes over (routine + active)
+  [PASS] takeover: safety + closed -> false (drops on close)
+  [PASS] takeover: safety + cancelled -> false (drops on cancel)
+  [PASS] takeover: nothing running -> false
+  [PASS] room state: nothing running -> 'All quiet'
+  [PASS] room state: active safety in check -> 'Checking in...'
+  [PASS] room state: active safety in escalate -> 'Needs attention'
+  [PASS] room state: active safety in call_help -> 'Help is on the way'
+  [PASS] room state: recently closed -> 'All clear'
+  [PASS] room state: closed long ago -> back to 'All quiet'
+  [PASS] room state: an active question leaves the room quiet (never interrupts)
+  [PASS] house: all quiet -> 'Everything looks fine'
+  [PASS] house: one room checking -> 'Checking on the Kitchen...'
+  [PASS] house: alert beats caution and names the room
+  [PASS] house: no rooms at all -> still a calm sentence, never blank
+  [PASS] relative time: seconds -> 'just now'
+  [PASS] relative time: 120s -> '2 min ago'
+  [PASS] relative time: 2h and 2 days
+  [PASS] relative time: missing timestamp -> empty, never 'NaN ago'
+  [PASS] elapsed: measured in the run's own clock, so a replay is not '3 days'
+  [PASS] elapsed: empty log -> 0
+  [PASS] status strip is built from facts, and keeps SIMULATED
+  [PASS] status strip claims nothing that did not happen
+  [PASS] chat bubbles: QNet right, person left, silence centred, nothing else in
+  [PASS] chat bubbles over the full fall run: 3 turns, silence included
+  [PASS] names are learned from what the house said
+  [PASS] names: nothing to learn -> nulls, and humanize still reads as English
+  [PASS] room label: identifiers become proper nouns
+
+  53/53 passed
+
+The four assertions the brief called out by name, individually:
+  * refusal -> null AND llm -> null                              PASS (2 cases)
+  * SIMULATED survives humanization - the returned TEXT is
+    "Emergency services called - SIMULATED" (the word is IN the
+    sentence, not in a tooltip), tone "emergency", badge
+    "SIMULATED" for the red bold on-line badge                   PASS
+  * terminal exit "cancelled" -> "False alarm - all clear"       PASS
+  * a find run never satisfies the takeover predicate
+    ({urgency:"routine", state:"active", skill:"find-object"})   PASS
+Plus the two NO-JARGON cases, which run a whole fall run and a whole find run
+through humanize() and assert that no surviving sentence matches
+/\bmqtt\b|qnet\/|\bsession\b|\bphase\b|\burgency\b|\bskill\b|\bulid\b|
+ \bpayload\b|\btopic\b|\bjson\b|\brefusal\b|\bbroker\b/i.
+(11 wire lines in -> 9 sentences out for the fall run; 5 -> 2 for the find run.)
+
+1b. LIVE REPLAY - what BOTH pages would consume, parsed by the shipped logic
+---------------------------------------------------------------------------
+The broker was already up (netstat: 127.0.0.1:1883 and :9001 LISTENING, PID
+14436), so it was reused rather than restarted. dev/spy.py subscribed to
+qnet/# and captured every message while three replays ran:
+
+  $ python dev/spy.py > capture.txt          # background, killed afterwards
+  $ python dev/replay_session.py dev/fixtures/replay_demo.jsonl --speed 20 --quiet
+    replay: done - 13 lines published, session 01KZ4P7Y60XH1SGPY2DFD9VAYN
+            final state='closed' phase='call_help'
+  $ python dev/replay_session.py data/live-t6/sessions/bedroom__find-object__2026-08-05T15-15-07.jsonl --speed 20 --quiet
+    replay: done - 5 lines published, session 01KZ9ZX85M88FFVPV7CV8WYKQK
+            final state='closed' phase='search'
+  $ python dev/replay_session.py data/sessions/kitchen__fall-response__2026-08-05T14-28-45.jsonl --speed 20 --quiet
+    replay: done - 19 lines published, session 01KZ9X8B5W0P3GDM5WP7FMHAXK
+            final state='active' phase='call_help'
+
+The brief asks for the demo fixture; the two recorded sessions were added on
+top because the fixture alone contains no `llm` line, no `look_in_rooms` tool
+and no routine run - i.e. it could not have exercised the hidden-kind path or
+the "a question never interrupts" path against real data.
+
+Captured: 55 messages (+1 spy banner line). The capture was then fed through
+the SHIPPED LOGIC CORE (extracted exactly as in 1a) using the product page's
+own two routing regexes:
+
+  CAPTURED TOPICS
+     37  qnet/session/<id>
+     11  qnet/kitchen/say
+      3  qnet/kitchen/heard
+      2  qnet/kitchen/event
+      1  qnet/bedroom/heard
+      1  qnet/bedroom/say
+
+    routed to the run handler   : 37
+    routed to the room handler  : 18
+    unrouted (would be ignored) : 0
+    JSON parse failures         : 0
+    humanize() exceptions       : 0
+
+  EVERY MESSAGE KIND IN THE CAPTURE, THROUGH humanize()
+    detected               -> A fall was detected in the Kitchen
+    heard:silence          -> No response yet
+    heard:text             -> Resident: "a responder just walked in, thank you"
+    heard:text             -> You asked: "i still don't see them"
+    heard:text             -> Resident: "my hip hurts a bit"
+    llm                    -> <hidden: admin-only>
+    phase->call_help       -> Calling for emergency help
+    phase->done            -> <hidden: admin-only>
+    phase->escalate        -> QNet is getting help
+    phase->resolved        -> All clear
+    say                    -> QNet: "I saw you fall. Take a breath - are you okay?"
+    say                    -> QNet: "It's okay - I'm getting you help. Try to get comfortable, and don't strain to move."
+    say                    -> QNet: "You haven't answered, so I'm calling emergency services now."
+    say                    -> QNet: "I'm still here with you. Sarah has been messaged, emergency services are on the way, and it's been about 1 minute since I saw you fall."
+    say                    -> QNet: "The glasses are in the bedroom, left of the lamp, just behind the book."
+    say                    -> QNet: "I am still with you, Sarah has been messaged, and it has been about 10 seconds since I saw you fall."
+    say                    -> QNet: "Sarah has been messaged, emergency services are on the way, and it has been about 25 seconds since I saw you fall."
+    say                    -> QNet: "I am still here with you, Sarah has been messaged, emergency services are on the way, and it has been about 40 seconds since I saw you fall."
+    say                    -> QNet: "I am still here with you, Sarah has been messaged, emergency services are on the way, and it has been about 50 seconds since I saw you fall."
+    tool:call_emergency    -> Emergency services called - SIMULATED
+    tool:look_in_rooms     -> <hidden: admin-only>
+    tool:notify_contacts   -> A trusted contact was notified
+    tool:notify_contacts   -> Sarah was notified
+
+  DERIVED NAMES (learned from event content, no config read)
+    resident=null  contact="Sarah"
+
+  ROOM STATES + WHOLE-HOUSE SENTENCE at end of capture
+    bedroom    All clear  (good)
+    kitchen    Help is on the way  (alert)
+    house: "Kitchen needs attention"
+
+  ASSERTIONS
+    [PASS] every captured message was routed (no unrouted topic)
+    [PASS] every captured payload parsed
+    [PASS] humanize() never threw on a real payload
+    [PASS] the run handler saw the session stream
+    [PASS] the room handler saw room-facing traffic
+    [PASS] SIMULATED survived humanization of the real capture
+    [PASS] a routine (find) run never satisfied the takeover predicate
+    [PASS] a safety run did satisfy it
+    [PASS] refusal/llm lines present in the capture were hidden
+    [PASS] names were learned from event content alone
+
+  10/10 replay-parse assertions passed
+
+Every event kind that appeared in the three replays is accounted for above:
+detected, say, heard (silence AND text), phase (escalate / call_help /
+resolved / done), tool (notify_contacts / call_emergency / look_in_rooms), and
+llm. `brief` and `refusal` did not occur in these three recordings - both are
+covered by the synthetic cases in 1a, and both `<hidden>` outcomes in the table
+above are the same code path a `refusal` takes.
+
+Two things worth reading off that table rather than glossing over:
+  * "A trusted contact was notified" AND "Sarah was notified" both appear.
+    That is correct, not a bug: names are learned from what the house says, so
+    the very first notify_contacts is humanized before any sentence containing
+    "Sarah has been messaged" has arrived. The live page re-renders the WHOLE
+    feed on every update, so by the time a human is looking, every line reads
+    "Sarah". The generic noun is the guaranteed-English fallback for a house
+    whose config was never filled in (config/house.yaml ships "TODO" values and
+    a file:// page cannot read YAML anyway).
+  * resident=null in this capture, because none of the three recordings
+    contained a `brief` line ("... Margaret said ..."), which is where the
+    resident's name is learnable from. The page therefore printed
+    "Resident: ..." - readable English, no crash, no placeholder token. That is
+    the required "must not break if config values are unknown" behaviour,
+    observed on real data rather than asserted in the abstract.
+
+1c. LIVE WEBSOCKET ROUND TRIP - the product page's own copied MiniMQTT
+---------------------------------------------------------------------
+The "MINI MQTT CLIENT" block was extracted from dashboard/index.html the same
+way and driven against the live broker on the page's own DEFAULT_HUB constant:
+
+  connecting the product page's own MiniMQTT to ws://127.0.0.1:9001/mqtt ...
+    client status: connecting
+    client status: connected
+    received: qnet/kitchen/cmd {"op":"reset","room":"kitchen"}
+
+    [PASS] round trip on ws://127.0.0.1:9001/mqtt: CONNECT/SUBSCRIBE/PUBLISH/PUBLISH-back
+    [PASS] "Mark as resolved" publishes {"op":"reset","room":"kitchen"} to qnet/kitchen/cmd
+
+So the copy of the client works, the default hub address in the page is right,
+and the takeover's one button emits the exact message the admin page's "Reset
+room" button already emitted (S16's reset topic, unchanged - only its label
+changed, to something honest for a non-engineer: "Mark as resolved", with the
+hint "Clears this alert on this screen and lets the room start watching again").
+
+1d. SYNTAX + VISIBLE-TEXT JARGON AUDIT
+--------------------------------------
+  node --check over the entire inline <script> of dashboard/index.html  PASS
+  node --check over the entire inline <script> of dashboard/admin.html  PASS
+    (the admin page still parses after its 4 edits)
+
+  Visible-text audit: HTML comments, <style> and <script> stripped, then all
+  remaining tags stripped, leaving only what a human can actually read on the
+  product page. Searched for
+  /\bmqtt\b|qnet\/|\bsession\b|\bphase\b|\burgency\b|\bskill\b|\bulid\b|
+   \bpayload\b|\bjson\b|\btopic\b|\brefusal\b|\bbroker\b|ws:\/\//gi
+    visible-text jargon hits: NONE                                      PASS
+  (The ws:// hub address does appear on screen, but only as the VALUE of the
+  Settings modal's "Home hub address" field, injected by JS - which is exactly
+  what the brief asks for. It is nowhere in the top bar, and there is no
+  ws:// string in the markup.)
+
+1e. THE EXISTING SUITE IS UNTOUCHED
+-----------------------------------
+  $ .venv/Scripts/python.exe -m pytest tests/ -q
+  ................................................................  [100%]
+  64 passed, 7 deselected in 17.11s                                    PASS
+
+1f. PACKAGING - BOTH PAGES SHIP
+-------------------------------
+packaging/build.ps1: one entry added to $DataFiles ('dashboard\admin.html' =>
+'dashboard') and one entry added to the post-build bundled-file assertion list,
+so a bundle missing the admin page now FAILS the build rather than shipping
+three dead links (the product page links to admin.html from its footer, its
+Settings modal and - transitively - the Help modal's "technical view" note).
+
+qnet/app.py did stage a single file. It now stages both: a new ADMIN_REL
+constant and three lines in stage_dashboard() that copy admin.html next to
+index.html in %LOCALAPPDATA%\QNetHome\dashboard. A missing admin.html is
+silent, exactly like the replay fixture already was - the product page is fully
+usable without it, it just loses a link. The docstring was updated to say there
+are two pages now. No behaviour change to DASHBOARD_REL, bundle_root(),
+dashboard_source() or main().
+
+  $ powershell -ExecutionPolicy Bypass -File packaging\build.ps1
+  ... (build output tail) ...
+  4633 INFO: Building COLLECT COLLECT-00.toc
+  4890 INFO: Building COLLECT COLLECT-00.toc completed successfully.
+  4892 INFO: Build complete! The results are available in:
+       C:\Users\QCWorkshop26\Workspace\QNet-Home-impl\dist
+
+  BUILD OK  C:\Users\QCWorkshop26\Workspace\QNet-Home-impl\dist\QNetHome\QNetHome.exe
+    dist size : 20.2 MB across 55 files
+    bundled   : _internal\dashboard\index.html (67,747 bytes)
+    bundled   : _internal\dashboard\admin.html (56,749 bytes)
+    bundled   : _internal\dev\fixtures\replay_demo.jsonl (1,359 bytes)
+
+  == launch check (--self-close 5) ==
+  QNet Home dashboard
+    mode:        frozen bundle
+    bundle root: C:\...\dist\QNetHome\_internal
+    dashboard:   C:\...\dist\QNetHome\_internal\dashboard\index.html
+    opening:     file:///C:/Users/QCWorkshop26/AppData/Local/QNetHome/dashboard/index.html
+    opened in the system default browser
+
+  Set the broker URL in the page (default ws://127.0.0.1:9001/mqtt).
+  Self-close in 5s ...
+  Self-close reached; exiting cleanly.
+  LAUNCH OK
+
+  exit code 0
+
+  Size delta vs T5.3: 20.1 MB / 54 files -> 20.2 MB / 55 files. The whole
+  increase is the second HTML file (+56,749 bytes); nothing else changed.
+
+  Post-launch staging check (proves the app.py change took):
+  $ ls %LOCALAPPDATA%\QNetHome\dashboard\
+    admin.html   56,749 bytes
+    index.html   67,747 bytes
+  Both present, same directory, so the relative href resolves under file://
+  from the packaged app as well as from a checkout.
+
+  MSIX: NOT re-packed this pass (packaging/make_msix.ps1 was skipped - it is
+  optional per the brief). Nothing in this change affects the MSIX layout: it
+  packs dist\QNetHome as a directory tree, and the only difference in that tree
+  is one extra 56 KB file inside _internal\dashboard\. AppxManifest.xml is
+  untouched. The last recorded MSIX build (verify/T5.3.txt) was 8.62 MB,
+  self-signed; a re-pack would be expected to land within a few KB of that.
+
+--------------------------------------------------------------------
+PART 2 - HUMAN CHECKLIST (needs a rendered browser; not machine-verifiable)
+--------------------------------------------------------------------
+Setup: the broker up (it already is - reuse it, do NOT start a second one),
+dashboard/index.html opened via file:// in one tab and dashboard/admin.html in
+another, and a driver publishing real traffic:
+
+  python dev/replay_session.py dev/fixtures/replay_demo.jsonl --speed 5
+  python dev/inject.py fall --room kitchen
+  python dev/inject.py ask --room kitchen --kind query --text "where are my glasses"
+
+--- PRODUCT PAGE: dashboard/index.html --------------------------------------
+[ ] top bar reads "QNet Home" with the hex mark, and NOTHING technical is
+    beside it - no URL, no counters, no tab strip
+[ ] the whole-house sentence starts at "Everything looks fine", becomes
+    "Checking on the Kitchen..." while the check phase runs, then
+    "Kitchen needs attention" once it escalates - and goes back to
+    "Everything looks fine" a few minutes after it closes
+[ ] connection indicator says "Connected to your home" with a steady green
+    dot; stop the broker (or point Settings at a bad address) and it says
+    "Reconnecting..." with a pulsing amber dot, then recovers ON ITS OWN when
+    the broker comes back - no button to press
+[ ] room cards appear for every room the house mentions, each with a human
+    state line and a relative time underneath ("just now", "2 min ago") that
+    ticks upward without a reload
+[ ] room card state runs All quiet -> Checking in... -> Needs attention ->
+    Help is on the way -> All clear across one replayed fall
+[ ] "Today at home" feed: every line is a plain sentence with an icon and a
+    local clock time on the right. Read the whole feed aloud - if any line
+    would not make sense to someone who has never heard of MQTT, that is a bug
+[ ] the emergency line is unmissable: red text, red-tinted row, red left bar,
+    AND a red/white bold "SIMULATED" badge sitting on the line itself. Compare
+    it side by side with the admin page's version of the same line - it must
+    read as at least as alarming
+[ ] NOT in the feed anywhere: refusals, llm decision lines, look_in_rooms,
+    intermediate phase moves, any id, any topic, any JSON. Open the admin tab
+    and confirm all of them ARE there - same incident, both pages
+[ ] safety takeover fires within about a second of the fall: full screen, big
+    room name, "A fall was detected in the Kitchen", an elapsed timer that
+    counts up, chat bubbles (QNet right and blue, the person left and grey,
+    silence centred and italic), and a status strip that says only things that
+    actually happened
+[ ] the status strip's "Emergency call placed - SIMULATED" carries the same
+    red badge
+[ ] "Mark as resolved" clears the overlay immediately, the hint text next to
+    it explains what it does, and dev/spy.py shows
+    {"op":"reset","room":"kitchen"} on qnet/kitchen/cmd
+[ ] a find query NEVER takes over the screen: run the `ask` inject and watch
+    the takeover stay closed while the feed gains
+    'You asked: "where are my glasses"' and 'QNet: "The glasses are in the
+    bedroom, on the nightstand."'
+[ ] Help (?) opens the modal; all six sections present and readable: What is
+    QNet Home (3 sentences, privacy-first), What the statuses mean (5-item
+    legend with matching colours), What happens when a fall is detected (5
+    plain steps), How to cancel, For first responders, About (version 0.1.0,
+    AGPL notice, repo link). Escape closes it; so does the scrim and the x
+[ ] Settings (gear) opens with "Home hub address" prefilled with the current
+    address; change it, press Save, and the page reconnects to the new one
+    (and remembers it across a reload). "Open admin portal ->" works
+[ ] footer reads "QNet Home - Help - Admin portal - Source (AGPL-3.0)"; the
+    Source link opens the repo in a new tab (AGPL S13/S18 requirement), the
+    Help link opens the same modal as the ? button
+[ ] dark-friendly: flip the OS theme both ways with the page open. Both are
+    legible, neither looks like an accident
+[ ] works from file:// with no local server, and with the network cable out
+    (no CDN, no font fetch, no analytics - check DevTools Network is empty
+    apart from the page itself)
+[ ] `?selftest=1` shows the 53-case panel on the page, matching Part 1a
+[ ] resize to a narrow phone-width window: room cards stack, the feed stays
+    readable, the top bar wraps rather than overflowing, and the page never
+    scrolls sideways
+
+--- ADMIN PORTAL: dashboard/admin.html --------------------------------------
+[ ] header reads "QNet Home - Admin portal" with "<- Back to QNet Home" on the
+    right, and the link lands on the product page
+[ ] everything T5.1/T5.2 verified still works, unchanged: Home / Activity /
+    System tabs, room cards with the state chip and both buttons, the session
+    list with skill/urgency/phase/line count, the colour-coded transcript with
+    the amber escalation ramp, the SIMULATED badge, the refused-tool-call
+    pills, the latency waterfall, the bytes panel with the video comparison,
+    the per-topic table, the broker URL box and the takeover overlay
+[ ] `?selftest=1` still shows 24/24 on the admin page
+[ ] the two pages agree: same incident, same rooms, same ordering, same
+    emergency line - they only differ in vocabulary
+
+--------------------------------------------------------------------
+SUMMARY
+--------------------------------------------------------------------
+Machine-verifiable surface: PASS in full.
+  53/53 logic-core assertions from the shipped product page (including both
+    hidden-kind cases, SIMULATED-survives-humanization, cancelled ->
+    false-alarm, find-never-takes-over, and two whole-run no-jargon sweeps)
+  10/10 replay-parse assertions over 55 messages actually captured off the
+    live broker across three replayed runs - zero unrouted topics, zero parse
+    failures, zero humanize() exceptions, every event kind accounted for
+  live WebSocket round trip on the page's default hub address, and the
+    "Mark as resolved" message observed on the wire
+  full-script syntax check on both HTML files
+  visible-text jargon audit: zero hits
+  64 passed, 7 deselected - the existing suite is untouched
+  PyInstaller build OK, both pages bundled and both staged, 20.2 MB / 55 files
+Not machine-verifiable: anything needing a rendered browser - actual colours,
+takeover layout as experienced, modal behaviour, theme flipping, responsive
+reflow, and the judgement call that every sentence in the feed reads like
+English. Those are the boxes in Part 2, left unchecked for a human.
+
+Nothing was committed. The demo broker (PID 14436) was reused throughout and
+is still running.

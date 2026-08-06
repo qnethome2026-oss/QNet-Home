@@ -1,0 +1,111 @@
+T6.3 · VLM on the nodes — node/look.py: qnet/look → latest frame → VLM → qnet/<room>/looked
+Verified 2026-08-05, live on the Arduino Ventuno Q (QCS8275) against the real
+IQ-9075 broker (10.73.51.175:11883). VLM = qwen3_vl_4b_instruct (design's §11
+model), w4a16 on the Hexagon NPU via the Qualcomm LLM/VLM container on :9001
+(setup/ventuno-vlm/README.md) — NOT GenieX, which stays blocked on v0.3.18.
+Deployed with scripts/deploy_look_ventuno.sh; service run via ~/qnet-node/look_ctl.sh
+(pidfile start/stop; systemd unit is T5.x's lane).
+
+── 1 · Direct VLM sanity from the board (real captured frame, 640 px) ─────────
+$ ~/qnet-venv/bin/python /tmp/vlm_sanity.py       # capture → describe
+frame source: camera, 30673 bytes
+(7.6s) In this photo, a person with dark hair and a visible facial expression is
+seen looking upward, with a ceiling-mounted air conditioning unit and white tiled
+walls in the background. The image also shows a camera mounted near the ceiling,
+suggesting surveillance or monitoring equipment.
+
+Object inventory (used to pick the found=true target):
+air conditioner, camera, person, wall, ceiling, pipe, wire, camera lens  (4.4s)
+
+── 2–5 · Contract round trips on the REAL broker (spy on qnet/kitchen/looked) ─
+Injected with the new `dev/inject.py look` mode (this task added it — inject
+previously only faked the looked direction):
+
+$ python dev/inject.py --broker 10.73.51.175 --port 11883 look --object "air conditioner" --qid t63-q1
+$ python dev/inject.py ... look --object "bicycle" --qid t63-q2
+$ python dev/inject.py ... look --object "air conditioner" --qid t63-q3
+
+spy capture (laptop):
+18:11:14.609 qnet/kitchen/looked {"qid": "t63-q1", "room": "kitchen", "found": true, "answer": "on the wall above the person's head"}
+18:11:30.656 qnet/kitchen/looked {"qid": "t63-q2", "room": "kitchen", "found": false, "answer": ""}
+18:11:48.525 qnet/kitchen/looked {"qid": "t63-q3", "room": "kitchen", "found": true, "answer": "on the wall above the person's head"}
+
+✔ 2  round trip observed with matching qid
+✔ 3  found=true: "air conditioner" → location phrase names nearby anchors
+     ("on the wall above the person's head")
+✔ 4  found=false: "bicycle" (plainly absent) → found=false, empty answer
+✔ 5  stale-qid discipline: each reply echoes exactly the qid just asked
+     (t63-q1 / t63-q2 / t63-q3); a second look with a new qid gets the new qid.
+     (Agent-side drop of non-matching qids is T6.2's look_in_rooms, already
+     tested there; our half is the exact echo, also pinned in unit tests.)
+
+Both frame paths exercised, board log lines:
+look: qid=t63-q3   ... frame=camera (0.60s) total=4.52s  ← vision.py stopped, direct grab
+look: qid=t63-shm  ... frame=shm    (0.02s) total=4.56s  ← vision.py running (holds
+     /dev/video0, exports /dev/shm/qnet_kitchen_frame.jpg; look.py read the fresh export)
+
+Guide mode (targeted room), after the prompt fix noted below:
+look: qid=t63-guide2 object='headphones' mode=guide frame=camera total=5.35s
+      found=True answer='the headphones are on her shoulder'
+
+── 6 · End-to-end with the live agent (Gemma on the IQ-9075) ──────────────────
+$ python dev/inject.py --broker 10.73.51.175 --port 11883 ask --room kitchen --text "where are my glasses"
+18:23:51.282 qnet/kitchen/ask  {"id": "01KZAAPT6P...", "text": "where are my glasses", "kind": "query"}
+18:23:51.284 qnet/look         {"qid": "01KZAAPTBN...", "object": "glasses", "mode": "find", "room": null}
+18:23:55.431 qnet/kitchen/looked {"qid": "01KZAAPTBN...", "room": "kitchen", "found": false, "answer": ""}
+18:24:05.241 qnet/kitchen/say  {"text": "The glasses are not in the kitchen, and I could not reach the bedroom.", "prio": "routine"}
+     ✔ agent broadcast → node answered (4.1 s) → say in the ASKING room names
+       the searched room AND the unreachable bedroom (§13's third row).
+       Glasses genuinely not visible — honest false.
+
+found=true e2e (a teammate sat in view wearing headphones):
+$ python dev/inject.py ... ask --room kitchen --text "where are my headphones"
+18:24:55.005 qnet/look           {"qid": "01KZAARRJ8...", "object": "headphones", "mode": "find", "room": null}
+18:24:59.562 qnet/kitchen/looked {"qid": "01KZAARRJ8...", "room": "kitchen", "found": true, "answer": "on her neck"}
+18:25:04.389 qnet/kitchen/say    {"text": "The headphones are in the kitchen on your neck. The bedroom did not answer.", "prio": "routine"}
+     ✔ found + location spoken, unreachable bedroom named. Ask→say 9.4 s,
+       dominated by waiting the full 8 s look timeout for the absent bedroom
+       node — hence the timeout tune below.
+
+── 7 · Latency (measured on the board, full broker round trip) ────────────────
+5× look→looked, warm model, camera frame path (worst case), /tmp/rtt_look.py:
+run 1: 4.13s   run 2: 4.42s   run 3: 4.13s   run 4: 4.32s   run 5: 4.11s
+median of 5: 4.13s  min=4.11  max=4.42      (later single runs up to 5.4 s)
+→ measurements.md gains the T6.3 section; config/house.yaml find.look_timeout_s
+  lowered 8 → 6 (worst observed + margin, per the measured-plus-a-second rule).
+$ grep look_timeout config/house.yaml
+  look_timeout_s: 6       # how long to wait for `looked` replies before
+
+── 8 · Hermetic unit tests + suite ────────────────────────────────────────────
+$ .venv/Scripts/python.exe -m pytest -q
+105 passed, 7 deselected in 17.45s        (baseline was 84 passed, 7 deselected;
+tests/test_look_logic.py adds 21: prompt build, reply parse incl. garbage/fence/
+string-bool/confabulation cases, one-sentence trim, qid echo, room routing,
+answer_look wiring with a faked VLM, stale-frame decision)
+
+── 9 · Camera note ─────────────────────────────────────────────────────────────
+/dev/video0 was FREE for nearly all runs (vision.py not running; look.py opens
+it ~0.6 s per query and releases). For the shm-path check, vision.py was
+started and held /dev/video0 continuously while look.py read the fresh
+/dev/shm export instead — no contention, by design (§5). During the RTT window
+a teammate leaned centimetres from the lens: every found went honestly false
+(the frame really showed a cheek). Live workshop, live camera.
+
+── Incidents found & fixed during verification (all in this task's diff) ──────
+* room-echo bug: the first live reply carried "room": null — answer_look was
+  echoing the broadcast's TARGET room filter instead of the node's own room.
+  Fixed; regression-pinned in test_answer_look_room_is_ours_not_the_broadcasts.
+* silent MQTT wedge: after a Wi-Fi drop the paho loop_forever client sat alive
+  with no socket and never reconnected (confirmed via /proc: 1 banner, no TCP,
+  main thread idling) — the node missed a live agent broadcast. Restructured:
+  paho network thread never blocks (on_message only enqueues), a worker thread
+  does frame+VLM+publish (also removes keepalive starvation risk from ~30 s VLM
+  stalls), and the main thread watchdogs is_connected() every 5 s and forces
+  reconnect. Stale queued looks (>15 s) are dropped, not answered late.
+* prompt parroting: giving the 4B an example location phrase made it echo the
+  example verbatim into a found=false guide reply. Examples removed from both
+  prompts; parse_reply now forces answer="" whenever found=false (a location
+  for something not seen is confabulated by definition).
+* dev/spy.py fixed client id: two spies (one left over on the board from T4.2)
+  kicked each other off the broker in an endless reconnect loop. Client id now
+  unique per process.

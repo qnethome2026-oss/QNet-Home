@@ -1,0 +1,38 @@
+T0.5 - Telegram bot + chat id - DONE 2026-08-06
+================================================
+Bot: t.me/Qnethomebot (created by the user via BotFather).
+Contact: Gaurav's phone, chat id 8887749836 (read from getUpdates after the
+user pressed Start and sent "Hi").
+
+Where the secrets live
+----------------------
+config/house.local.yaml - GITIGNORED (config/*.local.yaml in .gitignore),
+merged over config/house.yaml by qnet.agent's load_config() at startup
+(commit 52a7580: deep dict merge, lists replace wholesale; 3 hermetic tests).
+The tracked template keeps its TODO placeholders, so the public repo never
+carries the token. Verified untracked: `git status` shows nothing for it.
+
+Delivery proof - through the REAL tool, not a bare curl
+-------------------------------------------------------
+qnet.tools.notify_contacts invoked directly with the loaded config, room
+"kitchen", all three milestone templates:
+  escalate    -> sent (print of the result dict tripped the known cp1252
+                 emoji console quirk AFTER the send; outbox line ts 1785976962.4)
+  call_help   -> {'delivered': True, 'channel': 'telegram'}
+  false_alarm -> {'delivered': True, 'channel': 'telegram'}
+All three appended to data/outbox/telegram.log (always-on record) and all
+three received on the phone.
+
+Deployment note (T7.1)
+----------------------
+house.local.yaml is gitignored, so it does NOT travel with a git clone or the
+packaged app. When the agent moves onto the IQ-9075, scp this file alongside
+the config: it must exist next to house.yaml on whatever machine runs
+`python -m qnet.agent`. The dashboard/MSIX never needs it (no secrets client-side).
+
+Console-runner note
+-------------------
+When printing tool results in an ad-hoc Windows console session, use
+PYTHONIOENCODING=utf-8 - the templates carry emoji by design (DESIGN S7) and
+cp1252 consoles cannot print them. The tool itself is unaffected (it writes
+utf-8 explicitly); only bare print() in a test harness trips.

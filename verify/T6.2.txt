@@ -1,0 +1,233 @@
+T6.2 - Find skill + routing (lane A; DESIGN §13, IMPLEMENTATION Phase 6)
+Run 2026-08-05 on the Snapdragon X Elite laptop (win32), Git Bash,
+cwd = C:\Users\QCWorkshop26\Workspace\QNet-Home-impl (worktree, branch implementation),
+Python 3.12.10 from .venv. Live half: the already-running demo broker on
+127.0.0.1:1883 (REUSED, never killed) and the SSH tunnel to the IQ-9075's GenieX
+on 127.0.0.1:18181 (real Gemma 4 E2B).
+
+What landed
+-----------
+skills/find.md            new: phases `search` and `guide`, trigger kind=query,
+                          urgency routine, tools [look_in_rooms], no timers, no
+                          on_enter - "that's the whole difference from fall.md".
+qnet/tools/look_in_rooms.py  the stub is gone: broadcasts qnet/look, collects
+                          qnet/+/looked until find.look_timeout_s (default 8 s),
+                          returns {replies, unreachable, qid, object, mode}.
+qnet/tools/__init__.py    ToolContext gained ONE optional field, last:
+                          `subscribe` (see "Contract/interface change" below).
+qnet/agent/engine.py      ask kind=query routing, object extraction, the search
+                          and guide runs, §13's three-row wording, `last_find`,
+                          and Agent.subscribe/fanout - the listener plumbing the
+                          tool needs.
+qnet/agent/llm.py         word_line(kind="find", ...) and extract_object(text).
+config/house.yaml         `find: {look_timeout_s: 8, last_find_window_s: 120}`,
+                          plus a bedroom node so the house has two rooms to
+                          search (which is what makes "I couldn't reach the
+                          bedroom" possible at all).
+
+Verify block from docs/IMPLEMENTATION.md, run verbatim
+------------------------------------------------------
+$ .venv/Scripts/python -m pytest tests/test_find.py -q
+..............                                                           [100%]
+14 passed in 1.19s
+exit=0
+
+$ .venv/Scripts/python -m pytest tests/test_find.py --no-header -v
+tests/test_find.py::test_found_other_room PASSED                         [  7%]
+tests/test_find.py::test_found_nowhere PASSED                            [ 14%]
+tests/test_find.py::test_one_node_silent PASSED                          [ 21%]
+tests/test_find.py::test_followup_routes_to_guide PASSED                 [ 28%]
+tests/test_find.py::test_followup_expired PASSED                         [ 35%]
+tests/test_find.py::test_new_object_new_search PASSED                    [ 42%]
+tests/test_find.py::test_safety_session_still_keeps_the_floor PASSED     [ 50%]
+tests/test_find.py::test_llm_names_the_object_when_the_heuristic_cannot PASSED [ 57%]
+tests/test_find.py::test_object_heuristic PASSED                         [ 64%]
+tests/test_find.py::test_look_in_rooms_collects_replies_and_returns_early PASSED [ 71%]
+tests/test_find.py::test_look_in_rooms_ignores_a_mismatched_qid PASSED   [ 78%]
+tests/test_find.py::test_look_in_rooms_reports_the_silent_room PASSED    [ 85%]
+tests/test_find.py::test_look_in_rooms_guide_targets_one_room PASSED     [ 92%]
+tests/test_find.py::test_engine_hears_looked_replies PASSED              [100%]
+============================= 14 passed in 1.16s ==============================
+exit=0
+  -> all six named tests present and passing:
+     test_found_other_room       answer on the ASKING room's say topic (kitchen),
+                                 naming the bedroom and the landmark; bedroom/say
+                                 is empty; session is find-object / routine /
+                                 final=found.
+     test_found_nowhere          the answer NAMES both searched rooms and claims
+                                 no unreachable room.
+     test_one_node_silent        names the room it checked AND says it couldn't
+                                 reach the other, in that order.
+     test_followup_routes_to_guide  object-less ask inside the window -> guide,
+                                 remembered object, room = where they now are:
+                                 calls == [{glasses, find, None},
+                                           {glasses, guide, bedroom}].
+     test_followup_expired       window expired -> NO look at all, and it asks
+                                 "What should I look for?"; no session opened.
+     test_new_object_new_search  "where is my phone" right after -> fresh search
+                                 for `phone`, not a guide for `glasses`.
+  Plus: the look_in_rooms unit tests the task asked for (replies collected, early
+  return once every room answered, a qid MISMATCH ignored so a stale answer never
+  counts as a reply, the silent room reported as unreachable, guide targeting one
+  room), an end-to-end test that the *real* tool hears replies through the real
+  engine (test_engine_hears_looked_replies, and it asserts the listener is
+  released afterwards), and the T2.2 rule that no search may start mid-fall.
+  PASS
+
+Whole suite still green (previous 44 + the new 20):
+$ .venv/Scripts/python -m pytest tests/ -q
+................................................................         [100%]
+64 passed, 7 deselected in 17.01s
+exit=0
+  (tests/test_tools.py stays at 15 tests: the one that pinned the stub's shape is
+   now the compatibility test for the extended ToolContext - a five-field context
+   built the old way still works, and the tool degrades honestly.)
+
+§13's three-row table, spoken by the engine with no model in the loop
+----------------------------------------------------------------------
+Engine wording (the deterministic floor under every answer):
+
+  all answered, one found it   -> [found]     I found your glasses in the bedroom, on the nightstand.
+  all answered, none found it  -> [not_found] I looked in the kitchen and the bedroom and I don't see your glasses.
+  some didn't answer           -> [not_found] I looked in the kitchen and don't see your glasses — I couldn't reach the bedroom.
+  nobody answered              -> [not_found] I couldn't reach the kitchen or the bedroom, so I wasn't able to look for your glasses.
+  guide, node describes it     -> [done]      Look left of the lamp, behind the book.
+  guide, still not visible     -> [done]      I looked again and I still can't see your glasses in the kitchen.
+
+  -> rows 1-3 are DESIGN §13's table, near enough word for word. The third row is
+     the one worth building: a "not found" that only checked half the house never
+     sounds like a "not found" that checked all of it.
+
+Live round trip - real broker, real Gemma, both rooms
+------------------------------------------------------
+One agent started by us and killed by us; broker and tunnel untouched.
+
+  === find: "hey home, where are my glasses" (asked in the KITCHEN) ===
+   4.0s  > qnet/kitchen/ask     {"text": "where are my glasses", "kind": "query"}
+   4.0s    qnet/look            {"qid": "01KZ9ZX6ER2PVR82NZMJ48NFSZ", "object": "glasses",
+                                 "mode": "find", "room": null}
+   4.1s  > qnet/bedroom/looked  {"qid": "01KZ9ZX6...", "room": "bedroom", "found": true,
+                                 "answer": "on the nightstand"}
+   4.1s  > qnet/kitchen/looked  {"qid": "01KZ9ZX6...", "room": "kitchen", "found": false, "answer": ""}
+   5.8s    qnet/kitchen/say     {"text": "The glasses are in the bedroom on the nightstand.",
+                                 "prio": "routine"}
+   -> 1.8 s from question to spoken answer [M], inside §13's ~6 s budget, and
+      spoken in the room the question came from. (The tool returned as soon as
+      both rooms had answered - the 8 s timeout is only ever paid for a room that
+      is actually silent.)
+
+  === follow-up: "i still don't see them" (asked in the BEDROOM, no object named) ===
+   5.8s  > qnet/bedroom/ask     {"text": "i still don't see them", "kind": "query"}
+   5.8s    qnet/look            {"qid": "01KZ9ZX86X...", "object": "glasses",
+                                 "mode": "guide", "room": "bedroom"}
+   5.8s  > qnet/bedroom/looked  {"qid": "01KZ9ZX86X...", "room": "bedroom", "found": true,
+                                 "answer": "left of the lamp, just behind the book"}
+   7.4s    qnet/bedroom/say     {"text": "The glasses are in the bedroom, left of the lamp,
+                                 just behind the book.", "prio": "routine"}
+   -> the remembered object, the room they are standing in NOW, guide mode, and
+      the answer spoken there. One `last_find` variable and one if-statement.
+
+Session files written by that run (data/live-t6/sessions/):
+
+  kitchen__find-object__2026-08-05T15-15-06.jsonl
+    {"ts": ..., "event": "heard", "text": "where are my glasses", "silence": false}
+    {"ts": ..., "event": "tool",  "tool": "look_in_rooms", "result": "2/2 answered, found in bedroom",
+     "qid": "01KZ9ZX6ER2PVR82NZMJ48NFSZ"}
+    {"ts": ..., "event": "llm",   "phase": "search", "kind": "find",
+     "facts": ["the glasses were found in the bedroom, on the nightstand"],
+     "source": "gemma", "ms": 1578}
+    {"ts": ..., "event": "say",   "text": "The glasses are in the bedroom on the nightstand."}
+    {"ts": ..., "event": "phase", "from": "search", "to": "found"}
+
+  bedroom__find-object__2026-08-05T15-15-07.jsonl
+    {"ts": ..., "event": "heard", "text": "i still don't see them", "silence": false}
+    {"ts": ..., "event": "tool",  "tool": "look_in_rooms", "result": "1/1 answered, found in bedroom", ...}
+    {"ts": ..., "event": "llm",   "phase": "guide", "kind": "find",
+     "facts": ["the person is in the bedroom and cannot see their glasses",
+               "the bedroom camera says the glasses are left of the lamp, just behind the book"],
+     "source": "gemma", "ms": 1532}
+    {"ts": ..., "event": "say",   "text": "The glasses are in the bedroom, left of the lamp, just behind the book."}
+    {"ts": ..., "event": "phase", "from": "guide", "to": "done"}
+
+  -> every claim the model spoke is in the `facts` list the engine handed it; the
+     dashboard saw the identical stream on qnet/session/<id>; urgency stayed
+     `routine`, so the find sessions never took the screen over from the fall
+     session running in the same house minutes later.
+
+Interface change made in this task
+-----------------------------------
+qnet/tools/ToolContext gained exactly one field, optional and last:
+
+    subscribe: Any = None   # (topic_filter) -> async ctx mgr -> Queue[(topic, dict)]
+
+  Why: look_in_rooms is the first tool that has to LISTEN as well as speak.
+  Rather than give tools their own MQTT client (a second connection, a second
+  subscription, a second thing to fail), the engine fans its own already-
+  dispatched messages out to whoever is listening - Agent.subscribe registers a
+  topic-filter queue for the life of an `async with`, and Agent.fanout feeds it
+  from on_message. `qnet/+/looked` joined SUBSCRIPTIONS in the same change.
+  Compatibility: the field is optional and last, so every existing construction
+  site compiles unchanged; a context built without it (tests/test_tools.py's
+  five-field make_ctx, unchanged from T2.3) still works, and the tool degrades
+  honestly - it broadcasts, reports every room unreachable, and claims nothing it
+  did not hear. All 15 tests in tests/test_tools.py still pass.
+
+  Wire-contract note (contracts/mqtt.md): the `look`/`looked` payloads are
+  unchanged - this is an internal interface, not a topic. What was added to the
+  doc is the timeout's config key (`find.look_timeout_s`), the early-return rule,
+  and the qid-mismatch rule, which were prose in §13 and now have a home in the
+  machine-referenced copy.
+
+  say.prio gained `routine` (contracts/mqtt.md + DESIGN §4's payload comment).
+  A find answer is neither a safety line nor a fall comfort update, and calling
+  it `comfort` would corrupt the one prio the comfort-loop soak counts. Nothing
+  consumes prio as an enum today (node adapter and dashboard both pass it
+  through), so this is an addition: `safety` and `comfort` mean what they meant.
+
+Design ambiguities found and how they were resolved
+---------------------------------------------------
+1. §13 lists `tools: [look_in_rooms]` in the phase, implying the model calls it -
+   but SDK-native tool-calling does not work on GenieX v0.3.18 (§10, measured on
+   the board). Resolved: the engine invokes the phase's single allowed tool on
+   phase entry, exactly like an on_enter action, and the phase allowlist still
+   authorises it (phase.allows_tool, with a `refusal` line if it ever fails).
+   The model's job stays what it is everywhere else in this system - wording
+   facts the engine already has. Recorded in engine.py's module docstring as
+   ambiguity 3.
+2. Object extraction order. The task's ladder is heuristic -> LLM -> ask. §13's
+   follow-up rule is "an ask that names NO object within the window -> guide".
+   Taken literally together, a follow-up would first go to the model, which can
+   invent an object out of "I still don't see them". Resolved: heuristic ->
+   (nothing named AND the window is live) -> guide -> otherwise the model ->
+   otherwise ask. Deterministic on the follow-up path, and one fewer model call
+   on the latency-sensitive one. The heuristic also treats a bare pronoun
+   ("where are they") as naming nothing, which is what makes that phrasing route
+   to guide rather than search for "them".
+3. "Ask what to find" opens NO session. A session with no phase to run and no
+   timer would sit in the table forever and, by the one-session-per-room rule,
+   block the very answer it just asked for ("my glasses"). It is one spoken
+   line, on the asking room's topic.
+4. The question itself is logged as a `heard` line, not a new log event kind: it
+   IS a transcript, so no frozen schema had to change and the dashboard renders
+   the find timeline with no change at all.
+5. `last_find` is house-wide, not per room - the whole point of the follow-up is
+   that they walked into the other room. Refreshed on every completed search or
+   guide.
+6. Wording avoids is/are on the object entirely ("I found your glasses ..." /
+   "I found your phone ...") so nothing has to guess whether a spoken noun is
+   plural.
+
+Left for hardware / other tasks
+--------------------------------
+- T6.3 owns the node side (qnet/node/look.py, GenieX + Qwen3-VL-4B, latest frame
+  -> ~640 px -> `looked`). Not touched here; the live check faked the nodes'
+  replies with contract-shaped `looked` messages, which is exactly what
+  dev/inject.py looked does.
+- find.look_timeout_s is at §13's 8 s CEILING. T6.3's verify block sets it to
+  measured VLM latency + 1 s; the config comment says so at the value.
+- Wake-phrase matching is node-side (T6.4). The engine assumes the phrase has
+  already been stripped, per §13.
+- The G6 checklist (spoken, no injector: ask in room A -> walk to B -> "I still
+  don't see them") needs real nodes and the speech service.
+
+RESULT: T6.2 PASS.

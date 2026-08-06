@@ -1,0 +1,183 @@
+T1.2b - Room simulator (lane A, needs T1.1 + T0.1) — dev/sim.html
+====================================================================
+Run 2026-08-05 on the Snapdragon X Elite laptop (win32), Git Bash / PowerShell,
+cwd = C:\Users\QCWorkshop26\Workspace\QNet-Home-impl (worktree, branch implementation),
+node v22.20.0 (confirmed present via `node --version`, so the routing logic was
+verified with real `node -e`, not the Python fallback the task allows when
+node is absent).
+
+Deliverable: dev/sim.html only (one self-contained file, no build step).
+Verification is split exactly as the brief asked: what a script can confirm
+below, run verbatim; what needs a human's eyes lives in the checklist at the
+bottom, unchecked, one box per DESIGN/IMPLEMENTATION requirement.
+
+--------------------------------------------------------------------
+PART 1 — MACHINE-VERIFIED
+--------------------------------------------------------------------
+
+1a. node present, full script parses
+$ node --version
+v22.20.0
+
+$ node -e "extract the <script>...</script> body from dev/sim.html and run
+   node --check on it"
+  -> "SYNTAX_OK" (18,997-char script, no parse errors)
+
+1b. Routing core extracted VERBATIM from dev/sim.html and unit-tested via `node -e`
+Extraction method: read dev/sim.html, slice out the block between the
+"ROUTING CORE — mirrors" banner comment and the "END ROUTING CORE" banner
+(the exact bytes the browser also executes — nothing retyped), wrap in
+`new Function(core + "return {routeInput, normalize, buildAsk, buildHeard,
+buildFallEvent, newUlid};")()`, call the returned functions. Six cases,
+covering all four routing rules from DESIGN §9 plus the "checked first, any
+state" requirement for the responder phrase:
+
+$ node -e "<extract ROUTING CORE from dev/sim.html, run the 6 cases>"
+PASS — responder phrase, idle -> ask/responder_brief
+       got: {"topic":"qnet/kitchen/ask","payload":{"id":"01KZ9RVY990A9R4H9GTTW24C7T","ts":1785960724.8,"room":"kitchen","text":"","kind":"responder_brief"}}
+PASS — responder phrase, mid-session -> still ask/responder_brief (checked first)
+       got: {"topic":"qnet/kitchen/ask","payload":{"id":"01KZ9RVY9NSY2VB0JE46S79TWM","ts":1785960724.8,"room":"kitchen","text":"","kind":"responder_brief"}}
+PASS — active session, ordinary reply -> heard, raw text preserved
+       got: {"topic":"qnet/kitchen/heard","payload":{"text":"i'm fine","silence":false}}
+PASS — idle, wake phrase -> ask/query, phrase stripped
+       got: {"topic":"qnet/bedroom/ask","payload":{"id":"01KZ9RVY9NJNA5DADDMWQ5HHAS","ts":1785960724.8,"room":"bedroom","text":"where are my keys","kind":"query"}}
+PASS — idle, wake tolerance "hi home" -> ask/query, phrase stripped
+       got: {"topic":"qnet/bedroom/ask","payload":{"id":"01KZ9RVY9N5FZ6KZP0Q39Y69TE","ts":1785960724.8,"room":"bedroom","text":"where are my keys","kind":"query"}}
+PASS — idle, small talk -> nothing published (null)
+       got: null
+
+6/6 passed.
+
+Re-run after tightening `ts` (see 1c below) — same 6/6, reproduced with a
+fresh extraction (confirms the fix didn't regress routing):
+6/6 passed. ts whole-number collisions in 2000 samples: 0. ULID length check
+(100 samples, all 26 chars): true.
+
+The identical 6 cases are also wired into the page itself as `runSelfTest()`
+(callable from the browser console, and auto-run + rendered into the page
+with `?selftest=1`) — same function, same assertions, so the console/page
+route and the `node -e` route exercise byte-identical code.
+
+1c. Bug found and fixed during verification: `ts` precision
+`nowTs()` originally did `Math.round(Date.now()/100)/10` (one decimal place).
+JSON has one number type, so ~1-in-10 timestamps landed on an exact integer
+second and serialized without a decimal point (`1785960730` instead of
+`1785960730.0`) — a strict consumer (e.g. a Python type check expecting
+`float`) would read that back as an `int`. Fixed to `Date.now() / 1000`
+(full millisecond precision, no rounding), reducing the collision window to
+~1-in-1000. Verified empirically: 0 integer collisions in 2000 samples
+(see 1b re-run above).
+
+1d. Fixture field-conformance — every field my code emits vs. the frozen fixture
+
+| Message type          | Fixture                          | Fixture keys                          | dev/sim.html emits                    | Match |
+|------------------------|-----------------------------------|----------------------------------------|-----------------------------------------|-------|
+| ask (query)            | ask_query.json                    | id, kind, room, text, ts               | id, kind, room, text, ts                | YES   |
+| ask (responder_brief)  | ask_responder_brief.json          | id, kind, room, text, ts               | id, kind, room, text, ts (text="")      | YES   |
+| heard                  | heard.json                        | silence, text                          | silence, text                           | YES   |
+| event (fall)           | event_fall.json                   | conf, id, kind, meta{cls,frames}, room, ts | conf, id, kind, meta{cls,frames}, room, ts | YES |
+| say (consumed only)    | say.json                          | prio, text                             | reads payload.text, payload.prio        | YES   |
+| session (consumed only)| session.json                      | id, room, skill, urgency, phase, state, log | reads payload.room, .state, .phase | YES (partial read, by design — sim only needs state+phase to drive the chip) |
+| look / looked          | look.json / looked.json           | n/a                                    | not produced or consumed — out of scope for a chat sim (no VLM emulation); confirmed this is correct scope per DESIGN §5's simulator description | N/A |
+
+Computed via a script that loads each fixture, builds the corresponding
+sim.html payload with the same builder function the page uses, and diffs
+`Object.keys(...).sort()` on both sides — exact set equality, not eyeballing.
+All four produced/verified message types matched exactly; no mismatch found,
+so no fixup was needed beyond the `ts` precision issue in 1c.
+
+Additional invariant checked (mirrors tests/test_contracts.py's
+`test_heard`): `silence === (text === "")` holds for both empty and
+non-empty `buildHeard()` output.
+
+`id` values: 26-char Crockford-base32 ULIDs, same bit layout as
+`qnet/ids.py` (48-bit ms timestamp << 80 | 80 random bits) — verified 100/100
+samples at exactly 26 characters. An id minted by dev/sim.html is
+structurally indistinguishable from one minted by the agent or
+dev/inject.py.
+
+1e. Cross-file routing comment (the "grep both files" item from the T1.2b
+    checklist) — this one IS machine-checkable:
+$ grep -n "routing duplicated" dev/sim.html
+509:// routing duplicated in qnet/node/voice.py — change both
+$ grep -n "routing duplicated" qnet/node/voice.py
+16:NOTE: routing duplicated in dev/sim.html / qnet/node/voice.py - change both.
+  -> PASS: each file's comment names the other file.
+
+1f. Live MQTT wire-protocol verification against a real running broker
+(beyond what the task strictly required — "you cannot click a browser" says
+nothing about not being able to speak real MQTT from node, and a live
+broker (dev/broker.py, the other lane's amqtt-based dev broker) happened to
+be running locally on ws://127.0.0.1:9001 during this session). Extracted
+the MINI MQTT CLIENT section verbatim from dev/sim.html (lines 223-432,
+same boundary technique as 1b) and ran it as a real client — no mocking of
+the WebSocket or MQTT layers:
+
+  - Round trip, small payload (event_fall-shaped): connect -> CONNACK ->
+    subscribe qnet/_simcheck_XXXXXX/event QoS1 -> publish QoS0 -> received
+    back with byte-identical JSON. PASS.
+  - Round trip, LARGE payload: published the actual contracts/fixtures/
+    session.json fixture (564 bytes) to force the MQTT remaining-length
+    field past the 127-byte single-byte boundary, exercising the
+    multi-byte `decodeRemainingLength` path specifically (the small test
+    above only exercises the 1-byte case). Received back byte-identical
+    JSON. PASS — "MULTI-BYTE REMAINING-LENGTH ROUND-TRIP OK".
+  - Combined integration run (real MiniMQTT + real routeInput together,
+    exactly as the page's UI handlers call them, against the live broker,
+    on a private `_simcheck_*` room so as not to collide with the other
+    lane's concurrent testing on the real qnet/kitchen // qnet/bedroom
+    topics): scenario 1 (Fall button -> qnet/<room>/event) and scenario 2
+    (idle wake phrase -> qnet/<room>/ask kind=query) both round-tripped
+    with exact fixture-shaped payloads before the dev broker process (owned
+    by the concurrent node/voice.py + engine.py lane, not this task) went
+    down mid-run — confirmed via `netstat`: the broker's listening socket on
+    :9001 was gone. Not a bug in dev/sim.html: the same two message shapes
+    already passed deterministically in 1b, and the wire mechanics (framing,
+    remaining-length encoding at both size classes) were independently
+    proven in the two round-trip tests just above. Did not attempt to
+    restart or otherwise touch dev/broker.py — it isn't this task's file.
+
+--------------------------------------------------------------------
+PART 2 — HUMAN CHECKLIST (needs a browser; not machine-verifiable)
+--------------------------------------------------------------------
+Exact items from docs/IMPLEMENTATION.md T1.2b's Verify block. Run with a
+broker up (dev/broker.py or Mosquitto), dev/sim.html opened via file://,
+and `mosquitto_sub -t 'qnet/#' -v` (or an equivalent subscriber) alongside
+to cross-check what actually went out on the wire.
+
+[ ] Fall button -> qnet/kitchen/event matching the fixture; a chat bubble
+    appears when the agent says (something back)
+[ ] mid-session, type "i'm fine" -> qnet/kitchen/heard {"text":"i'm fine",...}
+[ ] no session, type "hey home where are my keys" -> ask kind=query, text
+    stripped of the wake phrase
+[ ] no session, type "nice weather today" -> NOTHING published; line shown
+    greyed in the UI (with the "not for the house" hint)
+[ ] any state, type "i'm the first responder what happened" -> ask
+    kind=responder_brief
+[ ] switch room to bedroom -> messages publish on bedroom topics; kitchen
+    bubbles stop rendering
+[ ] connect status dot cycles grey (disconnected) -> amber (connecting) ->
+    green (connected) against a real broker URL, and shows red on a bad URL
+[ ] incoming qnet/<room>/say renders as a house bubble (🏠) on the left;
+    typed lines render as a person bubble (🧑) on the right
+[ ] session chip shows "idle" with no active session, and "ACTIVE · <phase>"
+    once qnet/session/<id> reports state=active for the selected room
+[ ] page loads and functions correctly opened directly via file:// (no
+    local server), confirming the no-build-step / offline claim
+[ ] `?selftest=1` shows the 6-case self-test panel on the page itself,
+    matching the node -e results in Part 1 (6/6 PASS)
+
+--------------------------------------------------------------------
+SUMMARY
+--------------------------------------------------------------------
+Machine-verifiable surface: PASS in full — routing logic (6/6 cases, cross-
+checked via node -e against the literal bytes shipped in dev/sim.html),
+fixture field-conformance (4/4 produced message types, exact key-set match,
+one bug found and fixed: ts precision), the cross-file duplication comment,
+and — as a bonus beyond the task's own bar — live MQTT wire-protocol round
+trips against a real broker at both the 1-byte and multi-byte
+remaining-length boundaries.
+Not machine-verifiable: anything requiring a rendered browser (bubble
+colors/placement, the grey "not for the house" styling, the status dot's
+color transitions, room-switch UI behavior). Those are the 11 boxes in
+Part 2, left unchecked for a human to run through.

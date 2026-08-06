@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPDX-License-Identifier: AGPL-3.0-or-later
+  QNet Home - a privacy-first, multi-device home safety system.
+  Copyright (C) 2026 QNet Home contributors. This is free software under the
+  GNU Affero General Public License v3 or later, with ABSOLUTELY NO WARRANTY.
+
+  packaging/AppxManifest.xml - the MSIX package manifest (T5.3, DESIGN S14).
+
+  Deliberately minimal: this packages an ordinary desktop .EXE, so it is a
+  "full trust" (Desktop Bridge) package, not a sandboxed UWP app. Three things
+  make that work and each is load-bearing:
+
+    * Application/@EntryPoint = Windows.FullTrustApplication - tells Windows to
+      launch Executable directly rather than activate a UWP entry point.
+    * rescap:Capability runFullTrust - the capability that entry point requires.
+      It is a "restricted" capability, hence the rescap namespace; it is normal
+      and expected for a packaged desktop app and is why the rescap xmlns and
+      IgnorableNamespaces are present.
+    * ProcessorArchitecture="arm64" - this laptop is Snapdragon X Elite and
+      PyInstaller produced a native ARM64 exe (machine 0xAA64). An x64 value
+      here would install and then fail to launch.
+
+  Identity/@Publisher must match the signing certificate's subject EXACTLY, or
+  signtool refuses the package. Both say CN=QNetHome - see packaging/SIGNING.md.
+
+  Version's fourth field must be 0 (a packaging rule, not a project one).
+
+  MinVersion 10.0.19041.0 is 20H1: MSIX desktop packages are well-supported
+  from there, and it is comfortably below anything an ARM64 Windows 11 machine
+  will be running.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity
+    Name="QNetHome.Dashboard"
+    Publisher="CN=QNetHome"
+    Version="0.1.0.0"
+    ProcessorArchitecture="arm64" />
+
+  <Properties>
+    <DisplayName>QNet Home</DisplayName>
+    <PublisherDisplayName>QNet Home contributors</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="QNetHome" Executable="QNetHome.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="QNet Home"
+        Description="The QNet Home dashboard - sessions, node status and telemetry from the house."
+        BackgroundColor="#0B1220"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+
+</Package>

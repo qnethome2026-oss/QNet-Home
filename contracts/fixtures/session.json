@@ -1,0 +1,51 @@
+{
+  "id": "01JQ7ZK9NB6WX2TFDA5MEHC38V",
+  "room": "kitchen",
+  "skill": "fall-response",
+  "urgency": "safety",
+  "phase": "escalate",
+  "state": "active",
+  "log": [
+    {
+      "ts": 1785790153.4,
+      "event": "detected",
+      "kind": "fall.detected",
+      "conf": 0.87
+    },
+    {
+      "ts": 1785790154.1,
+      "event": "say",
+      "text": "I saw you fall. Are you okay?"
+    },
+    {
+      "ts": 1785790163.9,
+      "event": "heard",
+      "text": "",
+      "silence": true
+    },
+    {
+      "ts": 1785790164.0,
+      "event": "phase",
+      "from": "check",
+      "to": "escalate"
+    },
+    {
+      "ts": 1785790164.3,
+      "event": "tool",
+      "tool": "notify_contacts",
+      "result": "sent"
+    },
+    {
+      "ts": 1785790179.0,
+      "event": "refusal",
+      "tool": "call_emergency",
+      "phase": "check"
+    },
+    {
+      "ts": 1785790181.2,
+      "event": "contact",
+      "from": "Sarah",
+      "text": "ok on my way"
+    }
+  ]
+}

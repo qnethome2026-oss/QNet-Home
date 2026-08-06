@@ -1,0 +1,323 @@
+T5.7 - Interactive dashboard: typed voice input, camera preview, wire log
+=========================================================================
+Run 2026-08-05 on the Snapdragon X Elite laptop (win32), Git Bash, cwd =
+C:\Users\QCWorkshop26\Workspace\QNet-Home-impl (branch implementation).
+node v22.20.0, python venv at .venv (paho-mqtt 2.x, amqtt).
+
+Deliverables:
+  dashboard/index.html      typed voice input (flagged, default OFF) +
+                            room-modal live camera preview (DESIGN §17 O14)
+  dashboard/admin.html      Wire log panel (raw MQTT, pause + filter, cap 500)
+  verify/T5.7-interactive.txt   this file
+
+NOT touched: config/house.yaml, qnet/**, tests/**, dev/**, contracts/** -
+another agent is active under qnet/; nothing outside the two dashboard files
+and this file was modified. Nothing was committed.
+
+The demo broker on 127.0.0.1:1883/:9001 was NOT touched, and the REAL system
+broker at 10.73.51.175 was NOT touched. Every live check below ran against a
+THROWAWAY amqtt broker on 127.0.0.1:18831 (tcp) / :19011 (ws), started and
+stopped by this session.
+
+--------------------------------------------------------------------
+WHAT CHANGED
+--------------------------------------------------------------------
+
+FEATURE 1 - typed replies behind a feature flag ("Simulated voice input")
+  * Settings gains a "Simulated voice input" checkbox. Stored as
+    qnethome.voicesim = "1"/"0"; decoded by parseVoiceSimFlag() in the LOGIC
+    CORE, which returns true ONLY for exactly "1" - so a fresh page, a cleared
+    value, "0", corrupt text and storage-disabled all mean OFF. DEFAULT OFF is
+    a tested rule, not a habit (self-test + stub-DOM assertions below).
+  * While ON: a red bold "SIMULATED VOICE" badge sits in the Live activity
+    panel head (same .sim-badge treatment as the SIMULATED call badge - §14's
+    honesty rule), and a composer docks under the feed: room selector + text
+    input + Send. Room list = the discovered rooms the page already indexes;
+    the default selection is the room of the most recent activity
+    (defaultVoiceRoom(), pure, tested); a room a person picks explicitly is
+    never re-guessed.
+  * Routing is routeInput() in the LOGIC CORE - copied verbatim from
+    dev/sim.html's ROUTING CORE (DESIGN §5 sanctions the sim as the stand-in
+    for the unbuilt speech service), along with newUlid/normalize/
+    matchesResponderPhrase/stripWakePhrase/buildAsk/buildHeard. The routing is
+    therefore now duplicated in THREE places - qnet/node/voice.py, dev/sim.html
+    and index.html - and both HTML files carry a "change all three" comment.
+    Order of checks, identical to the sim: responder phrase (any state) ->
+    qnet/<room>/ask kind=responder_brief text="" | active run in that room ->
+    qnet/<room>/heard {text, silence:false} | wake phrase -> qnet/<room>/ask
+    kind=query, phrase stripped | anything else -> NOT published, shown greyed
+    in the feed with a "not heard — no active conversation" hint chip
+    (mirroring the sim's discard row).
+  * Every line that IS sent renders locally as
+    'Typed in the <Room>: "..."' with the SIMULATED VOICE badge on the line.
+    If the page is not connected, nothing false is implied: the line carries
+    "not sent — this screen is not connected to your home" instead.
+
+FEATURE 2 - room modal live camera preview (DESIGN §17 O14)
+  * Each row in Settings > Rooms & devices gains a "Camera preview address
+    (optional — stays inside your home)" field. Stored under qnethome.camurls
+    (per discovered room, like the plan overrides; empty field = forgotten).
+  * A drawn room's preview address = first of its device rooms with one saved
+    (camUrlForRoom(), pure, tested). No address -> the modal shows EXACTLY the
+    placeholder it always did ("Camera streaming is not enabled in this
+    build" / "Coming soon").
+  * With an address: the 16:9 slot shows the node's latest frame, re-fetched
+    every 500 ms with a cache-busting ?t=<now> (camBustUrl(), pure, tested -
+    appends &t= when the address already has a query). The label is
+    "● LIVE — local preview (LAN only)" - honest per O14; the word
+    "streaming" is not used for it anywhere.
+  * On fetch error: a quiet "Camera unreachable — still trying" pill; the loop
+    keeps retrying while the modal is open. The interval polices its own
+    lifetime: the moment the room modal is not open - however it was closed
+    (x, scrim, Escape) - the next tick shuts it down. No background traffic.
+
+FEATURE 3 - Wire log in the admin portal
+  admin.html previously showed sessions, room cards, latency, bytes and the
+  per-topic COUNT table - but no raw message stream. Added: a "Wire log" card
+  in the System tab (full-width, under Messages per topic): every raw MQTT
+  message as it arrives, monospace "HH:MM:SS.mmm topic payload-JSON", NEWEST
+  FIRST (matching the Activity list's "newest first" convention), kept lines
+  capped at 500, with a Pause/Resume button (pauses RENDERING; capture
+  continues underneath so resuming shows what arrived) and a filter input
+  (case-insensitive substring over topic + payload). Jargon is fine there -
+  it is the admin page; index.html's audit is unaffected.
+
+JARGON ALLOWLIST: NOT changed. The in-page JARGON self-test and the T5.5
+visible-text audit pattern were both re-run unmodified and still find zero
+hits - "SIMULATED VOICE", the toggle label, the composer placeholder, the
+camera strings and the hint chips contain no wire vocabulary, so no allowlist
+addition was needed.
+
+--------------------------------------------------------------------
+PART 1 - MACHINE-VERIFIED
+--------------------------------------------------------------------
+
+1a. LOGIC CORE self-test - 103/103, run from the SHIPPED index.html  [was 90]
+-----------------------------------------------------------------------------
+Method unchanged from T5.1/T5.4/T5.5: the block between the "LOGIC CORE
+BEGIN" / "LOGIC CORE END" banners is sliced out of dashboard/index.html at
+runtime (end of BEGIN banner to start of END banner - not one character of
+executable code altered), compiled and run under node. runSelfTest() lives
+INSIDE the block, so ?selftest=1 in a browser runs byte-identical cases.
+
+  $ node <harness> dashboard/index.html
+  # extracted 1153 lines of LOGIC CORE from dashboard/index.html
+  QNet Home product-page self-test: 103/103 passed
+
+90 cases are T5.6's, carried forward byte-identical and all passing. 13 are
+new (the brief asked for >= 6 routing cases; there are 8, plus 3 for the flag
+and default room and 2 for the camera helpers):
+
+  [PASS] typed routing: responder phrase, idle -> responder brief request, empty text (contract)
+  [PASS] typed routing: responder phrase WINS mid-run too (checked first, any state)
+  [PASS] typed routing: active run -> heard, raw text preserved, silence false
+  [PASS] typed routing: idle wake phrase -> query with the phrase stripped
+  [PASS] typed routing: case and punctuation are tolerated ('HI HOME!!!')
+  [PASS] typed routing: idle small talk -> null, nothing published (shown greyed instead)
+  [PASS] typed routing: the chosen room targets the wire path AND the payload
+  [PASS] typed routing: minted ids are 26-char Crockford ULIDs, time-ordered
+  [PASS] typed voice flag: OFF for every stored value except exactly "1"
+  [PASS] typed voice flag: ON only for "1" (what Save writes)
+  [PASS] typed voice: the composer offers the most recently active room first
+  [PASS] camera: cache-busting appends ?t=, or &t= when the address has a query
+  [PASS] camera: first device with a saved address wins; none saved -> null (placeholder)
+
+The heard case also asserts the payload is EXACTLY {text, silence} and the
+ask cases that the fields are the contract's - the same shapes as
+contracts/fixtures/heard.json / ask_query.json / ask_responder_brief.json.
+
+1b. node --check over the extracted <script> content of BOTH pages
+------------------------------------------------------------------
+  $ node extract-scripts.js dashboard/index.html -> index-script.js
+    index.html: 1 script block(s), 2150 lines
+  $ node --check index-script.js                                     PASS
+  $ node extract-scripts.js dashboard/admin.html -> admin-script.js
+    admin.html: 1 script block(s), 927 lines
+  $ node --check admin-script.js                                     PASS
+
+1c. FEATURE FLAG OFF BY DEFAULT - fresh localStorage, shipped script executed
+-----------------------------------------------------------------------------
+The page's ENTIRE inline <script> was executed under a stub DOM (T5.5 §1d's
+technique - no jsdom, no npm) with an EMPTY localStorage:
+
+  [PASS] the whole inline script executed with 0 exceptions
+  [PASS] fresh page: the typed-voice composer is hidden
+  [PASS] fresh page: the SIMULATED VOICE badge is hidden
+  [PASS] fresh page: the Settings toggle opens unchecked
+
+Plus the logic-level assertions in 1a: parseVoiceSimFlag() is false for null,
+undefined, "", "0", "true", "yes", "on" and the number 1 - only the string
+"1" (which is all Save ever writes) turns it on.
+
+1d. LIVE ROUTING - the SHIPPED page publishing through a real broker
+--------------------------------------------------------------------
+Per the brief's preference, the LOCAL THROWAWAY broker was used, never the
+real system's. Setup: amqtt on 127.0.0.1:18831/:19011 (a port-changed copy of
+dev/broker.py); dashboard/index.html's whole inline script executed under the
+stub DOM with node's real WebSocket, hub URL ws://127.0.0.1:19011/mqtt and the
+flag ON; a paho-mqtt verifier subscribed to qnet/# on the tcp side, published
+the discovery traffic (a bedroom status heartbeat, then a kitchen ACTIVE
+safety session), and then the harness typed four lines into the page's own
+composer via its own event listeners.
+
+  What the PAGE (the shipped MiniMQTT + routeInput code paths) published:
+    qnet/kitchen/heard {"text":"i'm fine","silence":false}
+    qnet/bedroom/ask   {"id":"01KZAB15F8VB11DPFTWPXSQBGH","ts":1785979770.347,
+                        "room":"bedroom","text":"where are my glasses","kind":"query"}
+    qnet/bedroom/ask   {"id":"01KZAB15R8M1A4G67H60R9STD8","ts":1785979770.633,
+                        "room":"bedroom","text":"","kind":"responder_brief"}
+    (typed "nice weather today" in an idle room: NOTHING, as required)
+
+  Verifier assertions (paho side):
+  [PASS] exactly 3 ask/heard messages (the 4th typed line was discarded, nothing published)
+  [PASS] 1: topic qnet/kitchen/heard (active safety run in the kitchen)
+  [PASS] 1: heard payload is exactly {text, silence} per contract
+  [PASS] 2: topic qnet/bedroom/ask (idle room, wake phrase)
+  [PASS] 2: kind=query, wake phrase stripped
+  [PASS] 2: ask id is a 26-char Crockford ULID
+  [PASS] 2: ask fields are exactly {id, ts, room, text, kind}
+  [PASS] 2: ts is fractional unix seconds (sane range)
+  [PASS] 3: topic qnet/bedroom/ask, kind=responder_brief, text EMPTY per contract
+  [PASS] 3: responder ask id is a ULID too
+
+  Page-side assertions (stub DOM, same run):
+  [PASS] flag on: the composer is visible
+  [PASS] flag on: the SIMULATED VOICE badge is visible
+  [PASS] composer defaults to the most recently active room (kitchen)
+  [PASS] sent lines carry the SIMULATED VOICE badge in the feed
+  [PASS] the discarded line is in the feed, greyed, with the not-heard hint
+  [PASS] the discarded line is dim (tone-dim), mirroring dev/sim.html's grey row
+
+1e. WIRE LOG - the SHIPPED admin.html driven through the throwaway broker
+--------------------------------------------------------------------------
+Same stub-DOM technique: admin.html's whole inline script executed, Connect
+clicked with the throwaway ws URL, while a paho driver published 2 named
+messages, waited through a pause window, then flooded 520 more:
+
+  [PASS] the whole inline admin script executed with 0 exceptions
+  [PASS] wire log shows raw topic + payload
+  [PASS] wire log lines carry HH:MM:SS.mmm timestamps
+  [PASS] newest first (wire-B above wire-A), matching the Activity list convention
+  [PASS] filter: substring match keeps wire-A, drops wire-B
+  [PASS] filter: the count line says how many match
+  [PASS] pause: the button flips to Resume and the count says paused
+  [PASS] pause: the view did NOT change while 520 messages arrived
+  [PASS] cap: resuming shows the latest lines, capped at 500 (got 500)
+  [PASS] cap: the count line reports the cap
+  [PASS] cap: the flood's newest line is at the top
+
+1f. STATIC WIRING + JARGON AUDIT
+--------------------------------
+  admin.html's own self-test, run from the shipped script (?selftest=1
+    under the stub DOM): 24/24 passed - untouched by this task     PASS
+  every id used by $()/getElementById exists in the markup:
+    index.html 42 used, none missing; admin.html 29 used, none missing  PASS
+  index.html visible-text jargon audit (T5.5 §1f's exact method and
+    pattern: comments/<style>/<script> stripped, then all tags):
+    ZERO hits, with all the new strings in place                    PASS
+  new user-facing strings, each confirmed present and jargon-free:
+    "Simulated voice input", "SIMULATED VOICE", "Type what would have
+    been said out loud…", "Camera preview address (optional — stays
+    inside your home)", "● LIVE — local preview (LAN only)",
+    "Camera unreachable — still trying"                             PASS
+
+1g. THE EXISTING SUITE IS UNTOUCHED
+-----------------------------------
+  $ .venv/Scripts/python.exe -m pytest -q
+  105 passed, 7 deselected in 17.32s                                PASS
+
+  Note: the brief's baseline said 84; the suite reported 104 at the start of
+  this session and 105 at the end because another agent is actively adding
+  tests under qnet/ (out of this task's scope). Zero failures at every run;
+  nothing this task touched is exercised by pytest, and git status confirms
+  only dashboard/index.html, dashboard/admin.html and this file changed.
+
+--------------------------------------------------------------------
+PART 2 - HUMAN CHECKLIST (needs a rendered browser / real hardware)
+--------------------------------------------------------------------
+Everything in Part 1 is machine-verified; the boxes below need eyes. Setup:
+a broker (the demo one on :9001, or dev/broker.py), index.html open via
+file://, and dev/inject.py / dev/replay_session.py as drivers.
+
+--- TYPED VOICE (feature 1) --------------------------------------------------
+[x] fresh page shows no composer and no badge (machine-verified, 1c - but
+    glance anyway: nothing voice-related visible before the toggle is on)
+[ ] Settings > "Simulated voice input" ON + Save: the composer docks under
+    Live activity and the red SIMULATED VOICE badge appears in the panel
+    head. Toggle OFF + Save: both vanish. Reload: the choice sticks
+[ ] against the live broker: inject a fall (python dev/inject.py fall --room
+    kitchen), type "i'm fine" with Kitchen selected -> the engine treats it
+    as the spoken answer (run de-escalates exactly as if the room heard it);
+    admin.html's wire log shows qnet/kitchen/heard
+    (machine-verified against the throwaway broker in 1d; what needs eyes is
+    the REAL engine reacting end-to-end)
+[ ] idle room, type "hey home, where are my glasses" -> a find run starts and
+    answers; the feed shows 'You asked: "where are my glasses"' from the
+    engine's echo alongside the marked typed line
+[ ] type small talk in an idle room -> greyed line with the "not heard — no
+    active conversation" chip, and NOTHING on the wire (watch admin's wire log)
+[ ] "i'm the first responder, what happened?" -> the brief is spoken/logged
+[ ] the room selector defaults sensibly and follows the latest activity until
+    you pick a room yourself
+[ ] Enter in the text box sends, the box clears and keeps focus
+
+--- CAMERA PREVIEW (feature 2) -----------------------------------------------
+[ ] with NO address saved: the modal placeholder is pixel-identical to before
+    ("Live view" / "Camera streaming is not enabled in this build" / "Coming
+    soon")
+[ ] save a real node URL (e.g. http://10.73.51.123:8090/kitchen.jpg) for the
+    kitchen row in Settings; open the Kitchen modal: the picture appears and
+    visibly refreshes ~2x/s, with the "● LIVE — local preview (LAN only)"
+    pill top-left
+[ ] pull the node's cable / stop stream.py: the quiet "Camera unreachable —
+    still trying" pill appears; bring it back: the picture resumes without
+    reopening the modal
+[ ] close the modal (x, scrim AND Escape) and watch the network tab / node
+    log: the frame fetches STOP within a second - no background traffic
+[ ] a room with no saved address still shows the placeholder; an unmonitored
+    room still shows no panel at all
+[ ] reload: addresses persist; clearing a field and saving forgets it
+
+--- WIRE LOG (feature 3) -----------------------------------------------------
+[ ] System tab > Wire log fills as traffic arrives, newest at top, monospace
+    HH:MM:SS.mmm topic payload (machine-verified in 1e; confirm it reads well
+    at real message rates)
+[ ] type "heard" in the filter while a session replays: only matching lines,
+    count shows "N matching of M kept"
+[ ] Pause during a replay, read a line, Resume: the missed lines are there
+[ ] scrolling stays usable while a replay hammers the log
+
+--- REGRESSIONS (spot-check) -------------------------------------------------
+[ ] ?selftest=1 on index.html shows the 103-case panel, all passing, in the
+    browser (matches 1a)
+[ ] a fall still takes over the screen; a find run still never does
+[ ] the floor plan, summary card and feed behave exactly as in T5.5/T5.6
+[ ] both pages still work from file:// with the network cable out
+
+--------------------------------------------------------------------
+SUMMARY
+--------------------------------------------------------------------
+Machine-verified surface: PASS in full.
+  103/103 logic-core assertions from the shipped index.html (90 carried
+    forward unchanged, 13 new: 8 routing incl. responder-priority /
+    active-heard / wake-strip / discard / case-punctuation / room-targeting /
+    ULID shape, 3 feature-flag + default-room, 2 camera helpers)
+  node --check over the extracted <script> of both pages
+  fresh-localStorage load: no composer, no badge, toggle unchecked - asserted
+    both at logic level (parseVoiceSimFlag) and by executing the shipped
+    script under a stub DOM
+  live routing through a LOCAL THROWAWAY broker only (the real system broker
+    and the demo broker were never touched): the shipped page published
+    contract-exact heard/ask payloads with real ULIDs, and the discard case
+    published nothing - 10/10 paho-side, 7/7 page-side assertions
+  admin wire log driven with 522 real messages through the same throwaway
+    broker: newest-first, filter, pause and the 500-line cap all asserted
+  admin.html's own 24/24 self-test re-run from the shipped script; id wiring
+    complete on both pages; index.html visible-text jargon audit zero hits
+    (no allowlist change was needed)
+  pytest: 105 passed, 7 deselected - zero failures (count grew 104->105
+    mid-session from another agent's work under qnet/, outside this scope)
+Needs human eyes: the real engine reacting to typed lines end-to-end, the
+camera preview against a real node URL (appearance, unreachable state, and
+that fetches stop when the modal closes), wire-log readability at real rates,
+and the Part 2 regression spot-checks. Nothing was committed.
