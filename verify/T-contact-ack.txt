@@ -229,3 +229,15 @@ Not machine-verifiable here: the inbound half of the live loop - a human
 reply from the contact's phone (Part 2). The engine's handling of that reply
 is fully covered hermetically; the checklist verifies the last real-world
 inch. Nothing was committed.
+
+--- Part 2 CLOSED - live inbound ack verified 2026-08-06 20:06 ---
+Live fall escalation on the kitchen board; both contacts alerted
+(sendMessage 200 OK x2). Gaurav replied "OK" from a real phone; agent
+journal, 10 s later:
+  20:06:12 [kitchen] contact Gaurav replied 'OK' -> ack
+  20:06:12 [kitchen] contact Gaurav acknowledged -> contact_engaged
+  20:06:12 [kitchen] escalate -> contact_engaged
+Backstop stood down; contacts got the "engaged" follow-up (2x 200 OK);
+the person then spoke in the room, contact_engaged -> check -> ok,
+session 01KZCAWWEER45Z8B2F596TQSKB closed (ok). Every branch of the
+contact-ack machinery is now observed live end-to-end.
