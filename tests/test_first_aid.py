@@ -290,3 +290,15 @@ def test_missing_or_malformed_first_aid_degrades_to_fallback(tmp_path) -> None:
             await scenario(text, f"malformed{index}")
 
     asyncio.run(all_variants())
+
+
+def test_reply_prompt_is_a_caregiver_not_a_chatbot() -> None:
+    """User finding (2026-08-06): "what is speech to text?" mid-incident got a
+    general-assistant answer. The reply prompt must pin the persona (QNet, not
+    a general-purpose assistant) and instruct off-topic redirection."""
+    from qnet.agent import llm as llmlib
+    client = llmlib.LlmClient.__new__(llmlib.LlmClient)
+    prompt = llmlib.LlmClient._word_prompt(client, "reply", ["the person just said: \"what is speech to text\""], "")
+    assert "NOT a general-purpose assistant" in prompt
+    assert "do NOT answer it" in prompt
+    assert "Never explain your own workings" in prompt
