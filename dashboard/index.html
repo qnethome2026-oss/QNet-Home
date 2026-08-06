@@ -158,6 +158,10 @@
     flex: 1 1 260px; min-width: 200px;
     font-size: 1.02rem; font-weight: 600; letter-spacing: -0.005em;
   }
+  /* Calm house -> the banner is hidden entirely; the actions keep their
+     right-edge seat without it. */
+  .house-status[hidden] { display: none; }
+  .topbar-actions { margin-left: auto; }
   .house-status.calm { color: var(--calm); }
   .house-status.caution { color: var(--caution); }
   .house-status.alert { color: var(--alert); }
@@ -473,9 +477,12 @@
     color: var(--muted); cursor: help;
   }
   .summary-head h2 { margin: 0; }
-  .summary-head .ico { color: var(--brand); }
   .summary-text { font-size: 0.98rem; line-height: 1.55; }
   .summary-text .sim-badge { vertical-align: 2px; }
+  .summary-headline { font-weight: 600; }
+  .summary-bullets { margin: 8px 0 0; padding-left: 20px; }
+  .summary-bullets li { margin-top: 4px; }
+  .summary-bullets li::marker { color: var(--brand); }
 
   /* ---- live activity feed ---- */
   .feed-panel { display: flex; flex-direction: column; overflow: hidden; position: relative; }
@@ -483,16 +490,18 @@
   @media (max-width: 900px) { .feed-scroll { max-height: 60vh; } }
   .feed-scroll .entry { padding: 11px 18px; }
   .feed-scroll .entry .icon { width: auto; display: flex; align-items: center; padding-top: 2px; }
-  .jump-pill {
-    position: absolute; left: 50%; transform: translateX(-50%); bottom: 12px; z-index: 5;
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 6px 14px; border-radius: 999px; cursor: pointer;
-    background: var(--brand); color: #fff; border: none;
-    font: inherit; font-size: 0.82rem; font-weight: 650;
-    box-shadow: 0 4px 14px rgba(16, 20, 32, 0.28);
+  /* A new line announces itself: a quick settle into place and a brand-tinted
+     wash that fades over a couple of seconds. Subtle on purpose - it should
+     catch the corner of the eye, not compete with an alert. */
+  .feed-scroll .entry.flash { animation: entry-flash 2.2s ease-out both; }
+  @keyframes entry-flash {
+    0%   { background: rgba(99, 91, 255, 0.16); transform: translateY(-3px); opacity: 0.4; }
+    12%  { transform: translateY(0); opacity: 1; }
+    100% { background: transparent; }
   }
-  .jump-pill[hidden] { display: none; }
-  .jump-pill .ico { stroke-width: 2.2; }
+  @media (prefers-reduced-motion: reduce) {
+    .feed-scroll .entry.flash { animation: none; }
+  }
 
   /* ---- room modal: the camera live-view placeholder ---- */
   /* This is the DESIGNED SLOT for streaming, not a stub apologising for its
@@ -615,7 +624,7 @@
 <div class="topbar">
   <div class="topbar-inner">
     <div class="brand"><svg class="ico lg mark" aria-hidden="true"><use href="#i-house"></use></svg> QNet Home</div>
-    <div class="house-status calm" id="houseStatus">Everything looks fine</div>
+    <div class="house-status calm" id="houseStatus" hidden></div>
     <div class="topbar-actions">
       <span class="conn offline" id="conn"><span class="dot"></span><span id="connLabel">Reconnecting…</span></span>
       <button class="icon-btn" id="helpBtn" title="Help" aria-label="Help"><svg class="ico" aria-hidden="true"><use href="#i-question"></use></svg></button>
@@ -768,14 +777,13 @@
       <!-- The digest. Composed by composeSummary() in the LOGIC CORE from
            today's activity - deterministic, unit-tested, and deliberately NOT
            claimed to be written by a model. The tooltip says where it comes
-           from; the sparkle says it is a digest rather than a reading. -->
+           from. -->
       <div class="summary">
         <div class="summary-inner">
           <div class="summary-head" title="Generated from today's activity">
-            <svg class="ico" aria-hidden="true"><use href="#i-sparkle"></use></svg>
             <h2 id="summaryTitle">Summary</h2>
           </div>
-          <div class="summary-text" id="summaryText" aria-live="polite">All quiet in the house.</div>
+          <div class="summary-text" id="summaryText" aria-live="polite"><div class="summary-headline">All quiet in the house.</div></div>
         </div>
       </div>
 
@@ -784,16 +792,13 @@
           <svg class="ico" aria-hidden="true"><use href="#i-chat"></use></svg>
           <h2 id="feedTitle">Live activity</h2>
         </div>
-        <!-- Newest at the BOTTOM, like a conversation, and it follows the
-             newest line unless you have scrolled up to read something - at
-             which point it stops moving under you and offers the pill. -->
+        <!-- NEWEST AT THE TOP: the latest line is always visible without
+             scrolling, and each new arrival announces itself with a brief
+             highlight. Scrolling down reads back into the day. -->
         <div class="feed-scroll" id="feedScroll">
           <div class="feed" id="feed" style="border:none; box-shadow:none; border-radius:0; background:transparent;"></div>
           <div class="placeholder" id="feedEmpty" style="border:none; padding:24px 18px;">Nothing has happened today. That is the good outcome.</div>
         </div>
-        <button type="button" class="jump-pill" id="jumpPill" hidden>
-          <svg class="ico sm" aria-hidden="true"><use href="#i-arrow-down"></use></svg> Jump to latest
-        </button>
       </section>
 
     </div>
@@ -1343,7 +1348,8 @@ function roomState(session, opts) {
 /**
  * The whole-house sentence in the top bar. Worst room wins, and it is named -
  * "Kitchen needs attention" tells a caregiver where to walk; "attention
- * needed" does not.
+ * needed" does not. When nothing is wrong the banner says nothing at all
+ * (empty text, and the render site hides it): a calm house needs no caption.
  *   houseStatus([{ room, state }]) -> { text, tone }
  */
 function houseStatus(roomStates) {
@@ -1352,7 +1358,7 @@ function houseStatus(roomStates) {
   if (worst) return { text: `${roomLabel(worst.room)} needs attention`, tone: "alert" };
   const checking = list.find((r) => r && r.state && r.state.tone === "caution");
   if (checking) return { text: `Checking on the ${roomLabel(checking.room)}…`, tone: "caution" };
-  return { text: "Everything looks fine", tone: "calm" };
+  return { text: "", tone: "calm" };
 }
 
 /** DESIGN §14/§6, unchanged from dashboard/admin.html on purpose: a safety run
@@ -1608,7 +1614,7 @@ function deviceListText(deviceRooms) {
 /**
  * THE SUMMARY CARD'S TEXT, composed here and nowhere else.
  *
- *   composeSummary(state) -> string
+ *   composeSummary(state) -> { headline: string, bullets: string[] }
  *
  * state: {
  *   provided?:     string,   // THE SEAM - see below
@@ -1617,60 +1623,62 @@ function deviceListText(deviceRooms) {
  *   findCount?:    number,
  * }
  *
- * Three sentences at most, in this order, because that is the order a person
- * standing in front of the screen needs them: what is happening NOW, what
- * happened before that, and how chatty the day was.
+ * A headline and clean bullets, in this order, because that is the order a
+ * person standing in front of the screen needs them: what is happening NOW
+ * (the headline), then what happened before that and how chatty the day was
+ * (one bullet per fact - short items, no semicolons, no run-on clauses).
  *
  * This is NOT model output and the card must never imply that it is. It is a
  * deterministic digest of today's activity, which is why it is a pure function
- * with unit tests rather than a prompt. The card is labelled "Summary" with a
- * sparkle and its tooltip says "Generated from today's activity".
+ * with unit tests rather than a prompt. The card is labelled "Summary" and its
+ * tooltip says "Generated from today's activity".
  *
  * >>> SEAM <<<  If a future qnet/summary message ever carries a written digest,
- * the transport hands it in as state.provided and it replaces this text
- * verbatim - no other part of the page changes, and the card keeps its label
- * and its tooltip. Everything below the early return is the fallback.
+ * the transport hands it in as state.provided and it becomes the headline
+ * verbatim (no bullets) - no other part of the page changes, and the card
+ * keeps its label and its tooltip. Everything below the early return is the
+ * fallback.
  *
  * SIMULATED: DESIGN §14 says the word is IN the sentence. That rule does not
  * stop applying because the sentence is a recap - if an emergency call is
- * anywhere in the incident, the recap carries the word too, and the self-test
+ * anywhere in the incident, its bullet carries the word too, and the self-test
  * asserts it.
  */
 function composeSummary(state) {
   const s = state && typeof state === "object" ? state : {};
 
   // >>> SEAM <<< a supplied digest wins outright.
-  if (typeof s.provided === "string" && s.provided.trim()) return s.provided.trim();
-
-  const parts = [];
-
-  const act = s.active || null;
-  if (act && act.room && act.tone === "alert") {
-    parts.push(act.phase === "call_help"
-      ? `${roomLabel(act.room)} needs attention — help has been called.`
-      : `${roomLabel(act.room)} needs attention — QNet is getting help.`);
-  } else if (act && act.room && act.tone === "caution") {
-    parts.push(`QNet is checking on the ${roomLabel(act.room)}.`);
-  } else {
-    parts.push("All quiet in the house.");
+  if (typeof s.provided === "string" && s.provided.trim()) {
+    return { headline: s.provided.trim(), bullets: [] };
   }
 
+  let headline;
+  const act = s.active || null;
+  if (act && act.room && act.tone === "alert") {
+    headline = act.phase === "call_help"
+      ? `${roomLabel(act.room)} needs attention — help has been called.`
+      : `${roomLabel(act.room)} needs attention — QNet is getting help.`;
+  } else if (act && act.room && act.tone === "caution") {
+    headline = `QNet is checking on the ${roomLabel(act.room)}.`;
+  } else {
+    headline = "All quiet in the house.";
+  }
+
+  const bullets = [];
   const inc = s.lastIncident || null;
   if (inc && inc.room) {
-    const what = inc.kind === "fall" ? "a fall" : "something";
+    const what = inc.kind === "fall" ? "A fall" : "Something";
     const when = inc.atText ? ` at ${inc.atText}` : "";
     const outcome = inc.outcome === "cancelled" ? "marked a false alarm" : "resolved";
-    const tail = [];
-    if (inc.simulatedCall) tail.push("a SIMULATED emergency call was placed");
-    if (inc.notified) tail.push(`${inc.notified} was notified`);
-    parts.push(`Earlier: ${what} in the ${roomLabel(inc.room)}${when} — ${outcome}${
-      tail.length ? "; " + tail.join(" and ") : ""}.`);
+    bullets.push(`${what} in the ${roomLabel(inc.room)}${when} — ${outcome}`);
+    if (inc.simulatedCall) bullets.push("A SIMULATED emergency call was placed");
+    if (inc.notified) bullets.push(`${inc.notified} was notified`);
   }
 
   const finds = Number(s.findCount) || 0;
-  if (finds > 0) parts.push(`${finds} question${finds === 1 ? "" : "s"} answered today.`);
+  if (finds > 0) bullets.push(`${finds} question${finds === 1 ? "" : "s"} answered today`);
 
-  return parts.join(" ");
+  return { headline, bullets };
 }
 
 /**
@@ -1877,9 +1885,9 @@ function runSelfTest() {
       expect: (r) => r.label === "All quiet ✓" && r.tone === "quiet" },
 
     // ---- whole-house sentence ----
-    { name: "house: all quiet -> 'Everything looks fine'",
+    { name: "house: all quiet -> NO banner text (a calm house needs no caption)",
       fn: () => houseStatus([{ room: "kitchen", state: { label: "All quiet ✓", tone: "quiet" } }]),
-      expect: (r) => r.text === "Everything looks fine" && r.tone === "calm" },
+      expect: (r) => r.text === "" && r.tone === "calm" },
     { name: "house: one room checking -> 'Checking on the Kitchen…'",
       fn: () => houseStatus([
         { room: "bedroom", state: { label: "All quiet ✓", tone: "quiet" } },
@@ -1890,8 +1898,8 @@ function runSelfTest() {
         { room: "bedroom", state: { label: "Checking in…", tone: "caution" } },
         { room: "kitchen", state: { label: "Needs attention", tone: "alert" } }]),
       expect: (r) => r.text === "Kitchen needs attention" && r.tone === "alert" },
-    { name: "house: no rooms at all -> still a calm sentence, never blank",
-      fn: () => houseStatus([]), expect: (r) => r.text === "Everything looks fine" },
+    { name: "house: no rooms at all -> calm tone, empty text (banner stays hidden)",
+      fn: () => houseStatus([]), expect: (r) => r.text === "" && r.tone === "calm" },
 
     // ---- relative time ----
     { name: "relative time: seconds -> 'just now'",
@@ -2024,89 +2032,109 @@ function runSelfTest() {
                      && r[2] === "No QNet device in this room." },
 
     // ---- composeSummary ----
-    { name: "summary: ALL QUIET - nothing running, nothing earlier",
+    { name: "summary: ALL QUIET - the quiet headline, no bullets",
       fn: () => composeSummary({ active: null, lastIncident: null, findCount: 0 }),
-      expect: (r) => r === "All quiet in the house." },
+      expect: (r) => r.headline === "All quiet in the house." && r.bullets.length === 0 },
     { name: "summary: ACTIVE SAFETY, still checking -> names the room",
       fn: () => composeSummary({ active: { room: "kitchen", tone: "caution", phase: "check" } }),
-      expect: (r) => r === "QNet is checking on the Kitchen." },
-    { name: "summary: ACTIVE SAFETY, help called -> the loud sentence, first",
+      expect: (r) => r.headline === "QNet is checking on the Kitchen." },
+    { name: "summary: ACTIVE SAFETY, help called -> the loud headline",
       fn: () => composeSummary({ active: { room: "kitchen", tone: "alert", phase: "call_help" } }),
-      expect: (r) => r === "Kitchen needs attention — help has been called." },
+      expect: (r) => r.headline === "Kitchen needs attention — help has been called." },
     { name: "summary: ACTIVE SAFETY, escalating but not yet called",
       fn: () => composeSummary({ active: { room: "bedroom", tone: "alert", phase: "escalate" } }),
-      expect: (r) => r === "Bedroom needs attention — QNet is getting help." },
-    { name: "summary: RESOLVED WITH SIMULATED CALL - the word SURVIVES into the recap",
+      expect: (r) => r.headline === "Bedroom needs attention — QNet is getting help." },
+    { name: "summary: RESOLVED WITH SIMULATED CALL - one clean bullet each, word SURVIVES",
       fn: () => composeSummary({
         active: null, findCount: 0,
         lastIncident: { room: "kitchen", kind: "fall", atText: "8:14 PM",
                         outcome: "resolved", simulatedCall: true, notified: "Sarah" } }),
-      expect: (r) => /SIMULATED/.test(r) && r === "All quiet in the house. Earlier: a fall in the "
-        + "Kitchen at 8:14 PM — resolved; a SIMULATED emergency call was placed and Sarah was notified." },
+      expect: (r) => r.headline === "All quiet in the house."
+        && r.bullets.length === 3
+        && r.bullets[0] === "A fall in the Kitchen at 8:14 PM — resolved"
+        && r.bullets[1] === "A SIMULATED emergency call was placed"
+        && r.bullets[2] === "Sarah was notified" },
     { name: "summary: a recap without an emergency call does NOT say SIMULATED",
       fn: () => composeSummary({ lastIncident: { room: "kitchen", kind: "fall", atText: "8:14 PM",
                                                  outcome: "resolved", simulatedCall: false, notified: "Sarah" } }),
-      expect: (r) => !/SIMULATED/.test(r) && r === "All quiet in the house. Earlier: a fall in the "
-        + "Kitchen at 8:14 PM — resolved; Sarah was notified." },
+      expect: (r) => !r.bullets.some((b) => /SIMULATED/.test(b))
+        && r.bullets.length === 2
+        && r.bullets[0] === "A fall in the Kitchen at 8:14 PM — resolved"
+        && r.bullets[1] === "Sarah was notified" },
     { name: "summary: a cancelled run recaps as a false alarm",
       fn: () => composeSummary({ lastIncident: { room: "kitchen", kind: "fall", atText: "9:02 AM",
                                                  outcome: "cancelled", simulatedCall: false, notified: null } }),
-      expect: (r) => /marked a false alarm\.$/.test(r) },
+      expect: (r) => /marked a false alarm$/.test(r.bullets[0]) },
     { name: "summary: FIND-ONLY day - questions are counted, never alarming",
       fn: () => [composeSummary({ findCount: 2 }), composeSummary({ findCount: 1 })],
-      expect: (r) => r[0] === "All quiet in the house. 2 questions answered today."
-                     && r[1] === "All quiet in the house. 1 question answered today." },
-    { name: "summary: all three sentences at once, in the required order",
+      expect: (r) => r[0].headline === "All quiet in the house."
+                     && r[0].bullets.length === 1 && r[0].bullets[0] === "2 questions answered today"
+                     && r[1].bullets[0] === "1 question answered today" },
+    { name: "summary: everything at once - headline is the live alert, bullets in order",
       fn: () => composeSummary({
         active: { room: "kitchen", tone: "alert", phase: "call_help" },
         lastIncident: { room: "bedroom", kind: "fall", atText: "8:14 PM", outcome: "resolved",
                         simulatedCall: true, notified: "Sarah" },
         findCount: 2 }),
-      expect: (r) => r.indexOf("Kitchen needs attention") === 0
-                     && r.indexOf("Earlier:") > 0 && r.indexOf("SIMULATED") > 0
-                     && r.indexOf("2 questions answered today.") > r.indexOf("Earlier:") },
-    { name: "summary: THE SEAM - a supplied digest replaces the composed text verbatim",
-      fn: () => composeSummary({ provided: "  A quiet afternoon; nobody needed anything.  ",
+      expect: (r) => r.headline.indexOf("Kitchen needs attention") === 0
+                     && r.bullets.length === 4
+                     && /^A fall in the Bedroom/.test(r.bullets[0])
+                     && /SIMULATED/.test(r.bullets[1])
+                     && r.bullets[3] === "2 questions answered today" },
+    { name: "summary: NO SEMICOLONS, no run-on clauses - every bullet is one short fact",
+      fn: () => composeSummary({
+        active: { room: "kitchen", tone: "alert", phase: "call_help" },
+        lastIncident: { room: "bedroom", kind: "fall", atText: "8:14 PM", outcome: "resolved",
+                        simulatedCall: true, notified: "Sarah" },
+        findCount: 2 }),
+      expect: (r) => [r.headline].concat(r.bullets).every((t) => !/;/.test(t) && !/ and .* and /.test(t)) },
+    { name: "summary: THE SEAM - a supplied digest becomes the headline verbatim",
+      fn: () => composeSummary({ provided: "  A quiet afternoon, nobody needed anything.  ",
                                  active: { room: "kitchen", tone: "alert", phase: "call_help" } }),
-      expect: (r) => r === "A quiet afternoon; nobody needed anything." },
-    { name: "summary: an empty supplied digest falls back to the composed text",
+      expect: (r) => r.headline === "A quiet afternoon, nobody needed anything."
+                     && r.bullets.length === 0 },
+    { name: "summary: an empty supplied digest falls back to the composed digest",
       fn: () => composeSummary({ provided: "   ", active: { room: "kitchen", tone: "caution" } }),
-      expect: (r) => r === "QNet is checking on the Kitchen." },
-    { name: "summary: malformed state -> still a sentence, never blank, never a crash",
+      expect: (r) => r.headline === "QNet is checking on the Kitchen." },
+    { name: "summary: malformed state -> still a headline, never blank, never a crash",
       fn: () => [composeSummary(null), composeSummary({}), composeSummary({ active: {} }),
                  composeSummary({ lastIncident: {} })],
-      expect: (r) => r.every((t) => typeof t === "string" && t.length > 0)
-                     && r.every((t) => t.indexOf("All quiet in the house.") === 0) },
+      expect: (r) => r.every((t) => t.headline === "All quiet in the house."
+                                    && Array.isArray(t.bullets) && t.bullets.length === 0) },
     { name: "summary: NO JARGON in any composed digest",
       fn: () => [composeSummary({ active: { room: "kitchen", tone: "alert", phase: "call_help" },
                                   lastIncident: { room: "bedroom", kind: "fall", atText: "8:14 PM",
                                                   outcome: "resolved", simulatedCall: true, notified: "Sarah" },
                                   findCount: 3 }),
                  composeSummary({ findCount: 1 })],
-      expect: (r) => r.every((t) => !JARGON.test(t)) },
+      expect: (r) => r.every((t) => !JARGON.test(t.headline) && t.bullets.every((b) => !JARGON.test(b))) },
 
     // ---- summaryStateFrom: run documents -> summary state ----
-    { name: "summary state: MID-INCIDENT -> the active sentence, no recap yet",
+    { name: "summary state: MID-INCIDENT -> the active headline, no recap yet",
       fn: () => composeSummary(summaryStateFrom(
         [{ id: "01A", room: "kitchen", urgency: "safety", state: "active", phase: "call_help", log: fallLog }],
         { now: 1200, clockText: () => "8:14 PM", contactName: "Sarah" })),
-      expect: (r) => r === "Kitchen needs attention — help has been called." },
-    { name: "summary state: POST-CLOSE -> recap, with SIMULATED and the contact",
+      expect: (r) => r.headline === "Kitchen needs attention — help has been called."
+                     && r.bullets.length === 0 },
+    { name: "summary state: POST-CLOSE -> recap bullets, with SIMULATED and the contact",
       fn: () => composeSummary(summaryStateFrom(
         [{ id: "01A", room: "kitchen", urgency: "safety", state: "closed", phase: "resolved", log: fallLog }],
         { now: 1200, clockText: () => "8:14 PM", contactName: "Sarah" })),
-      expect: (r) => r === "All quiet in the house. Earlier: a fall in the Kitchen at 8:14 PM — "
-        + "resolved; a SIMULATED emergency call was placed and Sarah was notified." },
+      expect: (r) => r.headline === "All quiet in the house."
+        && r.bullets[0] === "A fall in the Kitchen at 8:14 PM — resolved"
+        && r.bullets[1] === "A SIMULATED emergency call was placed"
+        && r.bullets[2] === "Sarah was notified" },
     { name: "summary state: a find run is counted, never promoted to a house state",
       fn: () => { const st = summaryStateFrom(
                     [{ id: "01B", room: "bedroom", urgency: "routine", state: "active", phase: "search", log: findLog }],
                     { now: 2100, clockText: () => "9:00 AM" });
                   return [st.active, st.findCount, composeSummary(st)]; },
       expect: (r) => r[0] === null && r[1] === 1
-                     && r[2] === "All quiet in the house. 1 question answered today." },
+                     && r[2].headline === "All quiet in the house."
+                     && r[2].bullets[0] === "1 question answered today" },
     { name: "summary state: IDLE - nothing at all -> the quiet digest",
       fn: () => composeSummary(summaryStateFrom([], { now: 1 })),
-      expect: (r) => r === "All quiet in the house." },
+      expect: (r) => r.headline === "All quiet in the house." && r.bullets.length === 0 },
     { name: "summary state: the most recent closed incident is the one recapped",
       fn: () => summaryStateFrom([
         { id: "01A", room: "bedroom", urgency: "safety", state: "closed", log: [{ ts: 100, event: "detected" }] },
@@ -2115,7 +2143,7 @@ function runSelfTest() {
       expect: (r) => r.room === "kitchen" && r.ts === 900 },
     { name: "summary state: malformed run documents -> a usable state, never a crash",
       fn: () => composeSummary(summaryStateFrom([null, {}, { log: "nope" }], { now: 1 })),
-      expect: (r) => r === "All quiet in the house." },
+      expect: (r) => r.headline === "All quiet in the house." && r.bullets.length === 0 },
   ];
 
   const results = cases.map((c) => {
@@ -2403,21 +2431,20 @@ function renderRooms() {
   const hs = $("houseStatus");
   hs.className = `house-status ${house.tone}`;
   hs.textContent = house.text;
+  hs.hidden = !house.text;
 
   if (tipRoom) showTip(tipRoom);          // keep an open tooltip current
   if ($("roomModal").classList.contains("open") && modalRoom) fillRoomModal(modalRoom);
 }
 
 /* ---- live activity ----
-   T5.5 reversed the order: NEWEST AT THE BOTTOM, like a conversation, and the
-   view follows it. The moment someone scrolls up to read an older line we stop
-   moving the page under them and offer the pill instead. `stick` is the whole
-   of that rule. */
-let stick = true;
-
-function nearBottom(el) {
-  return (el.scrollHeight - el.scrollTop - el.clientHeight) < 44;
-}
+   NEWEST AT THE TOP: the latest line is always in view without any scrolling,
+   so there is no "jump to latest" state to manage. Each line the page has not
+   shown before gets a one-shot .flash class; `seenFeedKeys` is what "not shown
+   before" means, and the first render primes it silently so a page opened onto
+   a full day does not strobe. */
+const seenFeedKeys = new Set();
+let feedPrimed = false;
 
 function iconMarkup(iconId, extra) {
   // Unknown ids would render as an empty box; fall back to the neutral glyph.
@@ -2436,26 +2463,23 @@ function renderFeed() {
       items.push({ ts: entry.ts, key: `${s.id}:${i}`, line });
     });
   }
-  items.sort((a, b) => (a.ts || 0) - (b.ts || 0));   // oldest first, newest last
+  items.sort((a, b) => (b.ts || 0) - (a.ts || 0));   // newest first, at the top
 
-  const feed = $("feed"), empty = $("feedEmpty"), scroller = $("feedScroll");
+  const feed = $("feed"), empty = $("feedEmpty");
   empty.hidden = items.length > 0;
 
-  const wasStuck = stick;
-  feed.innerHTML = items.slice(-200).map(({ ts, line }) => `
-    <div class="entry tone-${escapeHtml(line.tone)}">
+  // Flash only lines this page has never rendered; prime silently on load.
+  const isNew = (key) => feedPrimed && !seenFeedKeys.has(key);
+  feed.innerHTML = items.slice(0, 200).map(({ ts, key, line }) => `
+    <div class="entry tone-${escapeHtml(line.tone)}${isNew(key) ? " flash" : ""}">
       <span class="icon">${iconMarkup(line.iconId)}</span>
       <span class="body"><span class="text">${escapeHtml(line.text)}</span>${
         line.badge ? `<span class="sim-badge">${escapeHtml(line.badge)}</span>` : ""}</span>
       <span class="when">${escapeHtml(clockTime(ts))}</span>
     </div>`).join("");
 
-  if (wasStuck) {
-    scroller.scrollTop = scroller.scrollHeight;
-    $("jumpPill").hidden = true;
-  } else {
-    $("jumpPill").hidden = false;
-  }
+  items.forEach(({ key }) => seenFeedKeys.add(key));
+  feedPrimed = true;
 }
 
 /* ---- the summary card ---- */
@@ -2471,12 +2495,18 @@ function renderSummary() {
     contactName: names.contactName,
   });
   state.provided = providedSummary;
-  const text = composeSummary(state);
+  const digest = composeSummary(state);
 
   // SIMULATED gets the same red badge in the recap that it gets in the feed:
   // §14's rule is about the reader, and the reader is the same person here.
-  $("summaryText").innerHTML = escapeHtml(text)
+  const badge = (t) => escapeHtml(t)
     .replace(/SIMULATED/g, '<span class="sim-badge">SIMULATED</span>');
+  $("summaryText").innerHTML =
+    `<div class="summary-headline">${badge(digest.headline)}</div>` +
+    (digest.bullets.length
+      ? `<ul class="summary-bullets">${
+          digest.bullets.map((b) => `<li>${badge(b)}</li>`).join("")}</ul>`
+      : "");
 }
 
 function renderTakeover() {
@@ -2533,7 +2563,7 @@ function renderAll() {
 }
 
 /* ============================================================
- * FLOOR PLAN INTERACTION - tooltip, room modal, and the feed's jump pill.
+ * FLOOR PLAN INTERACTION - tooltip and room modal.
  * ============================================================ */
 
 let tipRoom = null;      // schematic id the tooltip is currently describing
@@ -2621,19 +2651,6 @@ document.querySelectorAll("#fpRooms .fp-room").forEach((g) => {
 });
 window.addEventListener("scroll", hideTip, { passive: true });
 window.addEventListener("resize", () => { if (tipRoom) showTip(tipRoom); });
-
-/* ---- feed autoscroll ---- */
-$("feedScroll").addEventListener("scroll", () => {
-  stick = nearBottom($("feedScroll"));
-  $("jumpPill").hidden = stick;
-}, { passive: true });
-
-$("jumpPill").addEventListener("click", () => {
-  const s = $("feedScroll");
-  s.scrollTop = s.scrollHeight;
-  stick = true;
-  $("jumpPill").hidden = true;
-});
 
 /* ---- modals ---- */
 function openModal(id) { $(id).classList.add("open"); }

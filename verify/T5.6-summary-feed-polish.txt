@@ -1,0 +1,53 @@
+T5.6 - Summary bullets + feed polish (user feedback round on the floor-plan page)
+=================================================================================
+Date: 2026-08-05
+File touched: dashboard/index.html only.
+
+What changed (four user asks, verbatim from review):
+1. "AI summary is using semicolons... should be clean bullets"
+   -> composeSummary() now returns { headline, bullets[] } instead of one
+      semicolon-joined string. Headline = what is happening NOW; each earlier
+      fact is its own short bullet (incident, SIMULATED call, contact notified,
+      questions answered). No semicolons anywhere - a self-test asserts it.
+      Still deterministic, still NOT model output; the qnet/summary SEAM is
+      preserved (a provided digest becomes the headline verbatim).
+2. "remove everything looks fine"
+   -> houseStatus() returns empty text for a calm house and the topbar banner
+      hides itself; it still appears for "Checking on the ..." and
+      "<Room> needs attention". Topbar actions keep their right-edge seat via
+      margin-left:auto.
+3. "remove the icon from the summary thing"
+   -> sparkle glyph removed from the Summary card head (tooltip
+      "Generated from today's activity" retained).
+4. "always showing live activity up top... insertion 'flash' that's subtle"
+   -> Feed is NEWEST AT TOP; jump-to-latest pill, stick/nearBottom autoscroll
+      machinery all deleted. Each line the page has not rendered before gets a
+      one-shot .flash class: 2.2s brand-tinted wash + small settle-in,
+      suppressed under prefers-reduced-motion. First render primes the
+      seen-set silently so opening the page onto a full day does not strobe.
+
+Machine verification
+--------------------
+1. LOGIC CORE self-test, extracted from the SHIPPED file and run under node
+   (same harness method as T5.1/T5.4/T5.5):
+     # extracted 975 lines of LOGIC CORE from dashboard/index.html
+     QNet Home product-page self-test: 90/90 passed
+   (89 -> 90: composeSummary cases rewritten for the {headline, bullets}
+   shape; one net-new case asserts NO SEMICOLONS / no run-on clauses.)
+2. Whole-page script parse: all <script> content extracted, `node --check`
+   -> PARSE OK (covers renderFeed/renderSummary/listener edits outside core).
+3. Leftover sweep: zero references to jumpPill / nearBottom / wasStuck /
+   "Everything looks fine" remain.
+4. Python suite untouched by design: 64 passed, 7 deselected (live).
+5. Live replay onto the open page: dev/replay_session.py --speed 4 against the
+   dev broker (port 1883, PID 14436) completed; session closed state published.
+
+Human eyeball (Part 2 - needs the user)
+---------------------------------------
+[ ] Summary card: headline bold, bullets beneath, SIMULATED badge inside its
+    own bullet; no semicolons on screen at mid-incident or post-close.
+[ ] Topbar: nothing where "Everything looks fine" used to be when calm; the
+    caution/alert text still appears during a replay.
+[ ] Feed: newest line visible at the top without scrolling; new arrivals give
+    a brief violet wash that fades; no strobe on page load.
+[ ] Reduced-motion OS setting kills the animation.
