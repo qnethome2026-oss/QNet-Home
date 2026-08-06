@@ -1,0 +1,27 @@
+schema: qhome.home/1.0
+home_id: demo-home
+
+groups:
+  - downstairs
+  - upstairs
+
+devices:
+  ventuno-living-room:
+    host: 10.73.51.123
+    ssh_user: arduino
+    room: living-room
+    aliases:
+      - living room
+      - hall
+    groups:
+      - downstairs
+
+  ventuno-bedroom:
+    host: 10.73.51.178
+    ssh_user: arduino
+    room: bedroom
+    aliases:
+      - bedroom
+      - master bedroom
+    groups:
+      - upstairs

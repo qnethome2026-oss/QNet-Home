@@ -1,0 +1,20 @@
+schema: qnet.inventory/1.0
+
+# Addresses are demo-LAN deployment metadata. Passwords and private keys are
+# deliberately not stored in the repository.
+iq9:
+  host: 10.73.51.175
+  ssh_user: ubuntu
+  mqtt_port: 1883
+  mqtt_websocket_port: 9001
+
+nodes:
+  living-room:
+    node_id: ventuno-living-room
+    host: 10.73.51.123
+    ssh_user: arduino
+
+  bedroom:
+    node_id: ventuno-bedroom
+    host: 10.73.51.178
+    ssh_user: arduino

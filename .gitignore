@@ -1,7 +1,10 @@
 # Python virtualenvs (TTS research spikes — see research/tech/voice-cloning-tts.md)
 .venv*/
+.runtime/
 __pycache__/
 *.pyc
+.pytest_cache/
+.DS_Store
 
 # Model weights / large binaries — download at setup time, never commit
 models/
@@ -18,3 +21,13 @@ out/
 # Downloaded source corpus for offline-skill-pack size measurement
 # (see research/tech/offline-skill-packs.md — only the measurements are committed)
 corpus_tmp/
+
+# Per-device voice-node configuration and IQ9 runtime state
+qhome-config.json
+announcements.jsonl
+deploy/iq9/mosquitto/passwd
+deploy/iq9/mosquitto/certs/
+
+# Installed copies may contain device addresses and caregiver credentials.
+config/house.yaml
+config/node.yaml

@@ -1,0 +1,13 @@
+{
+  "id": "session-fall-001",
+  "ts": 1785790171.1,
+  "room": "living-room",
+  "skill": "fall-response",
+  "urgency": "safety",
+  "phase": "check",
+  "state": "active",
+  "event": "say",
+  "data": {
+    "text": "I saw you fall. Are you okay?"
+  }
+}

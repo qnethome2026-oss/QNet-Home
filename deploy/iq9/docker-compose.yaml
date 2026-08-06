@@ -1,0 +1,53 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0.20
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h 127.0.0.1 -t '$$SYS/broker/version' -C 1 -W 3 >/dev/null"]
+      interval: 5s
+      timeout: 4s
+      retries: 10
+
+  voice-router:
+    build:
+      context: ../..
+      dockerfile: services/iq9_voice_router/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    environment:
+      QHOME_MQTT_HOST: mosquitto
+      QHOME_MQTT_PORT: 1883
+      QHOME_DEVICE_REGISTRY: /config/home.yaml
+      QHOME_HISTORY_PATH: /data/announcements.jsonl
+    volumes:
+      - ../../config/home.example.yaml:/config/home.yaml:ro
+      - voice-router-data:/data
+
+  agent:
+    build:
+      context: ../..
+      dockerfile: services/iq9_voice_router/Dockerfile
+    command: ["python", "-m", "agent.engine"]
+    restart: unless-stopped
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    environment:
+      QNET_MQTT_HOST: mosquitto
+      QNET_MQTT_PORT: 1883
+      QNET_SESSIONS_DIR: /data/sessions
+    volumes:
+      - agent-data:/data
+
+volumes:
+  mosquitto-data:
+  voice-router-data:
+  agent-data:

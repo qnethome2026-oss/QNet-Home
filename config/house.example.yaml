@@ -1,0 +1,47 @@
+schema: qnet.house/1.0
+home_id: demo-home
+
+resident:
+  name: Margaret
+
+contacts:
+  - name: Sarah
+    telegram_chat_id: TODO
+
+telegram_bot_token: TODO
+emergency_number: "911"
+
+mqtt:
+  host: 127.0.0.1
+  port: 1883
+  websocket_port: 9001
+  qos: 1
+
+rooms:
+  living-room:
+    node: ventuno-living-room
+    aliases: [living room, hall]
+    groups: [downstairs]
+    source: "v4l2src device=/dev/video2"
+  bedroom:
+    node: ventuno-bedroom
+    aliases: [bedroom, master bedroom]
+    groups: [upstairs]
+    source: "v4l2src device=/dev/video2"
+
+vision:
+  conf_floor: 0.6
+  fire_on: "5/8"
+  rearm_after_s: 60
+
+voice:
+  wake_phrase: hey home
+  responder_phrase: i'm the first responder
+  idle_listen_timeout_s: 30
+  active_listen_timeout_s: 15
+  vad_hangover_ms: 700
+  post_tts_guard_ms: 500
+
+storage:
+  sessions_dir: data/sessions
+  announcement_history: data/announcements.jsonl

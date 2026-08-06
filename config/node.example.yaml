@@ -1,0 +1,29 @@
+schema: qnet.node/1.0
+node_id: ventuno-living-room
+room: living-room
+groups: [downstairs]
+
+mqtt:
+  host: 10.73.51.175
+  port: 1883
+  username: null
+  password: null
+
+voice:
+  language: en
+  asr_model: whisper-small
+  wake_phrase: hey home
+  responder_phrase: i'm the first responder
+  asr_mode: sentence
+  idle_listen_timeout_s: 30
+  active_listen_timeout_s: 15
+  vad_hangover_ms: 700
+  fixed_window_fallback_s: 5
+  post_tts_guard_ms: 500
+  tts_queue_size: 20
+  microphone_device: "usb:1"
+  speaker_device: "usb:1"
+
+vision:
+  source: "v4l2src device=/dev/video2"
+  latest_frame_path: /run/qnet/latest-frame.jpg

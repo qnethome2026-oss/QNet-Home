@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>QHome Voice Node</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">VENTUNO Q · LOCAL VOICE</p>
+        <h1>QHome Voice Node</h1>
+        <p id="identity">Loading device identity…</p>
+      </header>
+      <section class="status-card">
+        <div><span>Voice state</span><strong id="state">STARTING</strong></div>
+        <div><span>IQ9 MQTT</span><strong id="mqtt">CONNECTING</strong></div>
+        <div><span>TTS queue</span><strong id="queue">0</strong></div>
+      </section>
+      <section class="details">
+        <article><h2>Last local transcript</h2><p id="transcript">—</p></article>
+        <article><h2>Last rolling request to IQ9</h2><p id="request">—</p></article>
+        <article><h2>Last spoken message</h2><p id="tts">—</p></article>
+        <article class="error"><h2>Last error</h2><p id="error">None</p></article>
+      </section>
+      <footer>Audio remains on this device. Rolling text is sent over the private LAN to IQ9 for local intent routing.</footer>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>

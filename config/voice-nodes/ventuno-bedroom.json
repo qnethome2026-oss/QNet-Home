@@ -1,0 +1,19 @@
+{
+  "device_id": "ventuno-bedroom",
+  "room_id": "bedroom",
+  "groups": ["upstairs"],
+  "iq9_host": "10.73.51.175",
+  "mqtt_port": 1883,
+  "mqtt_username": null,
+  "mqtt_password": null,
+  "microphone_device": "usb:1",
+  "speaker_device": "usb:1",
+  "asr_model": "whisper-small",
+  "language": "en",
+  "idle_listen_timeout_seconds": 30,
+  "session_listen_timeout_seconds": 15,
+  "transcript_window_seconds": 10,
+  "post_tts_guard_ms": 500,
+  "tts_queue_size": 20,
+  "responder_phrase": "I'm the first responder"
+}

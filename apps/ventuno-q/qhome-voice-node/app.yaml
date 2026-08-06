@@ -1,0 +1,8 @@
+name: QHome Voice Node
+icon: 🏠
+description: Combined local ASR, TTS, MQTT, and voice-state orchestration for a QHome room node
+
+bricks:
+  - arduino:asr
+  - arduino:tts
+  - arduino:web_ui

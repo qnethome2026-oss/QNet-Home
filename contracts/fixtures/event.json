@@ -1,0 +1,11 @@
+{
+  "id": "evt-fall-001",
+  "ts": 1785790153.4,
+  "room": "living-room",
+  "kind": "fall.detected",
+  "conf": 0.87,
+  "meta": {
+    "cls": "Fallen",
+    "frames": "5/8"
+  }
+}
