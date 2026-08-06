@@ -129,6 +129,26 @@ live contact-ack rehearsal (phones, "ok" reply — closes
 `verify/T-contact-ack.txt` Part 2); packaging rebuild; **the single PR**
 `voice-integration → main`; tag `voice-integrated`.
 
+## Live state (2026-08-06 evening, all deployed and health-checked)
+
+`bash scripts/health_check.sh` -> ALL GREEN (4 nodes heartbeating).
+
+- **Fall detection** (kitchen only): `conf_floor 0.8`, `fire_on 3/6`,
+  re-arm 60 s / 8 upright frames — calibrated against measured evidence
+  (real falls 0.85-0.94, all observed noise <= 0.52).
+- **Voice in BOTH rooms** (stretch goal landed): wake-gated, whisper-small on
+  each NPU; the room that asks is the room that answers (verified live).
+- **Conversation**: status at 1/2/5 min, never-repeating wording, first-aid
+  guidance matched to the person's words, caregiver persona pinned in the
+  prompt, "I'm fine" -> pain double-check -> resolve, no opening replays.
+- **Responder brief**: several phrasings incl. "give me a summary of what
+  happened", any state, either room.
+- **Cold start**: everything auto-starts (three gaps found and fixed in the
+  audit); `docs/operations/cold-start.md` is the procedure.
+
+Remaining, all human-in-the-room: the G3 spoken checklist, the wake soak, two
+DEMO.md rehearsals, the Telegram "ok" ack test, then the single PR.
+
 ## Coordination items
 
 - Muni: sign-off note sent (wake-gate reversal, validator relaxations, AGPL);
