@@ -475,7 +475,10 @@ _RESPONDER_PHRASES = (
     "i am a paramedic",
     "i am with the ambulance",
 )
-_RESPONDER_TOKENS = ("first responder", "paramedic", "ambulance", "emt")
+# Singular or plural: "I need a first responders summary" failed the exact
+# token pass live (2026-08-06 3:28PM) and the resident got "I can provide a
+# summary" - with no summary. One optional s, nothing fancier.
+_RESPONDER_TOKENS_RE = re.compile(r"\b(first responders?|paramedics?|ambulance|emts?)\b")
 
 
 def matches_responder_phrase(text: str) -> str | None:
@@ -486,11 +489,8 @@ def matches_responder_phrase(text: str) -> str | None:
     for phrase in _RESPONDER_PHRASES:
         if phrase in normalized:
             return phrase
-    padded = f" {normalized} "
-    for token in _RESPONDER_TOKENS:
-        if f" {token} " in padded:
-            return token
-    return None
+    match = _RESPONDER_TOKENS_RE.search(normalized)
+    return match.group(1) if match else None
 
 
 def brief_line(facts: list[str]) -> str:

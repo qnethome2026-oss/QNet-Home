@@ -343,6 +343,9 @@ def test_responder_phrases_match_anywhere_and_cover_summary_asks() -> None:
     assert match("first responder, can you tell me the summary?")
     assert match("the paramedic is here now")
     assert match("EMT here.")
+    # Third finding (3:28PM): the plural beat the exact token pass.
+    assert match("I need a first responders summary.")
+    assert match("the paramedics have arrived")
     # The resident's own words stay replies.
     assert not match("what")
     assert not match("I don't know what happened")

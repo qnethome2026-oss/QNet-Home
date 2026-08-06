@@ -380,10 +380,12 @@ class VoiceController:
     # Anyone announcing one of these identities wants the brief, whatever the
     # rest of the sentence - "First responder summary please" failed the
     # full-phrase match live (2026-08-06 3PM test) and the resident got a pain
-    # question instead. A spuriously spoken brief is harmless (it is facts);
-    # a missed one leaves a responder blind. Keep in sync with the engine's
-    # copy in qnet/agent/engine.py (_RESPONDER_TOKENS).
-    RESPONDER_IDENTITY_TOKENS = ("first responder", "paramedic", "ambulance", "emt")
+    # question instead; "a first responderS summary" then failed the exact
+    # token pass (3:28PM) - hence the optional plural. A spuriously spoken
+    # brief is harmless (it is facts); a missed one leaves a responder blind.
+    # Keep in sync with the engine's copy in qnet/agent/engine.py
+    # (_RESPONDER_TOKENS_RE).
+    RESPONDER_IDENTITY_RE = re.compile(r"\b(?:first responders?|paramedics?|ambulance|emts?)\b")
 
     def _matches_responder_phrase(self, transcript: str) -> bool:
         def normalize(value: str) -> str:
@@ -396,8 +398,7 @@ class VoiceController:
         phrases = [self.config.responder_phrase, *self.RESPONDER_EXTRA_PHRASES]
         if any(p and p in normalized for p in (normalize(x) for x in phrases)):
             return True
-        padded = f" {normalized} "
-        return any(f" {token} " in padded for token in self.RESPONDER_IDENTITY_TOKENS)
+        return bool(self.RESPONDER_IDENTITY_RE.search(normalized))
 
     def _remember(self, message_id: str) -> None:
         if len(self.recent_ids) == self.recent_ids.maxlen:

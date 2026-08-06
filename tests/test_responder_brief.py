@@ -311,3 +311,18 @@ def test_typed_responder_announcement_with_no_session(tmp_path) -> None:
         assert bus.said() == [engine.NO_FALL_HISTORY]
 
     asyncio.run(scenario())
+
+
+def test_responder_token_variants_match_and_resident_words_do_not() -> None:
+    """Every live failure so far, plus the guard rails, in one place."""
+    for text in (
+        "First responder summary please.",          # 3:00PM failure
+        "first responder, can you tell me the summary?",  # 3:01PM failure
+        "I need a first responders summary.",       # 3:28PM failure (plural)
+        "the paramedics are here",
+        "I'm with the ambulance",
+        "EMT here",
+    ):
+        assert engine.matches_responder_phrase(text), text
+    for text in ("please respond to me", "my head hurts", "i'm fine now", ""):
+        assert not engine.matches_responder_phrase(text), text
