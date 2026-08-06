@@ -2032,6 +2032,37 @@ function routeInput(rawText, room, sessionActive) {
   return null;                                                // idle small talk — not for the house
 }
 
+/** Which device and service one wire message came from, for the System log's
+ * color coding. Device from the topic shape (agent topics vs room topics);
+ * service from the message kind, with status payloads disambiguated by their
+ * own fields (vision heartbeats carry a fall detector, voice ones carry
+ * idle/listening/speaking states, a look-only exporter says so).
+ *   wireOrigin(topic, payload) -> { device: brain|kitchen|bedroom|other,
+ *                                   service: agent|vision|look|voice|node }
+ */
+function wireOrigin(topic, payload) {
+  const p = payload && typeof payload === "object" ? payload : {};
+  const m = String(topic || "").match(/^qnet\/([^/]+)(?:\/([^/]+))?$/);
+  if (!m) return { device: "other", service: "node" };
+  const seg1 = m[1], kind = m[2];
+  if (seg1 === "session" || seg1 === "look" || seg1 === "summary") {
+    return { device: "brain", service: "agent" };
+  }
+  const device = (seg1 === "kitchen" || seg1 === "bedroom") ? seg1 : "other";
+  if (kind === "say" || kind === "contact" || kind === "cmd") return { device: "brain", service: "agent" };
+  if (kind === "event") return { device, service: "vision" };
+  if (kind === "looked") return { device, service: "look" };
+  if (kind === "heard" || kind === "ask") return { device, service: "voice" };
+  if (kind === "status") {
+    const det = String(p.detector || "");
+    if (/^fall/.test(det)) return { device, service: "vision" };
+    if (/look/.test(det) || p.state === "look-only") return { device, service: "look" };
+    if (/^(idle|listening|speaking|error|starting)$/.test(String(p.state || ""))) return { device, service: "voice" };
+    return { device, service: "node" };
+  }
+  return { device, service: "node" };
+}
+
 /** The typed-voice feature flag, decoded from what localStorage hands back.
  * ON only when the stored value is exactly "1" - null (never saved), "",
  * "0", corrupt text and storage-disabled all mean OFF. This is the "fresh
@@ -2589,6 +2620,27 @@ function runSelfTest() {
       expect: (r) => r.every((v) => v === false) },
     { name: "typed voice flag: ON only for \"1\" (what Save writes)",
       fn: () => parseVoiceSimFlag("1"), expect: (r) => r === true },
+    // ---- wire origin (System log color coding) ----
+    { name: "wire origin: agent topics -> brain/agent",
+      fn: () => [wireOrigin("qnet/session/01X", {}), wireOrigin("qnet/look", {}),
+                 wireOrigin("qnet/kitchen/say", {}), wireOrigin("qnet/kitchen/contact", {})],
+      expect: (r) => r.every((o) => o.device === "brain" && o.service === "agent") },
+    { name: "wire origin: status disambiguates vision vs look-only vs voice",
+      fn: () => [wireOrigin("qnet/kitchen/status", { detector: "fall-yolo11n@hexagon-npu" }),
+                 wireOrigin("qnet/bedroom/status", { state: "look-only", detector: "none (look+stream node)" }),
+                 wireOrigin("qnet/kitchen/status", { state: "idle", node: "kitchen-voice-01" })],
+      expect: (r) => r[0].service === "vision" && r[0].device === "kitchen"
+                     && r[1].service === "look" && r[1].device === "bedroom"
+                     && r[2].service === "voice" },
+    { name: "wire origin: events are vision, looked is look, heard/ask are voice",
+      fn: () => [wireOrigin("qnet/kitchen/event", {}), wireOrigin("qnet/bedroom/looked", {}),
+                 wireOrigin("qnet/kitchen/heard", {}), wireOrigin("qnet/bedroom/ask", {})],
+      expect: (r) => r[0].service === "vision" && r[1].service === "look"
+                     && r[2].service === "voice" && r[3].service === "voice" },
+    { name: "wire origin: unknown shapes never crash",
+      fn: () => [wireOrigin("weird", null), wireOrigin(null, null), wireOrigin("qnet/attic/status", {})],
+      expect: (r) => r.every((o) => o.device === "other" || o.device === "brain" || o.service === "node")
+                     && r[2].device === "other" },
     { name: "fullscreen flag: DEFAULT OFF - only a stored '1' turns the takeover on",
       fn: () => [null, undefined, "", "0", "true", "yes", 1].map(parseFullscreenFlag)
                   .concat([parseFullscreenFlag("1")]),
@@ -2639,7 +2691,7 @@ if (typeof module !== "undefined" && module.exports) {
                      deviceListText, composeSummary, summaryStateFrom,
                      // T5.7 - typed voice + camera preview
                      newUlid, normalize, matchesResponderPhrase, stripWakePhrase,
-                     buildAsk, buildHeard, routeInput, parseVoiceSimFlag, parseFullscreenFlag,
+                     buildAsk, buildHeard, routeInput, parseVoiceSimFlag, parseFullscreenFlag, wireOrigin,
                      defaultVoiceRoom, camBustUrl, camUrlForRoom };
 }
 
