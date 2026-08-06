@@ -66,6 +66,7 @@ class VoiceController:
         self._inflight_ids: set[str] = set()
         self._lock = threading.RLock()
         self._state = "STARTING"
+        self._last_published_state: str | None = None
         self._last_request = ""
         self._last_tts = ""
         self._last_error = ""
@@ -390,6 +391,14 @@ class VoiceController:
         return "idle"
 
     def _publish_status(self, state: str, **kwargs) -> None:
+        # Event-driven publishes are for TRANSITIONS; the 5 s heartbeat carries
+        # the steady state. run_once calls this per loop iteration, so
+        # continuous ASR activity produced a ~4/s "listening" status flood
+        # (observed live 2026-08-06). Repeats of the same bare state are
+        # suppressed; anything carrying error/say_id detail always goes out.
+        if not kwargs and state == self._last_published_state:
+            return
+        self._last_published_state = state
         try:
             self.transport.publish_voice_status(state, **kwargs)
         except Exception:
