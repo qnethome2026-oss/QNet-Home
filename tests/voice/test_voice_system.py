@@ -54,7 +54,7 @@ ROOM = "kitchen"
 # engine regression suite in tests/test_scenarios.py asserts against).
 CHECK_OPENING = "I saw you fall. Take a breath — are you okay?"
 ESCALATE_OPENING = "It's okay — I'm getting you help. Try to get comfortable, and don't strain to move."
-CALL_HELP_OPENING = "You haven't answered, so I'm calling emergency services now."
+CALL_HELP_OPENING = ("I haven't heard from you, so I'm calling emergency services for you right now. Help is coming — stay with me.")
 
 # What the agent actually subscribes to (engine.SUBSCRIPTIONS) and what the
 # node subscribes to (MQTTTransport._on_connect) - the bridge honours both, so

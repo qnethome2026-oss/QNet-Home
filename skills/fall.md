@@ -48,7 +48,8 @@ emergency_number: "911"
                                             # must never strand someone
 
 - id: call_help
-  opening: "You haven't answered, so I'm calling emergency services now."
+  opening: "I haven't heard from you, so I'm calling emergency services for
+            you right now. Help is coming — stay with me."
   goal: "Stay with them and keep talking. You have no tools to call — the
          call is already being placed automatically."
   tools: []

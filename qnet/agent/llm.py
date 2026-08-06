@@ -351,15 +351,18 @@ class LlmClient:
                 "You are a home safety system briefing a first responder who has just walked in and "
                 "knows nothing about what happened. Speak to them, not to the person who fell.\n\n"
                 f"{goal or _BRIEF_GOAL}\n\n"
-                f"These are the only facts you have, in the order they happened:\n{listed}\n\n"
-                "Speak the summary out loud. Rules:\n"
-                "- One flowing spoken summary, not a list, not bullet points, not headings.\n"
-                "- Use only the facts above, all of them, in that order. Never invent a fact, a name, "
-                "a time, a diagnosis or a reassurance.\n"
+                f"These are the only facts you have:\n{listed}\n\n"
+                "Give a spoken HANDOVER, the way a paramedic would: not a minute-by-minute chronicle. Rules:\n"
+                "- Lead with what happened and the person's condition - what they said, in their own "
+                "words, especially any complaint of injury.\n"
+                "- Then what has been done (who was contacted, whether they acknowledged, whether "
+                "emergency services were called), then where things stand right now.\n"
+                "- Compress: merge related facts, skip repetition. You may leave a minor fact out; you "
+                "may never invent, alter or embellish one - no invented names, times, diagnoses or reassurances.\n"
                 "- Keep the names straight: the person who fell and the contact who was messaged are "
                 "different people. Attribute every quote to whoever the facts say said it.\n"
-                "- Plain past tense, calm and factual. End with where things stand right now.\n"
-                "- No quotes around the whole answer, no emoji. Under 120 words.\n"
+                "- One flowing spoken paragraph, plain past tense, calm. No lists, no headings.\n"
+                "- No quotes around the whole answer, no emoji. Under 80 words.\n"
                 "Summary:"
             )
         if kind == "reply":
@@ -371,6 +374,8 @@ class LlmClient:
                 f"What you know:\n{listed}\n\n"
                 "Write ONE short reply they will hear out loud - one sentence, two at most. Rules:\n"
                 "- Answer only what they just said, warmly and briefly. No status recap unless they asked.\n"
+                "- Never echo their words back at them ('I understand you can't reach it') - respond "
+                "the way a caring person would, to what it means for them.\n"
                 "- If they ask about anything unrelated to their wellbeing or this incident "
                 "(technology, trivia, how you work, the news, anything else), do NOT answer it - "
                 "gently bring them back: acknowledge in a few words, then ask how they are "
@@ -402,8 +407,10 @@ class LlmClient:
             f"These are the only facts you know ({kind} update):\n{listed}\n\n"
             "Write ONE short sentence they will hear out loud. Rules:\n"
             "- Let them know you are still there with them.\n"
-            "- Include every fact above, the elapsed time included, and use only those facts. "
-            "Never invent a fact, a name, a time or a promise.\n"
+            "- Mention the one fact that matters most to them right now - do not recite the whole "
+            "list in one breath; a status report read aloud sounds like a machine, not care.\n"
+            "- Use only those facts. Never invent a fact, a name, a time or a promise, and never "
+            "contradict a fact by implying something else is happening.\n"
             "- Do not tell them to move, stand up, or get comfortable.\n"
             "- No quotes, no emoji, no lists. Under 30 words.\n"
             "Sentence:"
@@ -414,9 +421,10 @@ class LlmClient:
         joined = "; ".join(facts)
         if kind == "brief":
             return (
-                f"Facts, in order: {joined}.\n"
-                "Tell a first responder what happened, out loud, using only those facts. "
-                "One flowing summary, no list, under 120 words."
+                f"Facts: {joined}.\n"
+                "Give a first responder a spoken handover using only those facts: what happened and "
+                "the person's condition first, then what was done, then where things stand. Compress, "
+                "never invent. One flowing paragraph, no list, under 80 words."
             )
         if kind == "reply":
             return (

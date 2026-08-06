@@ -1253,27 +1253,46 @@ class Agent:
         if (self.config.get("resident") or {}).get("name"):
             facts.append(f"the resident here is {resident}")
 
-        silences, quoted = 0, 0
+        # Triage-shaped, not a chronicle: a responder needs the person's own
+        # words (first complaint + the latest thing said), the actions that
+        # matter (contact messaged - once, however many pings went out -
+        # contact acknowledged, emergency called), and nothing internal.
+        # Generic "<tool> ran" lines are deliberately NOT facts: they are the
+        # engine talking to itself, and they were what made briefs recite
+        # every event (user report, 2026-08-06 evening).
+        silences = 0
+        spoken: list[dict] = []
+        notified = 0
         for entry in events:
             kind = entry.get("event")
             if kind == "heard":
                 said = (entry.get("text") or "").strip()
                 if entry.get("silence") or not said:
                     silences += 1
-                elif quoted < 4:
-                    quoted += 1
-                    facts.append(f'{when(entry)} {resident} said "{said}"')
+                else:
+                    spoken.append(entry)
+            elif kind == "contact":
+                said = (entry.get("text") or "").strip()
+                who = entry.get("from") or self.contact_name()
+                facts.append(f'{when(entry)} the contact {who} replied "{said}" and took responsibility for checking in')
             elif kind == "tool":
-                tool, result = entry.get("tool"), entry.get("result")
+                tool = entry.get("tool")
                 if tool == "notify_contacts":
                     if entry.get("kind") == "false_alarm":
                         facts.append(f"{when(entry)} the contact {self.contact_name()} was told it was a false alarm")
                     else:
-                        facts.append(f"{when(entry)} the contact {self.contact_name()} was messaged")
+                        notified += 1
+                        if notified == 1:
+                            facts.append(f"{when(entry)} the contact {self.contact_name()} was messaged")
                 elif tool == "call_emergency":
                     facts.append(f"{when(entry)} emergency services were called (simulated)")
-                elif tool:
-                    facts.append(f"{when(entry)} {tool} ran ({result})")
+        # The person's own words: their first response after the fall, and the
+        # most recent thing they said (their condition NOW) - not a transcript.
+        keep = [spoken[0]] if spoken else []
+        if len(spoken) > 1 and spoken[-1] is not spoken[0]:
+            keep.append(spoken[-1])
+        for entry in keep:
+            facts.append(f'{when(entry)} {resident} said "{(entry.get("text") or "").strip()}"')
         if silences:
             facts.append(f"{resident} did not answer {silences} time{'s' if silences > 1 else ''}")
 

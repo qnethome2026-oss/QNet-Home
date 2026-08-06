@@ -40,7 +40,7 @@ from qnet.agent import engine
 
 CHECK_OPENING = "I saw you fall. Take a breath — are you okay?"
 ESCALATE_OPENING = "It's okay — I'm getting you help. Try to get comfortable, and don't strain to move."
-CALL_HELP_OPENING = "You haven't answered, so I'm calling emergency services now."
+CALL_HELP_OPENING = ("I haven't heard from you, so I'm calling emergency services for you right now. Help is coming — stay with me.")
 
 
 def phase_pairs(lines: list[dict]) -> list[tuple[str, str]]:
