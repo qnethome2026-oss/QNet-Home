@@ -1,0 +1,54 @@
+First full end-to-end run - real NPU detection to real phone (no speech)
+========================================================================
+Date: 2026-08-06 (laptop clock 2026-08-05 17:51-17:53 local). This is the
+"how far without speech" milestone: every deployed component is real; the only
+stand-in is a TYPED reply where a spoken one will eventually be (dev/inject.py
+heard - the sanctioned room-simulator path, DESIGN §5).
+
+Topology (all live simultaneously):
+  Ventuno Q (10.73.51.123)  qnet/node/vision.py - fall clip through the
+                            Hexagon NPU (FP32 QNN ctx binary, 3.05 fps)
+  IQ-9075   (10.73.51.175)  Mosquitto :11883 (verify/T1.1-resolved.txt)
+                            + GenieX/Gemma 4 E2B :18181 (via SSH tunnel)
+  Laptop                    qnet.agent (real LLM mode, real Telegram config)
+  Phone                     t.me/Qnethomebot -> chat id 8887749836
+
+Timeline (session 01KZA8WSZ4M92ND0C0E6FXBC77, file
+kitchen__fall-response__2026-08-05T17-52-10.jsonl; all times from the log):
+  17:52:10  vision publishes fall.detected conf=0.8628 (5/8) - real UR Fall
+            footage, real NPU, no injector
+  17:52:10  agent opens session, says "I saw you fall. Take a breath - are
+            you okay?"
+  17:52:40  30 s check timer expires (nobody replied - there is no voice
+            node yet): phase -> escalate, comfort line spoken,
+            notify_contacts -> TELEGRAM DELIVERED (escalate, phone buzzed)
+  17:52:56  15 s escalate timer: phase -> call_help, "You haven't answered,
+            so I'm calling emergency services now.", call_emergency ->
+            SIMULATED, notify_contacts -> TELEGRAM DELIVERED (call_help)
+  17:53:23  one LLM comfort call hit a ReadTimeout -> engine logged
+            "llm request failed (APITimeoutError) - falling back" and the
+            ladder CONTINUED ON RAILS - the exact §6 guarantee, observed
+            live: a failing model degraded one sentence, never the response.
+            A later LLM call succeeded and worded a grounded comfort line
+            ("I saw you fall about a minute and five seconds ago, and
+            emergency services...").
+  17:53:26  injected heard "false alarm" (typed stand-in for voice)
+  17:53:27  cancel matched -> notify_contacts -> TELEGRAM DELIVERED
+            (false_alarm), phase cancelled, session closed
+
+Cross-checks
+------------
+- Board log (~/qnet-node/e2e_vision.log): 110 frames, 3.05 fps, events: 1 -
+  exactly-once semantics held in the composed system, same as T4.2 isolation.
+- data/outbox/telegram.log tail matches the three deliveries; all three
+  arrived on the physical phone.
+- Dashboard: watching live requires only Settings -> ws://10.73.51.175:19001/mqtt.
+
+What this proves / what it does not
+-----------------------------------
+Proves: node->broker->agent->LLM->tools->phone, all real, one flow; timers,
+notifications and the SIMULATED call fired engine-side with a model failure
+in the middle. Does NOT cover: audible speech (T3.1), live-camera fall with
+a person (T4.3/G4 gate), wake word (T6.4). Repeat command set is in this
+file's history: start agent (--broker 10.73.51.175 --port 11883), run
+vision.py on the board with a clip source, close with inject heard.
