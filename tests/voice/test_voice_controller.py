@@ -218,6 +218,37 @@ def test_closed_session_returns_to_idle_gated_transcription() -> None:
     assert voice.status_snapshot()["active_session_id"] is None
 
 
+def test_repeat_session_snapshots_do_not_cancel_the_listen() -> None:
+    # Measured live 2026-08-06 (verify/T-voice-bench.txt): the engine
+    # republishes the session doc on every internal log line - 25 snapshots in
+    # one session killed 6 of 7 listens mid-transcript. A snapshot that does
+    # not flip the idle<->session mode must leave the mic alone.
+    voice, asr, _tts, transport = controller(BlockUntilCancelled())
+    voice.on_session_event(active_session())
+    worker = threading.Thread(target=voice.run_once)
+    worker.start()
+    assert asr.listen_started.wait(timeout=1)
+    voice.on_session_event(active_session())  # engine re-publish, same state
+    time.sleep(0.05)
+    assert not asr.cancel_requested.is_set()  # the mic stayed open
+    voice.on_session_event(active_session("closed"))  # a real mode flip
+    worker.join(timeout=2)
+    assert not worker.is_alive()
+    assert transport.heard == []  # the cancelled listen publishes nothing
+
+
+def test_session_open_still_cancels_the_idle_stream() -> None:
+    # The flip the cancel exists FOR: a session opening must break the
+    # long-lived idle stream so the bounded session listen can start.
+    voice, asr, _tts, _transport = controller(BlockUntilCancelled())
+    worker = threading.Thread(target=voice.run_once)
+    worker.start()
+    assert asr.listen_started.wait(timeout=1)
+    voice.on_session_event(active_session())
+    worker.join(timeout=2)
+    assert not worker.is_alive()
+
+
 # --- half-duplex + priorities (unchanged behavior) ------------------------
 
 

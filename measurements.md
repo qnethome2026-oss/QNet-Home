@@ -160,3 +160,11 @@ back-to-back says (deaf 6–15 s stretches; barge-in impossible by design),
 (3) TTS runner hangs, (4) LLM cold-start classify. End-of-speech → heard
 (T3.1 exact number) still needs a scripted SPOKEN run — the path is now fully
 timestamped, so it falls out of the next live test for free.
+
+Fix round (same evening, proof rerun with the identical scenario): node now
+ignores session snapshots that don't flip the idle<->session mode + LLM
+warm-up ping at session open. heard->say median 2.37 -> 1.61 s, max 5.58 ->
+1.64 s (first reply 0.48 s - cold start gone); snapshot-cancelled listens
+~19 -> 1 (the legitimate session-open flip); session heards published 1 -> 3
+plus a clean silence. Say-chaining and a TTS-hang watchdog deliberately
+deferred (risk > benefit pre-demo); full reasoning in verify/T-voice-bench.txt.

@@ -91,3 +91,42 @@ STILL OPEN
 - End-of-speech -> heard exact number (T3.1): needs a scripted SPOKEN run
   with a person; every leg of that path is now timestamped, so it falls out
   of the next live test for free. contracts/speech-api.md line stays pending.
+
+================ FIX ROUND (same evening) + PROOF RERUN ================
+
+IMPLEMENTED (2 of the 4, the ones that pass "reliably reliable, no latency"):
+1. Node ignores session snapshots that do not flip the idle<->session listen
+   mode (voice_controller.py on_session_event). Two new regression tests.
+2. LLM warm-up ping at session open (engine on_event): one tiny off-loop
+   ask() during the quiet ~30 s after detection.
+
+DEFERRED WITH REASONS (did not pass the bar):
+3. Say-chaining/deaf stretches: spacing engine lines apart means delaying
+   safety speech on purpose (adds latency by design); barge-in would break
+   the half-duplex invariant. The comfort loop already skips slots that land
+   right after other speech. Revisit post-hackathon.
+4. TTS hang watchdog: tts.speak is a blocking brick call; abandoning it from
+   a wrapper thread risks overlapping audio / "session already active" wedges.
+   The observed hang was already self-bounded (~30 s) by the HTTP stack.
+   A rare, bounded failure beats a new failure mode the night before demo.
+
+PROOF RERUN - identical scenario (inject fall + 2 typed replies, 150 s):
+
+  metric                        | before        | after
+  ------------------------------|---------------|---------------
+  heard->say median             | 2.37 s        | 1.61 s
+  heard->say max                | 5.58 s (cold) | 1.64 s
+  first reply of session        | 5.58 s        | 0.48 s  (warm-up worked)
+  snapshot-cancelled listens    | ~19 (6 of 7   | 1 (the session-open
+                                |  listens died)|  mode flip - correct)
+  transcripts discarded         | every listen  | 3 (all by arriving says -
+                                |  but one      |  engine had the floor)
+  session heard published       | 1             | 3 + 1 clean silence
+  TTS runner errors             | 1 (30 s hang) | 0 this run
+
+Silence heards flowing again matters beyond speech: the fall ladder's
+escalation logic feeds on "listened and heard nothing" results, which the
+cancellation storm had been starving too.
+
+Deployed: engine.py -> IQ9 (broker line verified), voice_controller.py ->
+both Ventunos. Suite 204 passed (2 new node tests).

@@ -153,7 +153,7 @@ class Bench:
         # One line per 20 keeps the live feed readable at storm rates.
         if self.snapshot_count % 20 == 0:
             print(f"{stamp(t)} !! {self.snapshot_count} session snapshots so far "
-                  f"(each cancels any in-flight listen on the node)", flush=True)
+                  f"(delivery pressure; the node cancels only on idle<->session flips)", flush=True)
 
     # -- summary ----------------------------------------------------------
 
@@ -172,7 +172,7 @@ class Bench:
             rate = self.snapshot_count / span if span > 0 else float(self.snapshot_count)
             lines.append(
                 f"  session snapshots  : {self.snapshot_count} across {len(self.snapshot_sessions)} session(s)"
-                f" ({rate:.2f}/s while active) - each one cancels a live listen"
+                f" ({rate:.2f}/s while active; the node cancels only on idle<->session flips)"
             )
         else:
             lines.append("  session snapshots  : 0")

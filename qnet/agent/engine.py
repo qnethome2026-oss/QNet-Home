@@ -963,6 +963,15 @@ class Agent:
             {"ts": round(detected_at, 1), "event": "detected", "kind": msg["kind"], "conf": msg.get("conf")},
         )
         session.task = asyncio.ensure_future(self.run_session(session))
+        # The session's first Gemma call measured 5.5s cold vs ~450ms warm
+        # (verify/T-voice-bench.txt). Prime the model during the quiet ~30s
+        # between detection and the person's first words, off-loop, so their
+        # first reply gets the warm path. One tiny call; the result is
+        # discarded and ask() never raises. getattr: test doubles model only
+        # the classify/word surface, and they have no cold start to prime.
+        warmup = getattr(self.llm, "ask", None)
+        if warmup is not None:
+            self._schedule(asyncio.to_thread(warmup, "Reply with OK.", 0.0, 2))
 
     async def on_ask(self, room: str, msg: dict) -> None:
         """`qnet/<room>/ask` - a query, or the responder brief interrupt (§12)."""

@@ -116,22 +116,27 @@ class VoiceController:
     def on_session_event(self, event: SessionEvent) -> None:
         cancel_listen = False
         with self._lock:
+            was_in_session = self._active_session_id is not None
             if event.state == "active":
                 self._active_session_id = event.session_id
             elif self._active_session_id == event.session_id:
                 self._active_session_id = None
-            if self._current_listen_generation is not None:
+            # Cancel ONLY when the listen MODE flips (idle stream <-> bounded
+            # session listen). The engine republishes the session doc on every
+            # internal log line - 25 snapshots for one live session, and
+            # cancelling on each killed 6 of 7 session listens with their
+            # transcripts (measured 2026-08-06, verify/T-voice-bench.txt).
+            # A snapshot that changes nothing must not cost us speech.
+            mode_changed = (self._active_session_id is not None) != was_in_session
+            if mode_changed and self._current_listen_generation is not None:
                 self._cancelled_generations.add(self._current_listen_generation)
                 cancel_listen = True
                 generation = self._current_listen_generation
         # Wake the controller immediately so it switches between the long-lived
         # idle stream and bounded safety-session listens.
         if cancel_listen:
-            # The engine republishes the session doc on every internal event,
-            # and each arrival lands here - this line counts how often that
-            # kills a listen in progress (suspect #1 in the drop analysis).
             LOGGER.info(
-                "session snapshot %s (state=%s) cancelled listen gen %d",
+                "session %s (state=%s) changed listen mode - cancelled listen gen %d",
                 event.session_id,
                 event.state,
                 generation,
