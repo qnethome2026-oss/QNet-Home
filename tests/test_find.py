@@ -468,3 +468,20 @@ def test_engine_hears_looked_replies(tmp_path) -> None:
         assert agent._listeners == [], "the listener must be released when the search ends"
 
     asyncio.run(scenario())
+
+
+def test_unknown_room_traffic_is_dropped(tmp_path) -> None:
+    """A coexisting stack on the shared broker publishes STT chatter under
+    rooms this house never configured - observed live, 60 junk sessions.
+    Configured houses drop unknown-room event/ask/heard outright."""
+    import asyncio
+
+    async def run() -> None:
+        agent, _bus, _calls = find_agent(tmp_path, replies=[], rooms={"kitchen": {}, "bedroom": {}})
+        await agent.on_message(
+            "qnet/living-room/ask",
+            b'{"id": "01X", "ts": 1.0, "room": "living-room", "text": "where is my sanity", "kind": "query"}',
+        )
+        assert agent.sessions.get("living-room") is None
+
+    asyncio.run(run())

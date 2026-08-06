@@ -444,6 +444,11 @@ class Agent:
         find_cfg = self.config.get("find") or {}
         self.last_find: dict | None = None
         self.last_find_window_s = float(find_cfg.get("last_find_window_s", DEFAULT_LAST_FIND_WINDOW_S))
+        # §4: the rooms this house knows. None (no rooms: map, e.g. minimal
+        # test configs) means accept everything; a configured map means inbound
+        # traffic for any other room id is dropped in on_message.
+        rooms_cfg = self.config.get("rooms")
+        self.room_ids: set[str] | None = set(rooms_cfg.keys()) if isinstance(rooms_cfg, dict) and rooms_cfg else None
 
         # Tests inject a recorder registry; production resolves qnet.tools lazily
         # so this module never hard-depends on another lane's task landing.
@@ -623,6 +628,14 @@ class Agent:
         if len(parts) != 3:
             return
         _, room, kind = parts
+        # §4: <room> is an id from config's rooms: map. The broker is shared
+        # infrastructure on a workshop LAN, and a coexisting stack was observed
+        # live-publishing STT chatter under rooms this house has never heard of
+        # - 60 junk sessions before this guard. Unknown rooms are dropped
+        # loudly, sessions are never opened for them.
+        if kind in ("event", "ask", "heard") and self.room_ids is not None and room not in self.room_ids:
+            log.info("[%s] %s dropped - room not in this house's config", room, kind)
+            return
         if kind == "event":
             await self.on_event(room, msg)
         elif kind == "ask":
@@ -901,29 +914,20 @@ class Agent:
         return facts, f"I looked again and I still can't see your {obj} in the {session.room}.", "done"
 
     async def find_text(self, session: Session, facts: list[str], fallback: str) -> str:
-        """Gemma words the answer; the engine chose the facts (same seam as comfort).
+        """The engine's own sentence, always - the model no longer words find answers.
 
-        Identical contract to ``comfort_text``: the model may only rearrange
-        what the nodes actually reported, and anything unusable falls back to
-        the engine's own sentence - so an answer is never silence and never a
-        room that was not checked.
+        This used to hand the facts to Gemma for wording, like comfort lines.
+        Observed live (2026-08-06): facts said "no room answered - I could not
+        reach the kitchen or the bedroom" and the model worded "The item is in
+        the living room. The living room camera reported that the item is
+        there." - a fabricated location, spoken. A search answer IS the safety
+        content of this skill; there is nothing for a model to add to "it's on
+        the counter next to the kettle" that is worth that risk, so the
+        deterministic sentence (which --no-llm always used) is now the only
+        path. The facts still land in the session log for the brief.
         """
-        if self.llm is None:
-            return fallback
-        started = time.monotonic()
-        line = await asyncio.to_thread(self.llm.word_line, "find", facts)
-        await self.append(
-            session,
-            {
-                "event": "llm",
-                "phase": session.phase,
-                "kind": "find",
-                "facts": facts,
-                "source": "gemma" if line else "fallback",
-                "ms": round((time.monotonic() - started) * 1000),
-            },
-        )
-        return line or fallback
+        del session, facts  # kept for call-site symmetry with comfort_text
+        return fallback
 
     def remember_find(self, obj: str, result: dict) -> None:
         """§13's ``last_find``: one object, its results, and when (2-minute life)."""
