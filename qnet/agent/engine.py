@@ -12,6 +12,10 @@ model:
 * ``on_enter`` actions run before the agent's first turn, once per session
 * tools outside the current phase are refused and logged
 * cancel is an engine-level interrupt matched before the agent sees a transcript
+* a trusted contact's Telegram reply is matched on the rails too
+  (T-contact-ack): an ack during ``escalate`` -> ``contact_engaged`` (with a
+  180 s backstop to ``call_help``), "call 911" -> ``call_help`` immediately -
+  the LLM never sees or routes contact text
 * nobody is left in silence - the comfort loop speaks grounded facts (§6, T2.4)
 * the responder brief is an interrupt, not a session (§12)
 * every session writes ``data/sessions/<room>__<skill>__<started_at>.jsonl``
@@ -132,6 +136,39 @@ CANCELLED = "cancelled"
 def is_cancel(text: str) -> bool:
     """Explicit-phrase cancel matching, checked before anything else (§6)."""
     return bool(CANCEL_RE.search((text or "").lower()))
+
+
+# --- trusted-contact replies: engine rails, never the LLM (T-contact-ack) --
+#
+# The escalation Telegram is a question ("Reply OK if you can check on
+# {resident} - otherwise I'll call emergency services in 30 seconds"), and the
+# reply is matched HERE, exactly like cancel: the model never sees contact
+# text and never routes it. Word boundaries and short-message tolerance - a
+# bare "ok" or "omw" is a normal phone reply.
+CONTACT_ACK_RE = re.compile(r"\b(?:ok|okay|on it|got it|omw|on my way|i got this|handling)\b")
+
+# "call 911" / "call emergency (services)" from a contact summons help
+# immediately. Checked FIRST, so "ok, call 911" calls rather than engages.
+CONTACT_EMERGENCY_RE = re.compile(r"\bcall\s+(?:911|9-1-1|emergency(?:\s+services)?)\b")
+
+# fall.md's ladder, by name. Contact replies route only into a live safety
+# session sitting in one of CONTACT_PHASES - the phases where the contact has
+# already been alarmed and the emergency call is pending or placed. A reply
+# with no such session is log-dropped: an unsolicited "ok" must do nothing.
+ESCALATE_PHASE = "escalate"
+CONTACT_ENGAGED_PHASE = "contact_engaged"
+CALL_HELP_PHASE = "call_help"
+CONTACT_PHASES = frozenset({ESCALATE_PHASE, CONTACT_ENGAGED_PHASE, CALL_HELP_PHASE})
+
+
+def contact_verdict(text: str) -> str | None:
+    """What a contact's reply means on the rails: "emergency", "ack" or nothing."""
+    said = (text or "").lower()
+    if CONTACT_EMERGENCY_RE.search(said):
+        return "emergency"
+    if CONTACT_ACK_RE.search(said):
+        return "ack"
+    return None
 
 
 # --- "where are my glasses" -> "glasses" (§13) ----------------------------
@@ -279,6 +316,9 @@ class Session:
     contacts_notified: bool = False
     emergency_called: bool = False
     awaiting_pain_answer: bool = False
+    # The contact who acknowledged the escalation question (T-contact-ack) -
+    # the name the contact_engaged opening speaks, grounded in a real reply.
+    engaged_contact: str = ""
     # The responder brief pauses the comfort loop while it speaks (§12), so the
     # two never talk over each other. Read-only against phases and timers.
     comfort_paused: bool = False
@@ -467,6 +507,7 @@ class Agent:
                 self.timer_scale,
                 self.comfort_interval_s * self.timer_scale,
             )
+            self.start_contact_poller()
             try:
                 async for message in client.messages:
                     try:
@@ -475,6 +516,27 @@ class Agent:
                         log.exception("dropping message on %s", message.topic)
             finally:
                 await self.shutdown()
+
+    def start_contact_poller(self) -> None:
+        """Start the inbound-Telegram poller, if the config makes it possible.
+
+        Only ``serve`` calls this, and only when the bot token and at least one
+        contact chat id are real - so tests, ``--no-llm`` dev runs and a
+        template config all run with no network and no poller at all
+        (T-contact-ack). The task lives in ``_pending``: ``shutdown`` cancels
+        it with everything else.
+        """
+        from qnet.agent import telegram_poller
+
+        if not telegram_poller.enabled(self.config):
+            log.info("telegram poller off - no real bot token/contact chat id in config")
+            return
+        poller = telegram_poller.TelegramPoller(self.config, self.on_contact_reply)
+        self._schedule(poller.run())
+        log.info(
+            "telegram poller up - contact replies route on the engine rails (contacts: %s)",
+            ", ".join(poller.contacts.values()),
+        )
 
     async def shutdown(self) -> None:
         """Stop every session task - nothing half-written on the way out."""
@@ -1054,7 +1116,49 @@ class Agent:
             return
         text, silence = msg.get("text", ""), bool(msg.get("silence"))
         log.info("[%s] heard %s", room, "(silence)" if silence else repr(text))
-        await session.inbox.put((text, silence))
+        await session.inbox.put(("heard", text, silence))
+
+    # --- trusted-contact replies (T-contact-ack) --------------------------
+
+    async def on_contact_reply(self, name: str, text: str) -> None:
+        """Route one Telegram reply from a configured contact - engine rails only.
+
+        The target is the room whose safety session is escalating (most
+        recently active if several). No such session -> log-drop: an
+        unsolicited "ok" must do nothing, publish nothing, crash nothing.
+
+        An accepted reply is (a) appended to the session log as a ``contact``
+        line, (b) republished with the session document like every log line,
+        and (c) published on ``qnet/<room>/contact`` (contracts/mqtt.md). What
+        it *does* is decided inside ``run_phase`` - same seam as a transcript.
+        """
+        session = self.contact_target()
+        if session is None:
+            log.info("contact reply from %s dropped - no escalating safety session: %r", name, text)
+            return
+        verdict = contact_verdict(text)
+        log.info("[%s] contact %s replied %r -> %s", session.room, name, text, verdict or "noted")
+        await self.append(session, {"event": "contact", "from": name, "text": text})
+        await self.publish(
+            f"qnet/{session.room}/contact",
+            {"from": name, "text": text, "ts": round(time.time(), 1)},
+        )
+        await session.inbox.put(("contact", name, verdict))
+
+    def contact_target(self) -> Session | None:
+        """The live safety session a contact reply belongs to, if any.
+
+        Most recently active wins when several rooms are escalating at once -
+        "active" measured by the last log line, which is the last thing that
+        actually happened in the session.
+        """
+        live = [
+            s for s in self.sessions.values()
+            if s.live and s.urgency == "safety" and s.phase in CONTACT_PHASES
+        ]
+        if not live:
+            return None
+        return max(live, key=lambda s: (s.log[-1]["ts"] if s.log else s.detected_at))
 
     # --- the rails (§6) ---------------------------------------------------
 
@@ -1097,7 +1201,7 @@ class Agent:
         """
         session.phase = phase.id
         if phase.opening:
-            await self.say(session, phase.opening, "safety")
+            await self.say(session, self.spoken_opening(session, phase.opening), "safety")
 
         for action in phase.on_enter:
             key = (phase.id, action)
@@ -1115,7 +1219,7 @@ class Agent:
             # loop waits on the phase timer instead of spinning on a due update.
             timeout = self._next_wake(session, deadline, comfort and not session.comfort_paused)
             try:
-                text, silence = await asyncio.wait_for(session.inbox.get(), timeout)
+                item = await asyncio.wait_for(session.inbox.get(), timeout)
             except (TimeoutError, asyncio.TimeoutError):
                 if deadline is not None and time.monotonic() >= deadline - 1e-3:
                     log.info("[%s] %s timer fired after %gs -> %s",
@@ -1125,6 +1229,15 @@ class Agent:
                     await self.comfort(session)
                 continue
 
+            if item[0] == "contact":
+                # Already logged and published by on_contact_reply; here the
+                # rails decide what the reply *does* in this phase.
+                outcome = self.contact_action(phase, session, item[1], item[2])
+                if outcome is not None:
+                    return outcome
+                continue
+
+            _, text, silence = item
             await self.append(session, {"event": "heard", "text": text, "silence": silence})
             if silence:
                 # "Silence during a session is published as {silence: true} and
@@ -1152,6 +1265,54 @@ class Agent:
             if action.kind == "exit":
                 return action.exit
             await self.perform(session, phase, action)
+
+    def contact_action(self, phase: phaselib.Phase, session: Session, name: str, verdict: str | None) -> str | None:
+        """What a routed contact reply does: a phase to jump to, or nothing.
+
+        Engine rails end to end (T-contact-ack) - the LLM is never consulted:
+
+        * ``emergency`` ("call 911") -> ``call_help`` immediately, from any
+          contact phase that is not already placing the call.
+        * ``ack`` ("ok" / "on my way" / ...) during ``escalate`` ->
+          ``contact_engaged``: the contact takes the 30 s window, the session
+          speaks their name, and the 180 s backstop timer starts. In
+          ``contact_engaged`` a second ack changes nothing; in ``call_help``
+          it is too late - the call already went out.
+        * anything else was worth logging (on_contact_reply did) and does
+          nothing.
+
+        Both jumps are guarded on the phase actually existing in the loaded
+        skill, so a skill without the ladder can never end a session with a
+        phase name as its final state.
+        """
+        if verdict == "emergency":
+            if phase.id != CALL_HELP_PHASE and CALL_HELP_PHASE in self.skill.phase_ids:
+                log.info("[%s] contact %s asked for emergency services -> %s", session.room, name, CALL_HELP_PHASE)
+                return CALL_HELP_PHASE
+            return None
+        if (
+            verdict == "ack"
+            and phase.id == ESCALATE_PHASE
+            and CONTACT_ENGAGED_PHASE in self.skill.phase_ids
+        ):
+            session.engaged_contact = name
+            log.info("[%s] contact %s acknowledged -> %s", session.room, name, CONTACT_ENGAGED_PHASE)
+            return CONTACT_ENGAGED_PHASE
+        return None
+
+    def spoken_opening(self, session: Session, text: str) -> str:
+        """A canned opening with its name placeholders filled in.
+
+        Literal replacement, deliberately not ``str.format`` - a stray brace in
+        a skill file must never crash a safety phase. ``{contact}`` is the
+        contact who actually acknowledged (falling back to the first configured
+        contact), ``{resident}`` is the resident - both grounded in config or
+        in a real reply, never guessed.
+        """
+        return (
+            text.replace("{contact}", session.engaged_contact or self.contact_name())
+            .replace("{resident}", self.resident_name())
+        )
 
     def _next_wake(self, session: Session, deadline: float | None, comfort: bool) -> float | None:
         """How long to wait for a transcript: the timer, or the next comfort line."""
@@ -1225,6 +1386,10 @@ class Agent:
         facts = []
         if session.contacts_notified:
             facts.append(f"{self.contact_name()} has been messaged")
+        if session.engaged_contact:
+            # Set only by a real acknowledgement (T-contact-ack), so this
+            # claim is as grounded as the tool facts around it.
+            facts.append(f"{session.engaged_contact} is on the way")
         if session.emergency_called:
             facts.append("emergency services are on the way")
         facts.append(f"it's been about {elapsed_phrase(time.time() - session.detected_at)} since I saw you fall")

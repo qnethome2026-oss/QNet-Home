@@ -1341,6 +1341,12 @@ class MiniMQTT {
 // shape independently rather than sharing a module that would need a build step.
 const TERMINAL_EXITS = new Set(["ok", "found", "not_found", "done", "resolved", "closed", "cancelled"]);
 
+// Mirrors qnet.agent.engine.CONTACT_EMERGENCY_RE (T-contact-ack) - duplicated
+// on purpose, same rule as TERMINAL_EXITS above: both pages implement the wire
+// shape independently. Used only to pick the TONE of a contact-reply line; the
+// routing itself happened on the engine rails long before this page saw it.
+const CONTACT_EMERGENCY_RE = /\bcall\s+(?:911|9-1-1|emergency(?:\s+services)?)\b/i;
+
 // How long after a run ends a room still says "All clear" rather than falling
 // back to "All quiet". Long enough for someone who heard the commotion to walk
 // over and read the screen; short enough that it is not stale tomorrow.
@@ -1411,6 +1417,9 @@ function humanize(entry, ctx) {
       }
       if (entry.to === "escalate") return { iconId: "alert-triangle", text: "QNet is getting help", tone: "alert" };
       if (entry.to === "call_help") return { iconId: "phone", text: "Calling for emergency help", tone: "alert" };
+      // T-contact-ack: a trusted contact answered the escalation question, so
+      // the house is holding off on the emergency call while they come.
+      if (entry.to === "contact_engaged") return { iconId: "person", text: `${contact} is coming to help`, tone: "good" };
       return null; // every other internal move: admin-only
     }
 
@@ -1424,6 +1433,19 @@ function humanize(entry, ctx) {
         return { iconId: "phone", text: "Emergency services called — SIMULATED", tone: "emergency", badge: "SIMULATED" };
       }
       return null; // look_in_rooms and friends: plumbing, not news
+    }
+
+    case "contact": {
+      // T-contact-ack: the contact's Telegram reply, on the record. Calm by
+      // default - someone answering IS the reassuring news - except a reply
+      // asking for emergency services, which reads with the alert tone the
+      // next line ("Calling for emergency help") is about to justify.
+      if (!entry.text) return null;
+      const who = entry.from || "A trusted contact";
+      if (CONTACT_EMERGENCY_RE.test(entry.text)) {
+        return { iconId: "phone", text: `${who} replied: “${entry.text}”`, tone: "alert" };
+      }
+      return { iconId: "person", text: `${who} replied: “${entry.text}”`, tone: "good" };
     }
 
     case "brief":
@@ -1453,6 +1475,12 @@ function deriveNames(log, seed) {
     contactName: (seed && seed.contactName) || null,
   };
   for (const entry of (Array.isArray(log) ? log : [])) {
+    // A contact reply line carries the configured name outright (T-contact-ack)
+    // - the one place the wire states it rather than embedding it in a sentence.
+    if (!out.contactName && entry && entry.event === "contact"
+        && typeof entry.from === "string" && /^[A-Z][a-z]{1,19}$/.test(entry.from)) {
+      out.contactName = entry.from;
+    }
     if (!entry || typeof entry.text !== "string" || !entry.text) continue;
     if (!out.contactName) {
       const m = CONTACT_NAMED_RE.exec(entry.text) || CONTACT_ACTED_RE.exec(entry.text);
@@ -2123,6 +2151,42 @@ function runSelfTest() {
       fn: () => [humanize(null, fallCtx), humanize({}, fallCtx), humanize({ event: "" }, null)],
       expect: (r) => r.every((x) => x === null) },
 
+    // ---- contact replies (T-contact-ack) ----
+    { name: "contact ack reply -> named, quoted, calm (person icon, good tone)",
+      fn: () => humanize({ event: "contact", from: "Sarah", text: "ok on my way" }, fallCtx),
+      expect: (r) => r.iconId === "person" && r.text === "Sarah replied: “ok on my way”" && r.tone === "good" },
+    { name: "contact reply without a name -> generic noun, still English",
+      fn: () => humanize({ event: "contact", text: "ok" }, fallCtx),
+      expect: (r) => r.text === "A trusted contact replied: “ok”" && r.tone === "good" },
+    { name: "contact 'call 911' reply -> alert tone, phone icon",
+      fn: () => humanize({ event: "contact", from: "Sarah", text: "call 911" }, fallCtx),
+      expect: (r) => r.iconId === "phone" && r.text === "Sarah replied: “call 911”" && r.tone === "alert" },
+    { name: "contact 'call emergency services' -> alert tone too",
+      fn: () => humanize({ event: "contact", from: "Sarah", text: "please call emergency services" }, fallCtx),
+      expect: (r) => r.tone === "alert" },
+    { name: "contact reply with no text -> null, never a crash",
+      fn: () => humanize({ event: "contact", from: "Sarah" }, fallCtx),
+      expect: (r) => r === null },
+    { name: "phase -> contact_engaged -> the contact is coming, by name, good tone",
+      fn: () => humanize({ event: "phase", from: "escalate", to: "contact_engaged" },
+                         { room: "kitchen", urgency: "safety", contactName: "Sarah" }),
+      expect: (r) => r.iconId === "person" && r.text === "Sarah is coming to help" && r.tone === "good" },
+    { name: "phase -> contact_engaged, unknown contact -> generic noun",
+      fn: () => humanize({ event: "phase", from: "escalate", to: "contact_engaged" }, fallCtx),
+      expect: (r) => r.text === "A trusted contact is coming to help" },
+    { name: "NO JARGON: contact lines leak no wire vocabulary",
+      fn: () => [
+        humanize({ event: "contact", from: "Sarah", text: "omw" }, fallCtx),
+        humanize({ event: "phase", from: "escalate", to: "contact_engaged" }, fallCtx),
+      ].map((r) => r.text),
+      expect: (r) => r.every((t) => !JARGON.test(t)) },
+    { name: "names: the contact's name is learned from a contact reply line",
+      fn: () => deriveNames([{ ts: 1, event: "contact", from: "Sarah", text: "ok" }], null),
+      expect: (r) => r.contactName === "Sarah" },
+    { name: "names: a chat-id-shaped 'from' is never adopted as a name",
+      fn: () => deriveNames([{ ts: 1, event: "contact", from: "8887749836", text: "ok" }], null),
+      expect: (r) => r.contactName === null },
+
     // ---- no jargon, over a whole run ----
     { name: "NO JARGON: no rendered sentence in a full fall run leaks wire vocabulary",
       // 11 wire lines in, 9 sentences out - the refusal and the llm line are
@@ -2751,7 +2815,9 @@ client.onMessage = (topic, payloadStr) => {
     return;
   }
 
-  const roomMatch = topic.match(/^qnet\/([^/]+)\/(status|say|heard|event|looked|ask)$/);
+  // `contact` (T-contact-ack) is here so the reply refreshes the room's
+  // last-activity clock; the feed line itself comes from the session stream.
+  const roomMatch = topic.match(/^qnet\/([^/]+)\/(status|say|heard|event|looked|ask|contact)$/);
   if (roomMatch) {
     // The 5 s heartbeat is the camera's proof of life; cameraHealth() turns
     // its age into online/offline everywhere the room is drawn.

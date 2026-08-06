@@ -31,6 +31,7 @@ carries `room`, and every message it publishes goes out under that room.
 | `qnet/<room>/looked` | node → agent | 1 | What that node's VLM saw |
 | `qnet/<room>/status` | node → all | 0 | Health |
 | `qnet/session/<id>` | agent → dashboard | 1 | Session updates |
+| `qnet/<room>/contact` | agent → all | 1 | A trusted contact's Telegram reply, republished |
 
 **Why these QoS levels.** Everything that carries a decision or a person's words
 is QoS 1 — losing a fall event, a spoken line, a transcript, a search request or
@@ -187,6 +188,34 @@ liveness later), and the dashboard today keys only off the heartbeat's arrival �
 the payload is telemetry, not contract-critical state. There is deliberately
 still no fixture: nothing replays a heartbeat.
 
+### `qnet/<room>/contact` — `contracts/fixtures/contact_reply.json`
+
+**Added by T-contact-ack.** The escalation Telegram is a question ("Reply OK if
+you can check on {resident} — otherwise I'll call emergency services in 30
+seconds"), and this topic is the accepted reply made visible on the fabric. The
+agent publishes it for every Telegram message it **accepts**: sender is a
+configured contact chat id, and a live safety session is escalating
+(`escalate` / `contact_engaged` / `call_help`) in `<room>`. A reply with no such
+session, or from an unconfigured chat id, is log-dropped and never published.
+
+```json
+{ "from": "Sarah", "text": "ok on my way", "ts": 1785790181.2 }
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `from` | string | The contact's configured name (`config/house.yaml` `contacts:`) — never a chat id |
+| `text` | string | The reply, verbatim |
+| `ts` | number | Unix epoch seconds, fractional — when the agent accepted it |
+
+What the reply *does* (ack → `contact_engaged`, "call 911" → `call_help`) is
+engine behaviour, matched by regex on the engine rails — the LLM never routes
+contact text, and this topic carries no verdict on purpose: it is a record of
+what was said, not of what the engine decided. The same reply also lands in the
+session log as a `contact` line (below), so the dashboard needs only the
+session stream; this topic exists for any consumer that wants contact replies
+without following sessions.
+
 ### `qnet/session/<id>` — `contracts/fixtures/session.json`
 
 ```json
@@ -224,6 +253,7 @@ Every line carries `ts` and `event`; the rest depends on `event`:
 | `tool` | `tool`, `result` |
 | `refusal` | `tool`, `phase` |
 | `brief` | `ask_id`, `spoken` (+ optional `text`) — **frozen in T6.1**, see below |
+| `contact` | `from`, `text` — a trusted contact's reply (T-contact-ack), same fields as `qnet/<room>/contact` minus its `ts` duplicate |
 
 ### The `brief` log line — frozen (T6.1)
 

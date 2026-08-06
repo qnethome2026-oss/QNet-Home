@@ -74,7 +74,7 @@ def load(text: str):
 
 
 def test_fall_md_loads() -> None:
-    """DESIGN §7's file, verbatim on disk, parses into the three phases it describes."""
+    """The file on disk parses into the ladder it describes (§7 + T-contact-ack)."""
     skill = phases.load_skill(FALL_MD, tools=FAKE_TOOLS)
 
     assert skill.name == "fall-response"
@@ -83,7 +83,7 @@ def test_fall_md_loads() -> None:
     assert skill.meta["emergency_number"] == "911"
     assert "IFRC 2020 First Aid Guidelines" in skill.meta["source"]
 
-    assert skill.phase_ids == ("check", "escalate", "call_help")
+    assert skill.phase_ids == ("check", "escalate", "contact_engaged", "call_help")
     assert skill.first.id == "check"
 
     check = skill.phase("check")
@@ -95,12 +95,22 @@ def test_fall_md_loads() -> None:
 
     escalate = skill.phase("escalate")
     assert escalate.on_enter == ("notify_contacts",)
-    assert escalate.timer == phases.Timer(after_s=15.0, goto="call_help")
+    # 30 s (was 15): the escalation Telegram promises the contact a 30-second
+    # reply window before the call (T-contact-ack).
+    assert escalate.timer == phases.Timer(after_s=30.0, goto="call_help")
     assert set(escalate.exits) == {"check"}
     # The folded opening keeps DESIGN's wording on one line.
     assert escalate.opening == (
         "It's okay — I'm getting you help. Try to get comfortable, and don't strain to move."
     )
+
+    # T-contact-ack: reached only by the engine, on a contact's ack. NOT one of
+    # escalate's exits - the LLM must never be offered contact routing.
+    engaged = skill.phase("contact_engaged")
+    assert engaged.on_enter == ("notify_contacts",)  # the "I'll hold off" confirmation
+    assert engaged.timer == phases.Timer(after_s=180.0, goto="call_help")  # the backstop
+    assert set(engaged.exits) == {"check"}
+    assert "{contact}" in engaged.opening  # the engine fills the real name in
 
     call_help = skill.phase("call_help")
     assert call_help.on_enter == ("call_emergency", "notify_contacts")

@@ -1,0 +1,231 @@
+T-contact-ack - the trusted contact's reply window (user decision 2026-08-06)
+=============================================================================
+Run 2026-08-05 on the Snapdragon X Elite laptop (win32), Git Bash / PowerShell,
+cwd = C:\Users\QCWorkshop26\Workspace\QNet-Home-impl (branch implementation).
+node v22.20.0, python venv at .venv. Nothing was committed.
+
+THE CHANGE
+  The fall-response escalation Telegram became a QUESTION: the trusted contact
+  gets 30 seconds to acknowledge before the (SIMULATED) emergency call fires.
+  An ack ("ok" / "okay" / "on it" / "got it" / "omw" / "on my way" /
+  "i got this" / "handling", case-insensitive, word-boundary) jumps the
+  session to a NEW phase `contact_engaged`: the house tells the resident, by
+  name, that the contact is coming; the comfort loop continues; a 180 s
+  backstop still reaches call_help so an acked-then-silence never strands
+  anyone. A contact reply "call 911" / "call emergency (services)" reaches
+  call_help immediately, from escalate and from contact_engaged both. All
+  contact matching is REGEX ON THE ENGINE RAILS - the LLM never sees or
+  routes contact text (engine.CONTACT_ACK_RE / CONTACT_EMERGENCY_RE).
+
+DELIVERABLES
+  qnet/agent/engine.py            contact rails: on_contact_reply / contact_target /
+                                  contact_action / spoken_opening; tagged inbox;
+                                  comfort fact "X is on the way"; poller start
+  qnet/agent/telegram_poller.py   NEW - getUpdates long-poll, offset persisted,
+                                  first-start backlog skip, contact-only accept
+  qnet/tools/notify_contacts.py   escalate template is now the question; new
+                                  contact_engaged ("I'll hold off") template
+  skills/fall.md                  escalate timer 15->30 s; new contact_engaged
+                                  phase (on_enter notify_contacts, 180 s timer
+                                  -> call_help, exit: check); templates block
+  contracts/mqtt.md               CONTRACT ADDITION: qnet/<room>/contact topic
+                                  + `contact` session-log line, frozen here
+  contracts/fixtures/contact_reply.json   NEW fixture
+  contracts/fixtures/session.json         gains a `contact` log line
+  tests/test_contracts.py         test_contact_reply + `contact` in required map
+  tests/test_skill_loader.py      fall.md shape assertions updated (4 phases)
+  tests/test_contact_ack.py       NEW - 19 tests, hermetic (fake poller/transport)
+  dashboard/index.html            humanize(): `contact` event + phase->
+                                  contact_engaged; deriveNames learns the name
+                                  from the reply line; room router accepts the
+                                  contact topic; +10 self-test cases
+  docs/DEMO.md                    use-case-1 Beat 4: reply-OK variant + no-reply
+                                  variant; timer pacing + honesty card updated
+  config/house.yaml               contacts: comment documenting the reply flow
+  verify/T-contact-ack.txt        this file
+
+  NOT touched: qnet/node/*, dashboard/admin.html, dev/sim.html, packaging/*,
+  infra/*, the four named regression scenarios in tests/test_scenarios.py.
+
+DESIGN HOLDS (DESIGN.md §6 invariants)
+  * Timers and notifications stay engine-side; the question, the jump, the
+    backstop and the confirmation all fire with no model in the loop
+    (the live run below is --no-llm end to end).
+  * contact_engaged is NOT an exit of escalate, so llm.options_for never
+    offers it - the model cannot claim a contact engaged. The jump is returned
+    by the engine's own listen loop, exactly like a timer goto.
+  * on_enter stays once-per-(phase,action): re-engagement never re-sends the
+    confirmation; re-escalation never re-alarms.
+  * Cancel still wins from everywhere, including contact_engaged, and still
+    sends the false-alarm follow-up.
+  * The pain double-check is untouched; a person's reply in contact_engaged
+    routes back to check like escalate's always did.
+
+--------------------------------------------------------------------
+PART 1 - MACHINE-VERIFIED
+--------------------------------------------------------------------
+
+1a. pytest - 124 passed, 7 deselected (baseline 105 passed, 7 deselected)
+--------------------------------------------------------------------------
+  $ .venv/Scripts/python.exe -m pytest tests/ -q
+  124 passed, 7 deselected in 41.07s                                 PASS
+
+  +19 new in tests/test_contact_ack.py:
+    contact_verdicts                       ack set / emergency set / neither;
+                                           "ok, call 911" -> emergency
+    ack_engages_contact                    ack -> contact_engaged, no 911 past
+                                           the scaled 30 s, Sarah named aloud,
+                                           confirmation kind=contact_engaged,
+                                           contact line in log + session doc +
+                                           qnet/kitchen/contact wire message
+    no_ack_still_calls_at_scaled_30s       call_help at ~3.0 s (60 s x 0.05)
+    ack_then_silence_backstop_calls        backstop ~1.8 s (180 s x 0.01) ->
+                                           SIMULATED call, milestones in order
+    contact_call_911_from_escalate         immediate, beats the phase timer
+    contact_call_911_from_contact_engaged  immediate, beats the backstop
+    unsolicited_reply_is_dropped           no session: nothing published
+    reply_during_check_phase_is_dropped    routing needs an escalating session
+    second_ack_in_contact_engaged...       logged, but no re-jump/re-confirm
+    cancel_phrases_work_in_contact_engaged cancelled + false_alarm follow-up
+    person_reply_in_contact_engaged...     -> check -> pain gate -> ok close
+    comfort_continues_in_contact_engaged   "Sarah is on the way" in the update
+    poller_enabled_gate                    TODO token / TODO chat id -> off
+    poller_parses_and_routes...            chat-id map, non-contact ignored,
+                                           sticker (no text) ignored
+    poller_offset_advances_and_persists    offset+1 asked, survives restart
+    poller_first_start_skips_backlog       CRITICAL: old "hi" messages drained,
+                                           never routed, drain runs once
+    poller_first_start_with_empty_backlog  still marks initialized
+    poller_survives_api_failure            network error / not-ok -> None,
+                                           never an exception
+  +1 in tests/test_contracts.py (test_contact_reply, the ninth fixture)
+  ~  tests/test_skill_loader.py: fall.md now four phases; escalate 30 s;
+     contact_engaged asserted (on_enter, 180 s timer, {contact} placeholder)
+  The four named regression scenarios pass unchanged - test_scenarios.py was
+  not edited at all (test_silence_full_escalation's timing window already
+  covers the 15->30 s escalate leg).
+
+1b. Dashboard LOGIC CORE self-test - 119/119, from the SHIPPED file [was 109]
+------------------------------------------------------------------------------
+Method unchanged from T5.1-T5.7: the block between the LOGIC CORE BEGIN/END
+banners sliced out of dashboard/index.html at runtime and run under node, so
+the cases are byte-identical to the browser's ?selftest=1 panel.
+
+  $ node <harness> dashboard/index.html
+  # extracted 1267 lines of LOGIC CORE from dashboard/index.html
+  QNet Home product-page self-test: 119/119 passed                   PASS
+
+  The 10 new cases:
+    contact ack reply -> named, quoted, calm (person icon, good tone)
+    contact reply without a name -> generic noun, still English
+    contact 'call 911' reply -> alert tone, phone icon
+    contact 'call emergency services' -> alert tone too
+    contact reply with no text -> null, never a crash
+    phase -> contact_engaged -> the contact is coming, by name, good tone
+    phase -> contact_engaged, unknown contact -> generic noun
+    NO JARGON: contact lines leak no wire vocabulary
+    names: the contact's name is learned from a contact reply line
+    names: a chat-id-shaped 'from' is never adopted as a name
+
+  node --check over the whole inline <script>                        PASS
+  Visible-text jargon audit (same regex as T5.5 1f): NONE            PASS
+
+1c. LIVE OUTBOUND - the real question-form Telegram, delivered:true
+--------------------------------------------------------------------
+Setup honoured the constraints exactly: the deployed IQ9 stack
+(10.73.51.175:11883, systemd qnet-agent) was NOT touched or restarted; a
+THROWAWAY local amqtt broker was started on the NONSTANDARD port
+127.0.0.1:21883 (scratchpad script, tcp only), and a LOCAL agent instance ran
+against it with the real config (config/house.yaml + house.local.yaml overlay
+- real bot token, contacts Gaurav and Muni, two real phones):
+
+  $ python -m qnet.agent --config config/house.yaml --broker 127.0.0.1 \
+        --port 21883 --no-llm --timer-scale 0.2
+
+  19:36:18 telegram poller up - contact replies route on the engine rails
+           (contacts: Gaurav, Muni)
+  19:36:19 telegram: first start - skipped 8 backlog update(s)     <- CRITICAL
+           behaviour observed live: the chat's old test messages were drained
+           and none routed; data/telegram_offset.json persisted (631702954)
+  $ python dev/inject.py --broker 127.0.0.1 --port 21883 fall --room kitchen
+  19:36:53 check timer fired after 6s -> escalate       (30 s x 0.2)
+  19:36:54 POST .../sendMessage "HTTP/1.1 200 OK"  (x2 - one per contact)
+  19:37:00+ long-poll getUpdates continues cleanly at the new offset
+
+  data/outbox/telegram.log (the delivered question, verbatim):
+    {"kind": "escalate", "text": "🔴 Possible fall — Tony, kitchen. Reply OK
+     if you can check on Tony — otherwise I'll call emergency services in 30
+     seconds."}
+  data/sessions/kitchen__fall-response__2026-08-05T19-36-47.jsonl:
+    {"event": "tool", "tool": "notify_contacts", "result": "telegram"}
+    -> result "telegram" is notify_contacts' delivered:true (delivered to ALL
+       configured chat ids, or it reports "console")
+
+  No reply arrived within the (scaled) window, so the ladder behaved exactly
+  as before: call_help at the scaled 30 s, SIMULATED call line in the session
+  file, 📞 milestone delivered (200 OK x2). The run was then closed honestly
+  with an injected "false alarm" -> session cancelled, ✅ false-alarm
+  follow-up delivered (200 OK x2) so neither phone was left worrying.
+
+  Teardown: the local agent and the throwaway broker were BOTH killed and
+  confirmed gone (no python holding :21883, no qnet.agent process). The
+  pre-existing dev broker on 1883/9001 (PID 14436, standing rule: reuse,
+  never kill) was not touched. data/telegram_offset.json remains on the
+  laptop - correct state for any future local run, gitignored.
+
+  >>> LIVE INBOUND ACK AWAITS A HUMAN REPLY - see Part 2 checklist. <<<
+  The trusted contacts are the USER's phones; this session cannot reply to
+  itself. Everything reply-side is machine-verified in 1a (the poller units
+  and the engine rails) - what is left for a human is the one glue moment:
+  a real thumb typing "ok" on a real phone.
+
+--------------------------------------------------------------------
+PART 2 - HUMAN CHECKLIST (the live inbound ack)
+--------------------------------------------------------------------
+After the orchestrator redeploys to the IQ9 and restarts qnet-agent
+(deployment list in the task report; first start there will log
+"telegram: first start - skipped N backlog update(s)"):
+
+[ ] Trigger a fall (real camera or `python dev/inject.py fall --room kitchen`
+    against the IQ9 broker 10.73.51.175:11883)
+[ ] Phone buzzes with the QUESTION form: "🔴 Possible fall — Tony, kitchen.
+    Reply OK if you can check on Tony — otherwise I'll call emergency services
+    in 30 seconds."
+[ ] Reply `ok` within the window (30 s at product scale; watch the unit's
+    --timer-scale)
+[ ] The room speaks: "Good news — <your name> saw my message and is coming to
+    check on you. I'll stay with you until they arrive." - the name is the
+    replying contact's, from house.local.yaml
+[ ] NO emergency call fires at the 30 s mark
+[ ] Phone gets the confirmation: "🤝 Got it — I'll hold off on emergency
+    services. I'll still call in 3 minutes unless someone resolves this."
+[ ] Dashboard feed shows "<Name> replied: "ok"" (person icon, calm) and
+    "<Name> is coming to help"; JARGON stays absent
+[ ] Do nothing for 3 more minutes -> the SIMULATED call fires (the backstop)
+    - or type `false alarm` to close with the ✅ follow-up
+[ ] Second run: reply `call 911` instead -> the SIMULATED call fires
+    immediately, and the feed line renders with the alert tone
+[ ] Third run: reply from a phone NOT in house.local.yaml -> agent log shows
+    "message from unconfigured chat ... ignored", nothing else happens
+[ ] Reply `ok` with NO fall active -> agent log shows "contact reply ...
+    dropped - no escalating safety session", nothing published
+
+--------------------------------------------------------------------
+SUMMARY
+--------------------------------------------------------------------
+Machine-verifiable surface: PASS in full.
+  pytest 124 passed, 7 deselected (baseline 105/7 - zero regressions; the
+    four named scenarios untouched and passing)
+  dashboard LOGIC CORE 119/119 (baseline 109 carried forward + 10 new),
+    node --check clean, visible-text jargon audit clean
+  contracts: qnet/<room>/contact + the `contact` log line frozen in
+    contracts/mqtt.md, fixture added, test_contracts extended - same commit,
+    per the standing rule
+  live outbound: the real question-form Telegram delivered (sendMessage
+    200 OK to both real contacts; session log result "telegram" =
+    delivered:true), backlog skip observed live, no-reply path unchanged,
+    false-alarm follow-up delivered, everything torn down
+Not machine-verifiable here: the inbound half of the live loop - a human
+reply from the contact's phone (Part 2). The engine's handling of that reply
+is fully covered hermetically; the checklist verifies the last real-world
+inch. Nothing was committed.

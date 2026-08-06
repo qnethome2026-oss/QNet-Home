@@ -6,9 +6,15 @@
 
 **Invoked by the engine's ``on_enter``, never by the LLM** - it is registered
 ``engine_only=True`` so nothing accidentally offers it to the model as a
-callable tool. The three possible messages are templated and sent with no
-model call (DESIGN §7); ``{room}`` is in all three deliberately - it is the
-one fact a trusted contact needs most to act on the message.
+callable tool. The four possible messages are templated and sent with no
+model call (DESIGN §7, skills/fall.md); ``{room}`` is in the alarm messages
+deliberately - it is the one fact a trusted contact needs most to act on.
+
+The ``escalate`` message is a QUESTION (T-contact-ack): the contact gets 30
+seconds to reply OK before the (SIMULATED) emergency call fires, and
+``contact_engaged`` is the confirmation sent back when they do. The numbers in
+both templates mirror skills/fall.md's timers (30 s escalate window, 180 s
+backstop) - change one, change the other.
 
 Delivery: one HTTPS POST to the Telegram Bot API per configured contact, 5 s
 timeout, one retry. If ``telegram_bot_token`` or every contact's
@@ -30,7 +36,14 @@ import httpx
 from qnet.tools import ToolContext, console_print, register
 
 TEMPLATES = {
-    "escalate": "\U0001F534 Possible fall — {resident}, {room}. Checking on them now.",
+    "escalate": (
+        "\U0001F534 Possible fall — {resident}, {room}. Reply OK if you can check on "
+        "{resident} — otherwise I'll call emergency services in 30 seconds."
+    ),
+    "contact_engaged": (
+        "\U0001F91D Got it — I'll hold off on emergency services. "
+        "I'll still call in 3 minutes unless someone resolves this."
+    ),
     "call_help": "\U0001F4DE No response from {resident} — calling emergency services now ({room}).",
     "false_alarm": "✅ False alarm — {resident} confirmed they're okay ({room}). No action needed.",
 }

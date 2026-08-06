@@ -64,14 +64,29 @@ endpoint the household enables; say so if asked.)*
 breath — are you okay?" (on the node this will be spoken aloud; today it is
 text).
 
-**Beat 3 — silence escalates.** Nobody answers. On the demo timer scale the
-escalation arrives in seconds: comfort line + **the phone buzzes** — 🔴
-"Possible fall — Tony, kitchen." Hold the phone up.
+**Beat 3 — silence escalates, and the phone rings with a question.** Nobody
+answers. On the demo timer scale the escalation arrives in seconds: comfort
+line + **the phone buzzes** — 🔴 "Possible fall — Tony, kitchen. Reply OK if
+you can check on Tony — otherwise I'll call emergency services in 30 seconds."
+Hold the phone up: *the house is asking a person before it calls a dispatcher.*
 
-**Beat 4 — the call.** Still no answer → "You haven't answered, so I'm calling
-emergency services now." + **SIMULATED 911 line on the dashboard (red, marked
-SIMULATED)** + second buzz — 📞. The word SIMULATED is in every artifact on
-purpose; say so.
+**Beat 4 — the contact answers (the new beat: run ONE of the two variants).**
+
+- *Reply-OK variant:* reply `ok` on the phone → the house tells Tony out loud:
+  "Good news — Sarah saw my message and is coming to check on you." The
+  dashboard shows "Sarah replied: ok" and "Sarah is coming to help" — **and no
+  911 call happens.** The phone gets the confirmation back — 🤝 "Got it — I'll
+  hold off on emergency services. I'll still call in 3 minutes unless someone
+  resolves this." Say the honest part aloud: if Sarah then never shows and
+  nobody resolves, the (SIMULATED) call still fires after 3 minutes — an
+  acked-then-silence never strands anyone. The reply is matched by the engine's
+  rails, not the model.
+- *No-reply variant:* ignore the phone → after the 30 s window: "You haven't
+  answered, so I'm calling emergency services now." + **SIMULATED 911 line on
+  the dashboard (red, marked SIMULATED)** + second buzz — 📞. The word
+  SIMULATED is in every artifact on purpose; say so.
+- (Judge-proof extra, works from either variant: replying `call 911` on the
+  phone places the SIMULATED call immediately.)
 
 **Beat 5 — the responder brief.** In the dashboard composer (room: kitchen), type:
 `i'm the first responder, can you tell me what happened?` → the house answers
@@ -115,8 +130,12 @@ view. Presenter is "in the bedroom" (composer room selector = bedroom).
 
 ## 5 · Timer pacing (decide before the demo)
 
-Real product timers are 30 s (check) / 15 s (escalate) — honest but slow on
-stage. The `qnet-agent` unit can carry `--timer-scale 0.3` (≈9 s / 4.5 s):
+Real product timers are 30 s (check) / 30 s (escalate — the contact's reply
+window) / 180 s (contact-engaged backstop) — honest but slow on stage. The
+`qnet-agent` unit can carry `--timer-scale 0.3` (≈9 s / 9 s / 54 s). Note the
+Telegram question says "30 seconds" and the confirmation says "3 minutes" —
+those are the real product numbers; at demo scale the clock runs faster than
+the message claims, which is exactly the "compressed pace" honesty line below:
 
 ```
 ssh iq9 'sudo systemctl edit qnet-agent'   # override ExecStart with --timer-scale 0.3
@@ -135,7 +154,9 @@ remains the full fallback demo if the IQ9 itself is lost.
 ## 7 · What we say is real vs. not (honesty card)
 
 - Real: NPU fall detection [M 34.8 ms/inf], NPU VLM lookups, on-device Gemma
-  [M 15.7–16.2 tok/s], MQTT fabric, Telegram to a real phone, engine rails.
+  [M 15.7–16.2 tok/s], MQTT fabric, Telegram to a real phone **in both
+  directions** (the question out, the contact's OK / "call 911" back — replies
+  matched on engine rails, never by the model), engine rails.
 - Simulated: the 911 call (marked SIMULATED in every artifact).
 - Typed today, spoken when speech lands: the person's replies + wake phrase.
 - Unmeasured: fall-model accuracy (no published numbers; our clip table in

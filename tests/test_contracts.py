@@ -4,8 +4,9 @@
 # GNU Affero General Public License v3 or later, with ABSOLUTELY NO WARRANTY.
 """T0.1 - the frozen wire contract, one test per fixture (DESIGN.md §4).
 
-Eight fixtures, eight tests. If a payload shape changes, this file and
-``contracts/mqtt.md`` change in the same commit, or it didn't happen.
+Nine fixtures, nine tests (T-contact-ack added ``contact_reply.json``). If a
+payload shape changes, this file and ``contracts/mqtt.md`` change in the same
+commit, or it didn't happen.
 """
 
 from __future__ import annotations
@@ -102,6 +103,16 @@ def test_looked() -> None:
         assert m["answer"]
 
 
+def test_contact_reply() -> None:
+    """qnet/<room>/contact - a trusted contact's Telegram reply (T-contact-ack)."""
+    m = load("contact_reply.json")
+    assert set(m) == {"from", "text", "ts"}
+    # A configured name, never a chat id - the wire carries no Telegram detail.
+    assert isinstance(m["from"], str) and m["from"] and not m["from"].isdigit()
+    assert isinstance(m["text"], str) and m["text"]
+    assert isinstance(m["ts"], float)
+
+
 def test_session() -> None:
     """qnet/session/<id> - one skill run, trigger to exit, plus its log lines (§6)."""
     m = load("session.json")
@@ -121,6 +132,7 @@ def test_session() -> None:
         "phase": {"from", "to"},
         "tool": {"tool", "result"},
         "refusal": {"tool", "phase"},
+        "contact": {"from", "text"},
     }
     for line in m["log"]:
         assert isinstance(line["ts"], float)

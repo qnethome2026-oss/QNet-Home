@@ -17,6 +17,12 @@ mqtt:
 
 resident: { name: "Tony" }
 contacts:
+  # A contact with a real chat id gets the escalation QUESTION and can reply
+  # (T-contact-ack): "ok"/"on my way"/... engages them - the house holds off
+  # the (SIMULATED) emergency call for 3 minutes - and "call 911" places it
+  # immediately. Replies are matched on the engine rails; the model never
+  # routes them. The inbound poller starts only when telegram_bot_token AND at
+  # least one chat id here are real (both live in house.local.yaml).
   - { name: "Sarah", telegram_chat_id: "TODO" }
 telegram_bot_token: "TODO"
 emergency_number: "911"

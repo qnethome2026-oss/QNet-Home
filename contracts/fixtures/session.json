@@ -40,6 +40,12 @@
       "event": "refusal",
       "tool": "call_emergency",
       "phase": "check"
+    },
+    {
+      "ts": 1785790181.2,
+      "event": "contact",
+      "from": "Sarah",
+      "text": "ok on my way"
     }
   ]
 }
