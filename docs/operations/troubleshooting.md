@@ -216,3 +216,11 @@ qnet-vision stopped so the device is free:
 If that fails on a free device, the camera/cable hardware is bad - swap it.
 A swapped camera has a DIFFERENT /dev/v4l/by-id path: update the unit's
 --source and config/house.yaml, daemon-reload, restart qnet-vision.
+
+Resolution (2026-08-07 02:51): moving the camera to a DIFFERENT USB PORT
+fixed it outright - 900-frame sustained capture clean, vision stable. The
+"bad hardware" read was half right: the fault was the port/cable path, not
+the camera. Order of escalation, cheapest first: different port -> different
+cable -> different camera. After any move the by-id path stays the same
+(it's derived from the device, not the port), so no config change is needed
+- just restart qnet-vision.
