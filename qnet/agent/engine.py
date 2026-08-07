@@ -73,6 +73,7 @@ Two design ambiguities resolved here, both flagged in the code where they bite:
 from __future__ import annotations
 
 import asyncio
+import collections
 import contextlib
 import inspect
 import json
@@ -85,6 +86,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import aiomqtt
+import yaml
 
 from qnet.agent import llm as llmlib
 from qnet.agent import phases as phaselib
@@ -103,7 +105,31 @@ DEFAULT_BROKER = "127.0.0.1"
 DEFAULT_PORT = 1883
 
 # §6: "if nothing has been spoken for ~20 s the engine gives the agent a turn".
+# Kept as the LEGACY cadence: a configured `comfort.interval_s` still means
+# exactly this (fixed quiet-gap), byte for byte. The default is now a schedule.
 DEFAULT_COMFORT_INTERVAL_S = 20.0
+
+# User finding 2026-08-06: a status line every 20 s reads as hovering, not
+# care. The default cadence is a schedule of offsets from detection - a status
+# about a minute in, another at two minutes, then one every five. The last
+# entry repeats as the gap thereafter; `dev.timer_scale` scales every offset.
+DEFAULT_COMFORT_SCHEDULE_S = (60.0, 120.0, 300.0)
+
+# A scheduled slot that comes due moments after something else spoke (a phase
+# opening, a reply to the person, the responder brief) is skipped outright -
+# that line already broke the silence, which is the slot's whole job. Skipped,
+# never queued: the next scheduled slot stands. Scaled like every duration.
+COMFORT_SLOT_GUARD_S = 10.0
+
+# The canned comfort frames, rotated per line spoken: the facts inside stay
+# identical claims, but consecutive updates must never share wording (user
+# finding 2026-08-06 - a repeated sentence reads as a recording, not a
+# companion). {Body} capitalises the fact list's first letter; {body} does not.
+COMFORT_SHAPES = (
+    "I'm still here with you. {Body}.",
+    "Still with you — {body}.",
+    "I haven't gone anywhere. {Body}.",
+)
 
 # §13: "the agent remembers the last find result for 2 minutes". One variable,
 # one if-statement - no conversation history, no session linking.
@@ -123,6 +149,24 @@ ROUTINE_PRIO = "routine"
 # The pain double-check (§3, §6) - canned, so it is reachable with no model at
 # all. "I'm fine" must never close a session without passing through this.
 PAIN_QUESTION = "Any pain? Did you hit your head?"
+# Whisper garbles ("I'm still bleeding" -> "I'm so leading", live 2026-08-06
+# 4:26PM) and the 2B model, prompted every which way, still answered garble
+# with invented empathy. So garble is a CLASSIFY option ("unclear") and the
+# rails speak this canned line - the model only flags, it never words.
+DIDNT_CATCH_LINE = "Sorry, I didn't quite catch that. Could you say it again?"
+# What an unrouted mid-escalation utterance gets instead of silence (user
+# finding 2026-08-06: "Help me" / "What can I do?" earned only the next timed
+# status line). The guidance half is fall.md's own sourced wording - nothing
+# medical beyond what the skill already says once in its opening. This is the
+# NO-MATCH reply: when the person's words name a problem skills/first-aid.md
+# knows, REPLY_GUIDED carries that topic's sentence instead.
+REPLY_FALLBACK = ("I'm right here with you. Try to get comfortable and don't strain to move — "
+                  "help is on the way.")
+
+# The canned reply when the person's own words matched a first-aid topic: the
+# topic's sourced sentence wrapped in presence and the one promise the session
+# has actually made. skills/first-aid.md owns the middle - never this file.
+REPLY_GUIDED = "I'm right here. {guidance} Help is on the way."
 
 # Cancel is an engine-level interrupt on EXPLICIT phrases only (§6). Word
 # boundaries, so "stopped" and "cancelled the paper" do not close a session -
@@ -181,11 +225,11 @@ def contact_verdict(text: str) -> str | None:
 _OBJECT_RES = (
     re.compile(r"\bwhere(?:'s|s| is| are)\s+(?P<obj>.+)$"),
     re.compile(r"\bwhere did (?:i|we) (?:leave|put)\s+(?P<obj>.+)$"),
-    re.compile(r"\b(?:have you seen|has anyone seen|can you (?:see|find)|look for|find|locate)\s+(?P<obj>.+)$"),
+    re.compile(r"\b(?:have you seen|has anyone seen|(?:can|do) you (?:see|find)|do you know where|look for|find|locate)\s+(?P<obj>.+)$"),
     re.compile(r"\bi (?:can't|cant|cannot) find\s+(?P<obj>.+)$"),
 )
 _DETERMINER_RE = re.compile(r"^(?:my|the|a|an|our|his|her|their|some)\s+")
-_TRAILER_RE = re.compile(r"\s*\b(?:please|anywhere|again|for me|right now|now)\b\s*$")
+_TRAILER_RE = re.compile(r"\s*\b(?:please|anywhere|again|for me|right now|now|is|are)\b\s*$")
 _EDGE_PUNCT_RE = re.compile(r"^[\s\"'`.,!?]+|[\s\"'`.,!?]+$")
 
 # "where's my glasses i can't find them anywhere" - the capture runs to the end
@@ -214,7 +258,11 @@ def _cut_trailing_clause(obj: str) -> str:
 # A question that names only a pronoun has named nothing: "where are they" is
 # exactly the follow-up §13 routes to `guide` off the remembered object.
 _PRONOUN_OBJECTS = frozenset(
-    {"it", "them", "they", "those", "these", "that", "this", "one", "thing", "things", "something", "anything"}
+    {"it", "them", "they", "those", "these", "that", "this", "one", "thing", "things", "something", "anything",
+     # bare determiners: a misparse upstream can leave one standing alone
+     # (observed live 2026-08-07: "do you see my chair" -> object "my"), and a
+     # determiner is never a findable object - asking beats searching for it.
+     "my", "your", "the", "a", "an", "our", "his", "her", "their", "some", "mine", "yours"}
 )
 
 
@@ -274,6 +322,14 @@ _TROUBLE_RE = re.compile(r"\b(no|nope|not|help|hurt|hurts|hurting|pain|painful|s
 _PAIN_RE = re.compile(r"\b(pain|painful|hurt|hurts|hurting|sore|ache|aches|aching|head|hit|hip|"
                       r"bleeding|yes|yeah|yep|think so)\b")
 _NO_PAIN_RE = re.compile(r"\b(no|nope|nothing|none|didn't|didnt|don't|dont|nowhere|fine|ok|okay|good)\b")
+# "no, I'm not hurt" contains "hurt", and _PAIN_RE is checked first - without
+# negation handling an explicit denial escalates in --no-llm mode (found by the
+# voice system harness). A negation within a few words of the pain word is a
+# denial; anything genuinely ambiguous still falls through to _PAIN_RE, which
+# errs toward escalation on purpose.
+_NEGATED_PAIN_RE = re.compile(
+    r"\b(?:no|not|nothing|didn't|didnt|don't|dont|never|isn't|isnt|ain't|aint)"
+    r"\W+(?:\w+\W+){0,2}?(?:pain|painful|hurt|hurts|hurting|sore|ache|aches|aching|bleeding)\b")
 
 
 def classify_reply(phase: phaselib.Phase, session: "Session", text: str) -> Action:
@@ -304,6 +360,8 @@ def classify_reply(phase: phaselib.Phase, session: "Session", text: str) -> Acti
     if "ok" in phase.exits and "escalate" in phase.exits:
         if session.awaiting_pain_answer:
             session.awaiting_pain_answer = False
+            if _NEGATED_PAIN_RE.search(said):
+                return Action("exit", exit="ok")
             if _PAIN_RE.search(said):
                 return Action("exit", exit="escalate")
             if _NO_PAIN_RE.search(said):
@@ -349,6 +407,32 @@ class Session:
     final: str = ""
     detected_at: float = 0.0
     last_say_at: float = 0.0
+    # `detected_at` is wall clock (it goes in log lines); the comfort schedule
+    # needs the same instant on the monotonic clock the timers run on.
+    started_mono: float = 0.0
+    # The schedule's cursor (how many slots are behind us), a counter that
+    # rotates the canned sentence shapes, and the last comfort/reply line
+    # spoken - consecutive lines must never repeat word for word (user
+    # finding 2026-08-06: identical status lines read as a recording).
+    comfort_idx: int = 0
+    comfort_count: int = 0
+    # The last few spoken update lines, all fed to the model as "do not reuse
+    # this wording". One was not enough: with a single line remembered, Gemma
+    # produced "I am still here with you, and Gaurav has been messaged" and
+    # "I am right here with you. Gaurav has been messaged." a minute apart -
+    # the letter of the rule, none of its spirit (live 3PM test).
+    recent_comfort_texts: collections.deque = field(default_factory=lambda: collections.deque(maxlen=3))
+
+    @property
+    def last_comfort_text(self) -> str:
+        return self.recent_comfort_texts[-1] if self.recent_comfort_texts else ""
+    # Phases already entered once, and the words that caused the latest
+    # phase jump. A REVISITED phase must never replay its opening ("I saw
+    # you fall - are you okay?" asked again mid-incident read as a machine
+    # airing its plumbing - user transcript 2026-08-06); instead the words
+    # that caused the jump get answered, through the first-aid matcher.
+    visited_phases: set = field(default_factory=set)
+    pending_reply_text: str = ""
     inbox: asyncio.Queue = field(default_factory=asyncio.Queue)
     task: asyncio.Task | None = None
 
@@ -383,6 +467,41 @@ def session_path(sessions_dir: Path, room: str, skill: str, started_at: float) -
     return sessions_dir / f"{room}__{skill}__{stamp}.jsonl"
 
 
+# A responder announcing themselves must get the brief no matter which path
+# their words arrived by. The voice node gates this on-device (real speech
+# never reaches us as `heard`), so this engine copy exists for every OTHER
+# route - the dashboard's typed composer above all, which publishes straight
+# to qnet/<room>/heard and historically could never trigger a brief at all
+# (2026-08-06 3PM live test: "First responder summary please" got a pain
+# question back). Full phrases + identity tokens, kept deliberately in sync
+# with voice_controller.py (RESPONDER_EXTRA_PHRASES / RESPONDER_IDENTITY_TOKENS).
+_RESPONDER_PHRASES = (
+    "i am the first responder",
+    "give me a summary of what happened",
+    "summary of what happened",
+    "tell me what happened",
+    "what happened here",
+    "i am a paramedic",
+    "i am with the ambulance",
+)
+# Singular or plural: "I need a first responders summary" failed the exact
+# token pass live (2026-08-06 3:28PM) and the resident got "I can provide a
+# summary" - with no summary. One optional s, nothing fancier.
+_RESPONDER_TOKENS_RE = re.compile(r"\b(first responders?|paramedics?|ambulance|emts?)\b")
+
+
+def matches_responder_phrase(text: str) -> str | None:
+    """The phrase (or token) that identifies a responder, else None."""
+    normalized = re.sub(r"[^a-z0-9]+", " ", re.sub(r"\bi['’]m\b", "i am", (text or "").lower())).strip()
+    if not normalized:
+        return None
+    for phrase in _RESPONDER_PHRASES:
+        if phrase in normalized:
+            return phrase
+    match = _RESPONDER_TOKENS_RE.search(normalized)
+    return match.group(1) if match else None
+
+
 def brief_line(facts: list[str]) -> str:
     """The engine's own responder brief - the timeline as one spoken paragraph.
 
@@ -411,6 +530,93 @@ def elapsed_phrase(seconds: float) -> str:
     if not secs:
         return f"{minutes} {unit}"
     return f"{minutes} {unit} and {secs} seconds"
+
+
+# --- first aid as data (skills/first-aid.md) ------------------------------
+#
+# The reply path may relay one or two sentences of sourced lay-rescuer
+# guidance when the person's OWN words name the problem ("i'm cold", "it
+# hurts") - matched on the rails, word-boundary, before any model sees the
+# turn. The sentences live in skills/first-aid.md, §7's rule extended: what
+# the house may say about a bleeding arm is a markdown edit with a citation
+# and a review flag (DESIGN §18), never a Python string. A missing or
+# malformed file means the feature is off and replies acknowledge without
+# guidance - the same "degraded, not broken" rule as `_load_optional`; the
+# fall path never notices.
+
+# `keywords: pain, hurts, ...` - the first line of every `## topic` section.
+_KEYWORDS_LINE_RE = re.compile(r"^[ \t]*keywords:[ \t]*(?P<kw>.+?)[ \t]*$", re.IGNORECASE | re.MULTILINE)
+
+
+@dataclass(frozen=True)
+class FirstAidTopic:
+    """One topic: its trigger words and the one-to-two sentences it may say."""
+
+    id: str
+    keywords: tuple[str, ...]
+    guidance: str
+    pattern: re.Pattern[str]
+
+
+@dataclass(frozen=True)
+class FirstAid:
+    """The loaded skills/first-aid.md - topics in file order, most specific first."""
+
+    topics: tuple[FirstAidTopic, ...]
+    meta: Mapping[str, Any] = field(default_factory=dict)
+
+    def match(self, text: str) -> FirstAidTopic | None:
+        """The first topic whose keywords appear in the person's words, or nothing.
+
+        First match wins and the file's order IS its specificity order (the
+        file says so at the top), so "my head hurts" gets the head-injury
+        sentence, not the generic pain one. Word-boundary and case-insensitive,
+        like every other rails matcher in this module - "fine" must never
+        brush against "faint".
+        """
+        said = (text or "").lower()
+        if not said:
+            return None
+        for topic in self.topics:
+            if topic.pattern.search(said):
+                return topic
+        return None
+
+
+def parse_first_aid(text: str, source: str = "<memory>") -> FirstAid:
+    """Frontmatter + ``## topic`` sections, each a ``keywords:`` line then guidance.
+
+    The same file shape phaselib parses (frontmatter regex and section split
+    are its, so there is exactly one definition of "a skill file"), and the
+    same load-time loudness: anything untrustworthy raises ``SkillError`` and
+    the caller turns that into "feature off", never a dead agent.
+    """
+    match = phaselib._FRONTMATTER_RE.match(text)
+    if not match:
+        raise phaselib.SkillError(f"{source}: no YAML frontmatter - the file must start with a '---' line")
+    try:
+        meta = yaml.safe_load(match.group("meta")) or {}
+    except yaml.YAMLError as exc:
+        raise phaselib.SkillError(f"{source}: frontmatter is not valid YAML: {exc}") from exc
+    if not isinstance(meta, dict):
+        raise phaselib.SkillError(f"{source}: frontmatter must be a mapping, got {type(meta).__name__}")
+
+    topics: list[FirstAidTopic] = []
+    for title, body in phaselib._sections(match.group("body")).items():
+        kw_match = _KEYWORDS_LINE_RE.search(body)
+        guidance = " ".join(_KEYWORDS_LINE_RE.sub("", body, count=1).split()) if kw_match else ""
+        keywords = tuple(
+            k.strip().lower() for k in (kw_match.group("kw").split(",") if kw_match else []) if k.strip()
+        )
+        if not keywords or not guidance:
+            raise phaselib.SkillError(
+                f"{source}: topic {title!r} needs a 'keywords:' line and guidance text under it"
+            )
+        pattern = re.compile(r"\b(?:" + "|".join(re.escape(k) for k in keywords) + r")\b")
+        topics.append(FirstAidTopic(id=title, keywords=keywords, guidance=guidance, pattern=pattern))
+    if not topics:
+        raise phaselib.SkillError(f"{source}: no '## <topic>' sections - nothing to match against")
+    return FirstAid(topics=tuple(topics), meta=meta)
 
 
 class Agent:
@@ -456,9 +662,18 @@ class Agent:
         # Timers scaled so a 30 s phase is testable in 1.5 s (dev.timer_scale).
         self.timer_scale = float((self.config.get("dev") or {}).get("timer_scale", 1.0) or 1.0)
         comfort = self.config.get("comfort") or {}
-        self.comfort_interval_s = float(
-            self.config.get("comfort_interval_s", comfort.get("interval_s", DEFAULT_COMFORT_INTERVAL_S))
-        )
+        # Cadence: `schedule_s` (offsets from detection, last entry repeats) is
+        # the default; a configured `interval_s` is the LEGACY fixed quiet-gap
+        # and wins outright if set, so existing configs and the test harness
+        # keep their exact behaviour. A malformed schedule degrades to the
+        # default with a loud log - cadence is comfort, not safety.
+        legacy = self.config.get("comfort_interval_s", comfort.get("interval_s"))
+        self.comfort_interval_s = float(legacy) if legacy is not None else DEFAULT_COMFORT_INTERVAL_S
+        self.comfort_schedule_s: list[float] | None
+        if legacy is not None:
+            self.comfort_schedule_s = None
+        else:
+            self.comfort_schedule_s = _comfort_schedule(comfort.get("schedule_s"))
         # Which phases get the comfort loop. §6 names escalate and call_help;
         # the data-driven rule that picks exactly those two out of any skill is
         # "a safety phase that has already taken action on the person's behalf".
@@ -468,6 +683,7 @@ class Agent:
         self.skill = phaselib.load_skill(self.skills_dir / "fall.md", tools=self.tools)
         self.find_skill = self._load_optional("find.md")
         self.brief_skill = self._load_optional("responder-brief.md", interrupt=True)
+        self.first_aid = self._load_first_aid("first-aid.md")
 
     def _load_optional(self, filename: str, interrupt: bool = False) -> Any:
         """A second-capability skill file, or ``None`` - never a dead agent (T6.1/T6.2).
@@ -485,6 +701,26 @@ class Agent:
             return phaselib.load_skill(path, tools=self.tools)
         except phaselib.SkillError as exc:
             log.error("skill file %s rejected (%s) - that capability is off, the fall path is not", filename, exc)
+            return None
+
+    def _load_first_aid(self, filename: str) -> FirstAid | None:
+        """``skills/first-aid.md``, or ``None`` - the `_load_optional` rule again.
+
+        Guidance is data, loaded when required (DESIGN §7's sourcing rule):
+        without this file every reply still acknowledges and reports status -
+        it just carries no first-aid sentence. Missing is quiet (the file is
+        optional), malformed is loud (someone edited it and broke it).
+        """
+        path = self.skills_dir / filename
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            log.info("no %s - replies acknowledge without first-aid guidance", filename)
+            return None
+        try:
+            return parse_first_aid(text, source=str(path))
+        except phaselib.SkillError as exc:
+            log.error("first-aid file rejected (%s) - guidance is off, the fall path is not", exc)
             return None
 
     def _build_llm(self) -> Any:
@@ -529,18 +765,31 @@ class Agent:
                 await client.subscribe(topic, qos=1)
             log.info("connected %s:%s - subscribed %s", self.broker, self.port, " ".join(SUBSCRIPTIONS))
             log.info("sessions dir %s", self.sessions_dir.resolve())
+            cadence = (
+                f"every {self.comfort_interval_s * self.timer_scale:g}s (legacy interval)"
+                if self.comfort_schedule_s is None
+                else "at " + "/".join(f"{s:g}" for s in self.comfort_schedule_s)
+                + f"s after detection (x{self.timer_scale:g}, last repeats)"
+            )
             log.info(
-                "skill %s: phases %s | timer_scale %g | comfort every %gs",
+                "skill %s: phases %s | timer_scale %g | comfort %s",
                 self.skill.name,
                 " -> ".join(self.skill.phase_ids),
                 self.timer_scale,
-                self.comfort_interval_s * self.timer_scale,
+                cadence,
             )
             self.start_contact_poller()
             try:
                 async for message in client.messages:
                     try:
+                        started = time.monotonic()
                         await self.on_message(str(message.topic), message.payload)
+                        # Dispatch is serial: a slow handler (LLM call in
+                        # on_ask/on_responder_brief) delays EVERY later
+                        # message, including falls. Make that visible.
+                        elapsed_ms = int((time.monotonic() - started) * 1000)
+                        if elapsed_ms > 1000:
+                            log.warning("dispatch slow: %s held the loop %dms", message.topic, elapsed_ms)
                     except Exception:  # a bad message must never take the agent down
                         log.exception("dropping message on %s", message.topic)
             finally:
@@ -713,6 +962,7 @@ class Agent:
             path=session_path(self.sessions_dir, room, self.skill.name, time.time()),
             detected_at=detected_at,
             last_say_at=time.monotonic(),  # the comfort clock starts now, not at epoch
+            started_mono=time.monotonic(),  # the schedule's anchor, same clock as the timers
         )
         self.sessions[room] = session
         log.info("[%s] session %s open (%s) -> %s", room, session.id, session.skill, session.path.name)
@@ -722,6 +972,15 @@ class Agent:
             {"ts": round(detected_at, 1), "event": "detected", "kind": msg["kind"], "conf": msg.get("conf")},
         )
         session.task = asyncio.ensure_future(self.run_session(session))
+        # The session's first Gemma call measured 5.5s cold vs ~450ms warm
+        # (verify/T-voice-bench.txt). Prime the model during the quiet ~30s
+        # between detection and the person's first words, off-loop, so their
+        # first reply gets the warm path. One tiny call; the result is
+        # discarded and ask() never raises. getattr: test doubles model only
+        # the classify/word surface, and they have no cold start to prime.
+        warmup = getattr(self.llm, "ask", None)
+        if warmup is not None:
+            self._schedule(asyncio.to_thread(warmup, "Reply with OK.", 0.0, 2))
 
     async def on_ask(self, room: str, msg: dict) -> None:
         """`qnet/<room>/ask` - a query, or the responder brief interrupt (§12)."""
@@ -795,6 +1054,7 @@ class Agent:
             path=session_path(self.sessions_dir, room, skill.name, time.time()),
             detected_at=float(msg.get("ts") or time.time()),
             last_say_at=time.monotonic(),
+            started_mono=time.monotonic(),
         )
         self.sessions[room] = session
         log.info("[%s] session %s open (%s/%s, looking for %r) -> %s",
@@ -1063,27 +1323,46 @@ class Agent:
         if (self.config.get("resident") or {}).get("name"):
             facts.append(f"the resident here is {resident}")
 
-        silences, quoted = 0, 0
+        # Triage-shaped, not a chronicle: a responder needs the person's own
+        # words (first complaint + the latest thing said), the actions that
+        # matter (contact messaged - once, however many pings went out -
+        # contact acknowledged, emergency called), and nothing internal.
+        # Generic "<tool> ran" lines are deliberately NOT facts: they are the
+        # engine talking to itself, and they were what made briefs recite
+        # every event (user report, 2026-08-06 evening).
+        silences = 0
+        spoken: list[dict] = []
+        notified = 0
         for entry in events:
             kind = entry.get("event")
             if kind == "heard":
                 said = (entry.get("text") or "").strip()
                 if entry.get("silence") or not said:
                     silences += 1
-                elif quoted < 4:
-                    quoted += 1
-                    facts.append(f'{when(entry)} {resident} said "{said}"')
+                else:
+                    spoken.append(entry)
+            elif kind == "contact":
+                said = (entry.get("text") or "").strip()
+                who = entry.get("from") or self.contact_name()
+                facts.append(f'{when(entry)} the contact {who} replied "{said}" and took responsibility for checking in')
             elif kind == "tool":
-                tool, result = entry.get("tool"), entry.get("result")
+                tool = entry.get("tool")
                 if tool == "notify_contacts":
                     if entry.get("kind") == "false_alarm":
                         facts.append(f"{when(entry)} the contact {self.contact_name()} was told it was a false alarm")
                     else:
-                        facts.append(f"{when(entry)} the contact {self.contact_name()} was messaged")
+                        notified += 1
+                        if notified == 1:
+                            facts.append(f"{when(entry)} the contact {self.contact_name()} was messaged")
                 elif tool == "call_emergency":
                     facts.append(f"{when(entry)} emergency services were called (simulated)")
-                elif tool:
-                    facts.append(f"{when(entry)} {tool} ran ({result})")
+        # The person's own words: their first response after the fall, and the
+        # most recent thing they said (their condition NOW) - not a transcript.
+        keep = [spoken[0]] if spoken else []
+        if len(spoken) > 1 and spoken[-1] is not spoken[0]:
+            keep.append(spoken[-1])
+        for entry in keep:
+            facts.append(f'{when(entry)} {resident} said "{(entry.get("text") or "").strip()}"')
         if silences:
             facts.append(f"{resident} did not answer {silences} time{'s' if silences > 1 else ''}")
 
@@ -1138,11 +1417,19 @@ class Agent:
         ``run_phase`` logs it, checks it for cancel, and only then gives it to
         the agent's turn.
         """
+        text, silence = msg.get("text", ""), bool(msg.get("silence"))
+        # Responder announcement first, before any session routing: the voice
+        # node gates real speech on-device, but typed composer messages arrive
+        # here raw - and a responder must get the brief whether or not a
+        # session is live (see matches_responder_phrase above).
+        if not silence and matches_responder_phrase(text):
+            log.info("[%s] heard is a responder announcement %r -> brief interrupt", room, text)
+            await self.on_responder_brief(room, {"id": msg.get("id"), "kind": "responder_brief"})
+            return
         session = self.live_session(room)
         if session is None:
             log.info("[%s] heard with no live session - ignored", room)
             return
-        text, silence = msg.get("text", ""), bool(msg.get("silence"))
         log.info("[%s] heard %s", room, "(silence)" if silence else repr(text))
         await session.inbox.put(("heard", text, silence))
 
@@ -1228,8 +1515,35 @@ class Agent:
         timer, with the cancel matcher ahead of everything else.
         """
         session.phase = phase.id
-        if phase.opening:
+        revisit = phase.id in session.visited_phases
+        session.visited_phases.add(phase.id)
+        pending = session.pending_reply_text
+        session.pending_reply_text = ""
+        if phase.opening and not revisit:
             await self.say(session, self.spoken_opening(session, phase.opening), "safety")
+            # "I'm not okay, my head hurts" deserves the head guidance even
+            # though it took an exit - the generic opening alone ignored the
+            # complaint (user transcript 2026-08-06). Only on a first-aid
+            # match: generic exit-causing words are covered by the opening.
+            if pending and self.first_aid is not None and self.first_aid.match(pending):
+                await self.reply_to(session, pending)
+        elif revisit and pending:
+            # Re-entry never replays the opening. The words that caused the
+            # jump run through THIS phase's real decision logic, so "I'm fine"
+            # arriving back at check triggers the pain double-check, and a
+            # clean answer resolves the session (user call 2026-08-06) - a
+            # generic acknowledgment here left the incident simmering. Guard:
+            # a decision that would jump to ANOTHER phase is not taken from
+            # entry (that way lies check<->escalate ping-pong); those words
+            # get the first-aid-matched reply and the phase keeps listening.
+            action = await self.decide(phase, session, pending)
+            if action.kind == "say" and self.allows(phase, action):
+                await self.perform(session, phase, action)
+            elif (action.kind == "exit" and self.allows(phase, action)
+                  and self.skill.resolve_exit(action.exit)[0] != "jump"):
+                return action.exit
+            else:
+                await self.reply_to(session, pending)
 
         for action in phase.on_enter:
             key = (phase.id, action)
@@ -1282,6 +1596,13 @@ class Agent:
 
             action = await self.decide(phase, session, text)
             if action.kind == "wait":
+                # They said something and no exit matched - answer THEM, not
+                # just the clock. Only in safety sessions (a find session has
+                # nothing to reassure about), only for real words. say() also
+                # resets the comfort clock, so this replaces - not stacks on -
+                # the next status line.
+                if (text or "").strip() and session.urgency == "safety":
+                    await self.reply_to(session, text)
                 continue
             if not self.allows(phase, action):
                 await self.append(
@@ -1291,6 +1612,9 @@ class Agent:
                 log.info("[%s] refused %s %r outside phase %s", session.room, action.kind, action.name, phase.id)
                 continue
             if action.kind == "exit":
+                # Carry the words that caused the jump: the destination phase
+                # answers them instead of (or after) its opening.
+                session.pending_reply_text = (text or "").strip()
                 return action.exit
             await self.perform(session, phase, action)
 
@@ -1349,8 +1673,27 @@ class Agent:
         if deadline is not None:
             waits.append(deadline - now)
         if comfort:
-            waits.append(session.last_say_at + self.comfort_interval_s * self.timer_scale - now)
+            if self.comfort_schedule_s is None:
+                waits.append(session.last_say_at + self.comfort_interval_s * self.timer_scale - now)
+            else:
+                waits.append(self.comfort_due_at(session) - now)
         return max(0.0, min(waits)) if waits else None
+
+    def comfort_offset_s(self, idx: int) -> float:
+        """Slot ``idx``'s offset from detection, unscaled: 60, 120, 300, 600, ...
+
+        The schedule lists the first offsets; past the end, the last entry
+        repeats as the gap - so ``[60, 120, 300]`` means a status a minute in,
+        at two minutes, at five, then every five.
+        """
+        schedule = self.comfort_schedule_s or list(DEFAULT_COMFORT_SCHEDULE_S)
+        if idx < len(schedule):
+            return schedule[idx]
+        return schedule[-1] * (idx - len(schedule) + 2)
+
+    def comfort_due_at(self, session: Session) -> float:
+        """When (monotonic) the session's next scheduled slot comes due."""
+        return session.started_mono + self.comfort_offset_s(session.comfort_idx) * self.timer_scale
 
     def comforts(self, phase: phaselib.Phase) -> bool:
         """Does the comfort loop run in this phase? §6 says escalate and call_help.
@@ -1371,17 +1714,95 @@ class Agent:
         Grounded in the session log, never filler: what has actually been done
         and how long it has actually been. Positioning guidance is said once in
         the opening and never repeated here (fall.md's Guidance).
+
+        Cadence: the schedule's slots are offsets from detection (60/120/then
+        every 300 by default). A slot that comes due right after another line
+        spoke - a phase opening, a reply, the brief - is consumed but not
+        voiced: that line broke the silence, so the next slot stands and
+        nothing stacks. In the fully-silent ladder this is exactly the 1-2-5
+        minute rhythm the person hears, because call_help's opening lands on
+        the minute-one slot. Legacy `interval_s` keeps the old fixed-gap rule.
         """
         if session.comfort_paused:
             # A responder brief has the floor (§12). Not a missed update - the
             # loop resumes with a fresh interval the moment the brief is spoken.
             return
-        quiet_for = time.monotonic() - session.last_say_at
-        if quiet_for < self.comfort_interval_s * self.timer_scale:
-            # Something else just spoke - drop this update rather than overlap
-            # it. There is exactly one speaker per session by construction.
+        now = time.monotonic()
+        quiet_for = now - session.last_say_at
+        if self.comfort_schedule_s is None:
+            if quiet_for < self.comfort_interval_s * self.timer_scale:
+                # Something else just spoke - drop this update rather than
+                # overlap it. One speaker per session by construction.
+                return
+        else:
+            if now < self.comfort_due_at(session) - 1e-3:
+                return
+            # Consume every slot already behind us - one line, never a burst,
+            # even if the loop was inactive (check phase) through several.
+            while self.comfort_due_at(session) <= now + 1e-3:
+                session.comfort_idx += 1
+            if quiet_for < COMFORT_SLOT_GUARD_S * self.timer_scale:
+                # Something spoke moments ago; it covered this slot.
+                return
+        text = await self.comfort_text(session)
+        await self.say(session, text, "comfort")
+        session.recent_comfort_texts.append(text)
+        session.comfort_count += 1
+
+    async def reply_to(self, session: Session, text: str) -> None:
+        """Respond to what the person actually said, mid-escalation (§6 spirit).
+
+        The person's words are keyword-matched against ``skills/first-aid.md``
+        ON THE RAILS, before any model is consulted. **A matched topic is
+        spoken canned (``REPLY_GUIDED`` around the topic's sourced sentence) -
+        the model never words a first-aid turn.** It used to get the sentence
+        as a may-use fact, and dropped it: live 2026-08-07, "I think I'm
+        bleeding" (twice) earned model wordings with zero medical content -
+        the third observed case of the 2B model ignoring buried instructions
+        (garble rules, warm-up). The skill file's own rule decides the fix:
+        "the model only rewords a matched sentence, or never sees it at all" -
+        rewording measurably loses the sentence, so matched turns are rails
+        end to end. No match keeps the model path: acknowledgment only, not
+        one word of first-aid content anywhere in the prompt, so "I'm fine"
+        can never earn bleeding advice; its fallback is ``REPLY_FALLBACK``.
+        """
+        topic = self.first_aid.match(text) if self.first_aid is not None else None
+        if topic is not None:
+            spoken = REPLY_GUIDED.replace("{guidance}", topic.guidance)
+            await self.append(
+                session,
+                {"event": "llm", "phase": session.phase, "kind": "reply",
+                 "topic": topic.id, "facts": [f'the person said: "{text}"'],
+                 "source": "rails-guided", "ms": 0},
+            )
+            await self.say(session, spoken, "comfort")
+            session.recent_comfort_texts.append(spoken)
             return
-        await self.say(session, await self.comfort_text(session), "comfort")
+        line = None
+        if self.llm is not None:
+            facts = [f'the person just said: "{text}" - acknowledge and answer only that, briefly']
+            facts += self.comfort_facts(session)
+            for prior in session.recent_comfort_texts:
+                facts.append(f'do not reuse this wording: "{prior}"')
+            started = time.monotonic()
+            line = await asyncio.to_thread(self.llm.word_line, "reply", facts)
+            if line in session.recent_comfort_texts:
+                line = None  # told not to repeat and repeated anyway - the canned shape differs
+            await self.append(
+                session,
+                {
+                    "event": "llm",
+                    "phase": session.phase,
+                    "kind": "reply",
+                    "topic": None,
+                    "facts": facts,
+                    "source": "gemma" if line else "fallback",
+                    "ms": round((time.monotonic() - started) * 1000),
+                },
+            )
+        spoken = line or REPLY_FALLBACK
+        await self.say(session, spoken, "comfort")
+        session.recent_comfort_texts.append(spoken)
 
     async def comfort_text(self, session: Session) -> str:
         """Gemma words the update; the engine chooses the facts (T3.4).
@@ -1394,8 +1815,14 @@ class Agent:
         if self.llm is None:
             return self.comfort_line(session)
         facts = self.comfort_facts(session)
+        # An instruction, not a claim: updates must not share wording with any
+        # of the last few (user finding 2026-08-06, twice - one remembered
+        # line only moved the repetition one slot down).
+        facts = facts + [f'do not reuse this wording: "{prior}"' for prior in session.recent_comfort_texts]
         started = time.monotonic()
         line = await asyncio.to_thread(self.llm.word_line, "comfort", facts)
+        if line in session.recent_comfort_texts:
+            line = None  # repeated itself despite the instruction - rotate the canned shape instead
         await self.append(
             session,
             {
@@ -1424,13 +1851,33 @@ class Agent:
         return facts
 
     def comfort_line(self, session: Session) -> str:
-        """Assemble the update from facts the session log actually holds."""
+        """Assemble the update from facts the session log actually holds.
+
+        The facts are the content; the frame rotates deterministically
+        (``COMFORT_SHAPES``) so consecutive canned updates never share
+        identical wording - same claims, different sentence. The bump loop
+        only moves past a shape that happens to equal the previous spoken
+        line (possible when the model worded that one).
+        """
         facts = self.comfort_facts(session)
         if len(facts) > 1:
             body = ", ".join(facts[:-1]) + ", and " + facts[-1]
         else:
             body = facts[0]
-        return f"I'm still here with you. {body[0].upper()}{body[1:]}."
+        first = ""
+        for bump in range(len(COMFORT_SHAPES)):
+            shape = COMFORT_SHAPES[(session.comfort_count + bump) % len(COMFORT_SHAPES)]
+            line = shape.replace("{Body}", f"{body[0].upper()}{body[1:]}").replace("{body}", body)
+            if bump == 0:
+                first = line
+            if line not in session.recent_comfort_texts:
+                return line
+        # Every shape is in recent memory (an unchanged body cycles all three
+        # into the 3-deep deque). Fall back to this slot's natural rotation:
+        # comfort_count advanced since last time, so it never equals the
+        # immediately-previous line - "different from the last one" survives
+        # even when "different from the last three" is impossible.
+        return first
 
     def contact_name(self) -> str:
         """The first configured contact's name - the caregiver we say out loud."""
@@ -1525,6 +1972,12 @@ class Agent:
         """
         if decision is None or decision not in llmlib.options_for(phase):
             return None
+        if decision == "unclear":
+            # Garbled ASR earns an honest ask-to-repeat - the retake usually
+            # transcribes cleanly. Same one-action-per-turn mechanism as the
+            # pain question; awaiting_pain_answer survives untouched, so the
+            # repeat is still judged as the answer to whatever was asked.
+            return Action("say", text=DIDNT_CATCH_LINE)
         if "ok" in phase.exits and "escalate" in phase.exits:
             if decision == "escalate":
                 session.awaiting_pain_answer = False
@@ -1579,16 +2032,23 @@ class Agent:
             result: Any = None
         else:
             ctx = self.tool_context(session)
+            started = time.monotonic()
             try:
                 result = await spec.fn(ctx, **_supported(spec.fn, args))
             except Exception as exc:  # a tool should never raise; if it does, log the fact
                 log.exception("tool %s failed", name)
                 result = {"error": repr(exc)}
+            # ms mirrors the llm event lines, so the look/VLM leg is timeable
+            # from the session jsonl like every other slow component.
+            elapsed_ms = int((time.monotonic() - started) * 1000)
             if len(session.log) == marker:
                 await self.append(session, {"event": "tool", "tool": name, "result": _result_word(result),
+                                            "ms": elapsed_ms,
                                             "detail": result if isinstance(result, dict) else None})
             else:
-                # The tool logged its own line; publish so the dashboard sees it.
+                # The tool logged its own line; publish so the dashboard sees
+                # it, and keep its duration in the Python log at least.
+                log.info("[%s] tool %s took %dms", session.room, name, elapsed_ms)
                 await self.publish(f"qnet/session/{session.id}", session.wire())
 
         if name == "notify_contacts":
@@ -1630,6 +2090,25 @@ def _topic_pattern(topic_filter: str) -> re.Pattern[str]:
         else:
             parts.append(re.escape(level))
     return re.compile("^" + "/".join(parts) + "$")
+
+
+def _comfort_schedule(raw: Any) -> list[float]:
+    """``comfort.schedule_s`` as a validated list, or the default - never a crash.
+
+    The cadence is comfort, not safety: a malformed schedule logs loudly and
+    degrades to the 60/120/300 default rather than stopping the agent.
+    """
+    if raw is None:
+        return list(DEFAULT_COMFORT_SCHEDULE_S)
+    try:
+        schedule = [float(s) for s in raw] if isinstance(raw, list) else None
+    except (TypeError, ValueError):
+        schedule = None
+    if not schedule or any(s <= 0 for s in schedule):
+        log.error("comfort.schedule_s %r is not a list of positive seconds - using the default %s",
+                  raw, list(DEFAULT_COMFORT_SCHEDULE_S))
+        return list(DEFAULT_COMFORT_SCHEDULE_S)
+    return schedule
 
 
 def _supported(fn, args: dict) -> dict:

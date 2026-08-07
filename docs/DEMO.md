@@ -1,11 +1,13 @@
 # QNet Home — demo run of show (no-speech build)
 
-*v0.9 — 2026-08-06. Written for the current state: everything real except audio.
-Where a person would SPEAK to the house, the presenter TYPES into the
-dashboard's flagged voice-sim composer — same wire messages, same routing,
-zero mocks anywhere else. When the speech service lands (T3.1), the keyboard
-is replaced by a microphone and this script does not otherwise change. Numbers marked [M] are
-measured; there are no other numbers.*
+*Ops runbooks: power-on + verification → [`operations/cold-start.md`](operations/cold-start.md) · symptom-indexed fixes → [`operations/troubleshooting.md`](operations/troubleshooting.md).*
+
+*v1.0 — 2026-08-06. Voice-first: the kitchen node hears and speaks (Whisper on
+the NPU + TTS, `apps/ventuno-q/qnet-voice-node/`) once Phase D3 of
+`docs/voice-integration-plan.md` has passed its in-room gate. The dashboard's
+flagged voice-sim composer remains the REHEARSED FALLBACK at every beat — same
+wire messages, same routing — so a dead microphone can never kill a beat.
+Numbers marked [M] are measured; there are no other numbers.*
 
 ---
 
@@ -19,6 +21,7 @@ measured; there are no other numbers.*
 | Ventuno Q | Fall detection on the Hexagon NPU (`node/vision.py`) | systemd `qnet-vision` (T7.1) |
 | Ventuno Q | Qwen3-VL "look" service (`node/look.py` + VLM container :9001) | systemd `qnet-look` (T7.1) + Docker |
 | Ventuno Q | Camera preview frame server (`node/stream.py`, :8090) | systemd `qnet-stream` (T7.1) |
+| Ventuno Q (kitchen) | Voice: Whisper-small ASR on the NPU + TTS, wake-gated (`qnet-voice-node`) | Arduino App Lab app |
 | Laptop | Dashboard (QNetHome.exe / MSIX) | Start menu / `dist\QNetHome\QNetHome.exe` |
 | Phone | Telegram — trusted-contact messages from t.me/Qnethomebot | nothing to start |
 
@@ -42,6 +45,8 @@ and nothing else (`verify/E2E-no-speech.txt`).
                  http://<Ventuno-ip>:8090/kitchen.jpg → click the Kitchen on the map → LIVE
 [ ] Phone:       Telegram open on the t.me/Qnethomebot chat, volume ON
 [ ] Camera:      kitchen node camera aimed at the fall area; nothing blocking
+[ ] Voice:       kitchen status heartbeat shows state idle (dashboard hover) and a spoken
+                 "hey home" test query answers audibly; if not — composer fallback, demo goes on
 [ ] Timers:      demo pace is set in the qnet-agent unit (see §5) — decide before starting
 ```
 
@@ -62,9 +67,10 @@ tints, a session opens.
 wire carries one small JSON event. (The LIVE preview is a separate LAN-only
 endpoint the household enables; say so if asked.)*
 
-**Beat 2 — the house asks.** Dashboard feed shows "I saw you fall. Take a
-breath — are you okay?" (on the node this will be spoken aloud; today it is
-text).
+**Beat 2 — the house asks, out loud.** The room speaker says "I saw you fall.
+Take a breath — are you okay?" (also in the dashboard feed). The person on the
+floor answers BY VOICE from here on; the composer mirrors every step if audio
+misbehaves.
 
 **Beat 3 — silence escalates, and the phone rings with a question.** Nobody
 answers. On the demo timer scale the escalation arrives in seconds: comfort
@@ -90,8 +96,9 @@ Hold the phone up: *the house is asking a person before it calls a dispatcher.*
 - (Judge-proof extra, works from either variant: replying `call 911` on the
   phone places the SIMULATED call immediately.)
 
-**Beat 5 — the responder brief.** In the dashboard composer (room: kitchen), type:
-`i'm the first responder, can you tell me what happened?` → the house answers
+**Beat 5 — the responder brief.** Walk in and SAY: "I'm the first responder,
+can you tell me what happened?" (fallback: type it in the composer, room
+kitchen) → the house answers ALOUD
 with a grounded timeline (what it saw, when, what it did). One LLM call over
 the session log — nothing pre-scripted.
 
@@ -110,7 +117,9 @@ recaps the incident with SIMULATED preserved.
 Stage: glasses (or any distinct object) visibly placed in the kitchen camera's
 view. Presenter is "in the bedroom" (composer room selector = bedroom).
 
-1. Type: `hey home, where are my glasses` (wake phrase typed today, spoken later).
+1. SAY in the kitchen: "hey home, where are my glasses" (fallback: type it in
+   the composer). The wake gate on the node strips the phrase; nothing else the
+   room says is ever published — say that out loud, it is the privacy story.
 2. Narrate while it thinks: every room's node is looking with its OWN camera
    and answering in text — the frame never leaves the node. [M] median 4.1 s
    look→answer round trip on the Ventuno (worst observed 5.4 s).
@@ -160,6 +169,8 @@ remains the full fallback demo if the IQ9 itself is lost.
   directions** (the question out, the contact's OK / "call 911" back — replies
   matched on engine rails, never by the model), engine rails.
 - Simulated: the 911 call (marked SIMULATED in every artifact).
-- Typed today, spoken when speech lands: the person's replies + wake phrase.
+- Spoken live (kitchen): replies, wake queries, responder phrase — all
+  wake-gated on the node. Typed composer = rehearsed fallback, clearly badged
+  SIMULATED VOICE. Bedroom voice is a stretch goal.
 - Unmeasured: fall-model accuracy (no published numbers; our clip table in
   `measurements.md` is the only evidence — quote it, nothing else).

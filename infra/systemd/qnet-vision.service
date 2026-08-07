@@ -9,12 +9,15 @@
 [Unit]
 Description=QNet Home node vision - fall detection on the Hexagon NPU
 After=network-online.target
+# Mutually exclusive with the experimental IM SDK engine (both own the camera);
+# systemd stops one when the other starts. Flag: scripts/bring_up.sh --imsdk.
+Conflicts=qnet-vision-imsdk.service
 
 [Service]
 Type=simple
 User=arduino
 WorkingDirectory=/home/arduino/qnet-node
-ExecStart=/home/arduino/qnet-venv/bin/python -u -m qnet.node.vision --room kitchen --source /dev/video0 --broker 10.73.51.175 --port 11883
+ExecStart=/home/arduino/qnet-venv/bin/python -u -m qnet.node.vision --room kitchen --source /dev/v4l/by-id/usb-HHWei_Technology_Co.__Ltd._USB_Camera_HHW001-video-index0 --broker 10.73.51.175 --port 11883
 Restart=on-failure
 RestartSec=3
 

@@ -59,69 +59,84 @@
 <title>QNet Home</title>
 <style>
   /* ------------------------------------------------------------------
-     Product surface. Light by default, dark when the OS asks (S14 wants
-     a dark-friendly page; prefers-color-scheme plus an explicit
-     data-theme override so a host that stamps one still wins).
+     Product surface. Dark by default - this is a wall-mounted, always-on
+     panel in a home, often in a dim room at night, so the dark surface is
+     the product, not a preference. Light remains available for a host that
+     stamps data-theme="light".
      System font stack, generous spacing, no frameworks.
      ------------------------------------------------------------------ */
   :root {
-    --bg: #f6f7f9;
-    --bg-soft: #eef0f4;
-    --card: #ffffff;
-    --card-2: #f4f6f9;
-    --line: #e2e5ec;
-    --line-soft: #eceff4;
-    --text: #14161d;
-    --muted: #626a7a;
-    --brand: #2f6fed;
-    --calm: #12805a;
-    --caution: #a06a00;
-    --alert: #c22630;
-    --shadow: 0 1px 2px rgba(16, 20, 32, 0.05), 0 6px 20px rgba(16, 20, 32, 0.05);
-    /* T5.5 floor plan */
-    --fp-room: #f1f4f8; --fp-wall: #6f7787; --fp-chip: #ffffff;
-    --fp-caution-fill: rgba(160, 106, 0, 0.20);
-    --fp-alert-fill: rgba(194, 38, 48, 0.20);
-    --fp-clear-fill: rgba(18, 128, 90, 0.18);
+    /* Ink-dark base. Near-black with a cool cast so the accent colours read
+       as light sources rather than paint. */
+    --bg: #06070b;
+    --bg-soft: #0b0d14;
+    --card: #10131c;
+    --card-2: #161a26;
+    --line: #1f2532;
+    --line-soft: #171c27;
+    --text: #eef1f8;
+    --muted: #8c95a9;
+    --brand: #7ba3ff;
+    --calm: #34d399;
+    --caution: #fbbf24;
+    --alert: #ff5f6d;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.55), 0 14px 38px rgba(0, 0, 0, 0.48);
+    --fp-room: #131824; --fp-wall: #59637a; --fp-chip: #1a2130;
+    --fp-caution-fill: rgba(251, 191, 36, 0.22);
+    --fp-alert-fill: rgba(255, 95, 109, 0.26);
+    --fp-clear-fill: rgba(52, 211, 153, 0.16);
+    /* fancy layer */
+    --sheen: linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0) 46%);
+    --hairline: rgba(255,255,255,0.07);
+    --glow-alert: 0 0 0 1px rgba(255,95,109,0.30), 0 0 30px rgba(255,95,109,0.26);
+    --glow-calm: 0 0 12px rgba(52,211,153,0.55);
+    --glow-caution: 0 0 12px rgba(251,191,36,0.55);
+    --glow-brand: 0 0 24px rgba(123,163,255,0.30);
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #0d0f14;
-      --bg-soft: #14171e;
-      --card: #171a22;
-      --card-2: #1d212a;
-      --line: #272c37;
-      --line-soft: #21252e;
-      --text: #e9ebf1;
-      --muted: #949bab;
-      --brand: #6d9bff;
-      --calm: #3fc287;
-      --caution: #efb54a;
-      --alert: #ff6b70;
-      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
-      --fp-room: #1b1f28; --fp-wall: #6b7488; --fp-chip: #232833;
-      --fp-caution-fill: rgba(239, 181, 74, 0.22);
-      --fp-alert-fill: rgba(255, 107, 112, 0.22);
-      --fp-clear-fill: rgba(63, 194, 135, 0.20);
-    }
-  }
+  /* Light is now opt-in: the hub is a dark-room surface by default. */
   :root[data-theme="light"] {
     --bg: #f6f7f9; --bg-soft: #eef0f4; --card: #ffffff; --card-2: #f4f6f9;
     --line: #e2e5ec; --line-soft: #eceff4; --text: #14161d; --muted: #626a7a;
     --brand: #2f6fed; --calm: #12805a; --caution: #a06a00; --alert: #c22630;
+    --shadow: 0 1px 2px rgba(16, 20, 32, 0.05), 0 6px 20px rgba(16, 20, 32, 0.05);
     --fp-room: #f1f4f8; --fp-wall: #6f7787; --fp-chip: #ffffff;
     --fp-caution-fill: rgba(160, 106, 0, 0.20);
     --fp-alert-fill: rgba(194, 38, 48, 0.20);
     --fp-clear-fill: rgba(18, 128, 90, 0.18);
+    --sheen: linear-gradient(180deg, rgba(255,255,255,0.9), rgba(255,255,255,0) 46%);
+    --hairline: rgba(16,20,32,0.05);
+    --glow-alert: 0 0 0 1px rgba(194,38,48,0.20), 0 0 22px rgba(194,38,48,0.14);
+    --glow-calm: 0 0 10px rgba(18,128,90,0.35);
+    --glow-caution: 0 0 10px rgba(160,106,0,0.35);
+    --glow-brand: 0 0 18px rgba(47,111,237,0.20);
   }
   :root[data-theme="dark"] {
-    --bg: #0d0f14; --bg-soft: #14171e; --card: #171a22; --card-2: #1d212a;
-    --line: #272c37; --line-soft: #21252e; --text: #e9ebf1; --muted: #949bab;
-    --brand: #6d9bff; --calm: #3fc287; --caution: #efb54a; --alert: #ff6b70;
-    --fp-room: #1b1f28; --fp-wall: #6b7488; --fp-chip: #232833;
-    --fp-caution-fill: rgba(239, 181, 74, 0.22);
-    --fp-alert-fill: rgba(255, 107, 112, 0.22);
-    --fp-clear-fill: rgba(63, 194, 135, 0.20);
+    /* Ink-dark base. Near-black with a cool cast so the accent colours read
+       as light sources rather than paint. */
+    --bg: #06070b;
+    --bg-soft: #0b0d14;
+    --card: #10131c;
+    --card-2: #161a26;
+    --line: #1f2532;
+    --line-soft: #171c27;
+    --text: #eef1f8;
+    --muted: #8c95a9;
+    --brand: #7ba3ff;
+    --calm: #34d399;
+    --caution: #fbbf24;
+    --alert: #ff5f6d;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.55), 0 14px 38px rgba(0, 0, 0, 0.48);
+    --fp-room: #131824; --fp-wall: #59637a; --fp-chip: #1a2130;
+    --fp-caution-fill: rgba(251, 191, 36, 0.22);
+    --fp-alert-fill: rgba(255, 95, 109, 0.26);
+    --fp-clear-fill: rgba(52, 211, 153, 0.16);
+    /* fancy layer */
+    --sheen: linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0) 46%);
+    --hairline: rgba(255,255,255,0.07);
+    --glow-alert: 0 0 0 1px rgba(255,95,109,0.30), 0 0 30px rgba(255,95,109,0.26);
+    --glow-calm: 0 0 12px rgba(52,211,153,0.55);
+    --glow-caution: 0 0 12px rgba(251,191,36,0.55);
+    --glow-brand: 0 0 24px rgba(123,163,255,0.30);
   }
 
   * { box-sizing: border-box; }
@@ -433,7 +448,8 @@
     text-anchor: middle; pointer-events: none; user-select: none;
   }
   .fp-room:hover .fp-fill { filter: brightness(0.97); }
-  @media (prefers-color-scheme: dark) { .fp-room:hover .fp-fill { filter: brightness(1.22); } }
+  .fp-room:hover .fp-fill { filter: brightness(1.22); }
+  :root[data-theme="light"] .fp-room:hover .fp-fill { filter: brightness(0.97); }
   .fp-room:focus-visible .fp-focus { stroke: var(--brand); stroke-width: 2.5; opacity: 1; }
   .fp-focus { fill: none; stroke: none; opacity: 0; pointer-events: none; }
 
@@ -481,6 +497,41 @@
   .fp-tip .tip-state.good { color: var(--calm); }
   .fp-tip .tip-state.quiet { color: var(--muted); }
   .fp-tip .tip-line { color: var(--muted); margin-top: 6px; display: flex; align-items: center; gap: 7px; }
+
+  /* ---- raw system log pane ---- */
+  .syslog {
+    max-width: 1180px; margin: 8px auto 0; padding: 0 24px;
+    color: var(--muted); font-size: 0.85rem;
+  }
+  .syslog summary { cursor: pointer; padding: 6px 0; user-select: none; }
+  .syslog .syslog-count { opacity: 0.7; }
+  .syslog .syslog-pre {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 8px; max-height: 320px; overflow: auto;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.76rem; line-height: 1.55; margin: 4px 0 12px;
+  }
+  .sl-line { white-space: pre; padding: 1px 8px; border-left: 4px solid transparent; border-radius: 3px; }
+  /* axis 1: DEVICE = the solid left border */
+  .sl-line.sl-brain   { border-left-color: #635bff; }
+  .sl-line.sl-kitchen { border-left-color: #2f9e63; }
+  .sl-line.sl-bedroom { border-left-color: #3b82f6; }
+  .sl-line.sl-other   { border-left-color: #9ca3af; }
+  /* axis 2: SERVICE = contrasting background tints (user feedback: shades of
+     one hue were too close to tell apart) */
+  .sl-line.sl-svc-vision { background: linear-gradient(90deg, rgba(245,158,11,0.20), rgba(245,158,11,0.05) 70%); }
+  .sl-line.sl-svc-look   { background: linear-gradient(90deg, rgba(6,182,212,0.20),  rgba(6,182,212,0.05) 70%); }
+  .sl-line.sl-svc-voice  { background: linear-gradient(90deg, rgba(217,70,239,0.20), rgba(217,70,239,0.05) 70%); }
+  .sl-line.sl-svc-agent  { background: linear-gradient(90deg, rgba(99,91,255,0.18),  rgba(99,91,255,0.04) 70%); }
+  .sl-line.sl-svc-alert  { background: rgba(153,27,27,0.30); border-left-color: #b91c1c !important;
+                           color: #fecaca; font-weight: 600; }
+  .sl-legend { font-weight: 400; margin-left: 10px; opacity: 0.9; font-size: 0.78rem; }
+  .sl-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin: 0 4px 0 8px; }
+  .sl-dot.sl-brain { background: #635bff; } .sl-dot.sl-kitchen { background: #2f9e63; }
+  .sl-dot.sl-bedroom { background: #3b82f6; }
+  .sl-sq { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin: 0 4px 0 8px; }
+  .sl-sq.v { background: rgba(245,158,11,0.75); } .sl-sq.l { background: rgba(6,182,212,0.75); }
+  .sl-sq.vo { background: rgba(217,70,239,0.75); } .sl-sq.a { background: rgba(99,91,255,0.75); }
 
   /* ---- live camera health ---- */
   /* The dot is the "is the webcam actually working" answer, everywhere a room
@@ -638,6 +689,207 @@
     background: rgba(0, 0, 0, 0.55); color: #cdd3df; font-size: 0.74rem;
   }
   .cam .cam-err[hidden] { display: none; }
+
+  /* ==================================================================
+     Depth layer. Everything below is presentation only - no rule here
+     changes layout, geometry or state semantics, so the wire contract
+     and every JS class toggle behave exactly as before.
+     ================================================================== */
+
+  body {
+    background:
+      radial-gradient(1100px 620px at 12% -12%, rgba(123, 163, 255, 0.10), transparent 62%),
+      radial-gradient(900px 560px at 96% 4%, rgba(155, 109, 255, 0.09), transparent 60%),
+      radial-gradient(760px 520px at 50% 108%, rgba(52, 211, 153, 0.06), transparent 62%),
+      var(--bg);
+    background-attachment: fixed;
+  }
+  :root[data-theme="light"] body { background: var(--bg); }
+
+  ::selection { background: color-mix(in srgb, var(--brand) 32%, transparent); }
+
+  /* Raised surfaces get a top sheen and a hairline, so cards read as lit
+     from above instead of as flat rectangles on a flat page. */
+  .room, .panel, .feed, .modal-card, .summary-inner, .cam, .voice-dock {
+    background-image: var(--sheen);
+    background-repeat: no-repeat;
+  }
+  .room, .panel, .feed, .modal-card {
+    border-color: var(--line);
+    box-shadow: var(--shadow), inset 0 1px 0 var(--hairline);
+  }
+
+  .topbar {
+    background: color-mix(in srgb, var(--bg) 72%, transparent);
+    backdrop-filter: saturate(1.6) blur(16px);
+    border-bottom: 1px solid var(--line);
+    box-shadow: 0 1px 0 var(--hairline), 0 10px 30px -18px rgba(0, 0, 0, 0.9);
+  }
+  .brand .mark { filter: drop-shadow(var(--glow-brand)); }
+
+  /* Status colour becomes light, not paint. */
+  .conn.online .dot { box-shadow: var(--glow-calm); }
+  .conn.offline .dot { box-shadow: var(--glow-caution); }
+  .room-state.good .bullet, .legend .bullet.good { box-shadow: var(--glow-calm); }
+  .room-state.caution .bullet { box-shadow: var(--glow-caution); }
+  .room-state.alert .bullet { box-shadow: 0 0 14px rgba(255, 95, 109, 0.75); }
+  .live-dot { filter: drop-shadow(var(--glow-calm)); }
+
+  .room.alert {
+    border-color: color-mix(in srgb, var(--alert) 55%, var(--line));
+    box-shadow: var(--glow-alert), var(--shadow);
+  }
+
+  #alertBanner {
+    background-image: linear-gradient(180deg,
+      color-mix(in srgb, var(--alert) 16%, transparent), transparent 70%);
+    box-shadow: 0 14px 40px -22px rgba(255, 95, 109, 0.85);
+  }
+
+  /* Controls: a little gradient and a little lift. */
+  .btn {
+    background-image: var(--sheen);
+    box-shadow: inset 0 1px 0 var(--hairline);
+    transition: transform 0.12s ease, filter 0.12s ease, box-shadow 0.12s ease;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+  .btn.primary {
+    background-image: linear-gradient(180deg,
+      color-mix(in srgb, var(--brand) 88%, white), var(--brand));
+    box-shadow: var(--glow-brand), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    color: #08101f;
+  }
+  .icon-btn {
+    background-image: var(--sheen);
+    box-shadow: inset 0 1px 0 var(--hairline);
+    transition: color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+  }
+  .icon-btn:hover { box-shadow: var(--glow-brand), inset 0 1px 0 var(--hairline); }
+
+  /* The floor plan is the centrepiece - give the walls presence and let a
+     live room glow rather than merely tint. */
+  .fp-wall { filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.55)); }
+  .fp-room .fp-fill { transition: filter 0.2s ease; }
+  .fp-room.is-alert .fp-fill { filter: drop-shadow(0 0 12px rgba(255, 95, 109, 0.55)); }
+  .fp-room.is-caution .fp-fill { filter: drop-shadow(0 0 10px rgba(251, 191, 36, 0.45)); }
+
+  .summary { box-shadow: var(--shadow), 0 0 34px -14px rgba(123, 163, 255, 0.55); }
+
+  /* Scrollbars, so the feed doesn't punch a bright hole in a dark panel. */
+  .feed-scroll, .syslog, .selftest-output, .modal-card { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+  .feed-scroll::-webkit-scrollbar, .syslog::-webkit-scrollbar,
+  .selftest-output::-webkit-scrollbar, .modal-card::-webkit-scrollbar { width: 10px; height: 10px; }
+  .feed-scroll::-webkit-scrollbar-thumb, .syslog::-webkit-scrollbar-thumb,
+  .selftest-output::-webkit-scrollbar-thumb, .modal-card::-webkit-scrollbar-thumb {
+    background: var(--line); border-radius: 999px; border: 3px solid transparent; background-clip: content-box;
+  }
+  .feed-scroll::-webkit-scrollbar-thumb:hover, .syslog::-webkit-scrollbar-thumb:hover,
+  .selftest-output::-webkit-scrollbar-thumb:hover, .modal-card::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: content-box; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .btn, .icon-btn, .fp-room .fp-fill { transition: none; }
+    .btn:hover { transform: none; }
+  }
+
+  /* ==================================================================
+     Adaptive layer. This panel lives on anything from a phone held in
+     the hallway to a wall-mounted display, so the shell is fluid across
+     the whole range rather than fixed at one desktop width. Layout only
+     - no state, no colour, no behaviour.
+     ================================================================== */
+
+  /* Type and gutters scale with the viewport instead of stepping. */
+  body { font-size: clamp(14.5px, 0.35vw + 13.6px, 17px); }
+  .shell, .topbar-inner { max-width: var(--shell-max, 1180px); }
+  .shell { padding-left: var(--gutter, 24px); padding-right: var(--gutter, 24px); }
+  .topbar-inner { padding-left: var(--gutter, 24px); padding-right: var(--gutter, 24px); }
+  #alertBanner { padding-left: var(--gutter, 24px); padding-right: var(--gutter, 24px); }
+
+  /* Never let a fixed minimum out-grow a narrow viewport. */
+  .rooms { grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 1fr)); }
+  .layout, .side, .panel, .feed, .room { min-width: 0; }
+  .topbar-inner, #alertBanner { flex-wrap: wrap; }
+
+  /* --- large: a wall-mounted or desk display ------------------------ */
+  @media (min-width: 1500px) {
+    :root { --shell-max: 1440px; --gutter: 40px; }
+    .layout { grid-template-columns: minmax(0, 1fr) minmax(340px, 430px); gap: 30px; }
+    .rooms { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+    .feed-scroll { max-height: 52vh; }
+  }
+  @media (min-width: 2000px) {
+    :root { --shell-max: 1680px; }
+    .feed-scroll { max-height: 56vh; }
+  }
+
+  /* --- tablet / small laptop ---------------------------------------- */
+  @media (max-width: 1100px) {
+    :root { --gutter: 20px; }
+    .layout { gap: 20px; }
+  }
+
+  /* --- the existing single-column collapse, plus breathing room ------ */
+  @media (max-width: 900px) {
+    :root { --gutter: 18px; }
+    .layout { margin-top: 24px; }
+    section { margin-top: 30px; }
+    .side { gap: 18px; }
+  }
+
+  /* --- phone --------------------------------------------------------- */
+  @media (max-width: 640px) {
+    :root { --gutter: 14px; }
+    .topbar-inner { padding-top: 11px; padding-bottom: 11px; gap: 10px; }
+    .brand { font-size: 1rem; }
+    .house-status { flex-basis: 100%; order: 3; font-size: 0.96rem; }
+    .conn span:not(.dot) { display: none; }          /* dot alone carries it */
+    .rooms { grid-template-columns: 1fr; gap: 12px; }
+    .room { padding: 16px; border-radius: 14px; }
+    .panel { border-radius: 14px; }
+    .fp-wrap { padding: 10px 12px 14px; }
+    .feed-scroll { max-height: 58vh; }
+    .feed-scroll .entry { padding: 10px 14px; }
+    .modal-card { padding: 20px 18px 22px; max-height: 92vh; border-radius: 16px; }
+    .modal-actions { flex-wrap: wrap; }
+    .modal-actions .btn { flex: 1 1 auto; }
+    #alertBanner { align-items: flex-start; row-gap: 8px; font-size: 0.94rem; }
+    #alertBanner .ab-actions { flex-basis: 100%; display: flex; gap: 8px; }
+    #alertBanner .ab-actions .btn { flex: 1 1 0; }
+    .summary-inner { padding: 14px 14px 16px; }
+  }
+
+  /* --- very small / older phones -------------------------------------- */
+  @media (max-width: 380px) {
+    :root { --gutter: 11px; }
+    .btn { padding: 9px 13px; }
+    .cam { border-radius: 11px; }
+  }
+
+  /* --- short viewports: laptops in landscape, phones on their side ----- */
+  @media (max-height: 620px) and (min-width: 901px) {
+    .feed-scroll { max-height: 40vh; }
+    .layout { margin-top: 20px; }
+  }
+  @media (max-height: 480px) {
+    .feed-scroll { max-height: 46vh; min-height: 100px; }
+    .modal-card { max-height: 94vh; }
+  }
+
+  /* --- touch: fingers need bigger targets than a mouse ----------------- */
+  @media (pointer: coarse) {
+    .icon-btn { width: 44px; height: 44px; }
+    .btn { padding: 12px 20px; }
+    .chiprow .link, .fp-room { touch-action: manipulation; }
+  }
+
+  /* Modern viewport units where supported: mobile browser chrome no longer
+     steals the bottom of a full-height surface. */
+  @supports (height: 100dvh) {
+    .to-inner { min-height: 100dvh; }
+    .modal-card { max-height: 86dvh; }
+    @media (max-width: 640px) { .modal-card { max-height: 92dvh; } }
+  }
 </style>
 </head>
 <body>
@@ -873,6 +1125,7 @@
 
         <div class="placeholder" id="roomsEmpty" style="margin-top:14px;">Waiting to hear from your home…</div>
       </div>
+
     </section>
 
     <!-- ============ RIGHT: SUMMARY over LIVE ACTIVITY ============ -->
@@ -920,6 +1173,18 @@
 
     </div>
   </div>
+
+  <!-- Raw system log (user request 2026-08-06): every wire message, on the
+       home page, collapsed by default so the product face stays calm. The
+       admin portal remains the full technical view with filtering. -->
+  <details class="syslog" id="syslogPane">
+    <summary>System log <span class="syslog-count" id="syslogCount"></span>
+      <span class="sl-legend">border: <i class="sl-dot sl-brain"></i>brain
+      <i class="sl-dot sl-kitchen"></i>kitchen <i class="sl-dot sl-bedroom"></i>bedroom
+      &nbsp;·&nbsp; tint: <i class="sl-sq a"></i>agent <i class="sl-sq v"></i>vision
+      <i class="sl-sq l"></i>look <i class="sl-sq vo"></i>voice</span></summary>
+    <div id="syslogBody" class="syslog-pre" aria-live="off"></div>
+  </details>
 
   <footer>
     <span>QNet Home</span>
@@ -1080,7 +1345,14 @@
     <div class="cam" id="rmCam" role="img" aria-label="Camera live view is not enabled in this build">
       <img id="rmCamImg" alt="" hidden>
       <div class="cam-live" id="rmCamLive" hidden><span class="live-dot">●</span>LIVE — local preview (LAN only)</div>
-      <div class="cam-err" id="rmCamErr" hidden>Camera unreachable — still trying</div>
+      <!-- The error state names the address it tried and offers it as a link:
+           when the browser can fetch the page but not the image (a proxy, a
+           firewall, a stale address), clicking it settles which in one go. -->
+      <div class="cam-err" id="rmCamErr" hidden>
+        <div>Camera unreachable — still trying</div>
+        <a id="rmCamLink" href="#" target="_blank" rel="noopener"
+           style="font-size:0.8rem; opacity:0.85; word-break:break-all;"></a>
+      </div>
       <svg class="ico" aria-hidden="true"><use href="#i-camera"></use></svg>
       <div class="cam-title">Live view</div>
       <div class="cam-note" id="rmCamNote">Camera streaming is not enabled in this build</div>
@@ -1400,7 +1672,7 @@ function humanize(entry, ctx) {
       return { iconId: "chat", text: `QNet: “${entry.text || ""}”`, tone: "neutral" };
 
     case "heard": {
-      if (entry.silence || !entry.text) return { iconId: "mic", text: "No response yet", tone: "dim" };
+      if (entry.silence || !entry.text) return { iconId: "mic", text: "No answer to the last question", tone: "dim" };
       // In a routine "where are my glasses" run the person is asking, not
       // answering - "You asked:" reads far better than "Margaret:" there.
       if (routine) return { iconId: "magnifier", text: `You asked: “${entry.text}”`, tone: "neutral" };
@@ -1515,7 +1787,7 @@ function roomState(session, opts) {
   }
 
   if (o.closedAt != null && (now - o.closedAt) <= RECENT_CLOSE_SECONDS) {
-    return { label: "All clear", tone: "good" };
+    return { label: "Resolved just now", tone: "good" };
   }
   return { label: "All quiet ✓", tone: "quiet" };
 }
@@ -1635,7 +1907,7 @@ function conversationBubbles(log, ctx) {
     if (!entry) continue;
     if (entry.event === "say") out.push({ side: "qnet", text: entry.text || "" });
     else if (entry.event === "heard") {
-      if (entry.silence || !entry.text) out.push({ side: "none", text: "No response yet" });
+      if (entry.silence || !entry.text) out.push({ side: "none", text: "No answer to the last question" });
       else out.push({ side: "person", text: entry.text });
     }
   }
@@ -1846,18 +2118,6 @@ function composeSummary(state) {
     return { headline: s.provided.trim(), bullets: [] };
   }
 
-  let headline;
-  const act = s.active || null;
-  if (act && act.room && act.tone === "alert") {
-    headline = act.phase === "call_help"
-      ? `${roomLabel(act.room)} needs attention — help has been called.`
-      : `${roomLabel(act.room)} needs attention — QNet is getting help.`;
-  } else if (act && act.room && act.tone === "caution") {
-    headline = `QNet is checking on the ${roomLabel(act.room)}.`;
-  } else {
-    headline = "All quiet in the house.";
-  }
-
   const bullets = [];
   const inc = s.lastIncident || null;
   if (inc && inc.room) {
@@ -1871,6 +2131,22 @@ function composeSummary(state) {
 
   const finds = Number(s.findCount) || 0;
   if (finds > 0) bullets.push(`${finds} question${finds === 1 ? "" : "s"} answered today`);
+
+  // The headline is a present-tense claim. "All quiet in the house." is only
+  // honest when there is nothing to report at all; above a list of the day's
+  // incidents it read as dismissive (user feedback 2026-08-06), so a day WITH
+  // history gets "Nothing needs attention right now." instead.
+  let headline;
+  const act = s.active || null;
+  if (act && act.room && act.tone === "alert") {
+    headline = act.phase === "call_help"
+      ? `${roomLabel(act.room)} needs attention — help has been called.`
+      : `${roomLabel(act.room)} needs attention — QNet is getting help.`;
+  } else if (act && act.room && act.tone === "caution") {
+    headline = `QNet is checking on the ${roomLabel(act.room)}.`;
+  } else {
+    headline = bullets.length ? "Nothing needs attention right now." : "All quiet in the house.";
+  }
 
   return { headline, bullets };
 }
@@ -1935,7 +2211,7 @@ function summaryStateFrom(sessionList, opts) {
  * which mirrors the §9 adapter loop. DESIGN §5 sanctions the sim's routing as
  * the stand-in for the unbuilt speech service, so this page reuses it rather
  * than re-deriving it. The routing is therefore now duplicated in THREE
- * places - qnet/node/voice.py, dev/sim.html and here - change all three
+ * places - apps/ventuno-q/qnet-voice-node, dev/sim.html and here - change all three
  * (the same accepted duplication the MiniMQTT client already documents).
  * ============================================================ */
 
@@ -1991,7 +2267,7 @@ function buildHeard(text) {
   return { text, silence: text === "" };
 }
 
-// routing duplicated in qnet/node/voice.py and dev/sim.html — change all three
+// routing duplicated in apps/ventuno-q/qnet-voice-node and dev/sim.html — change all three
 function routeInput(rawText, room, sessionActive) {
   const norm = normalize(rawText);
   if (matchesResponderPhrase(norm)) {                      // checked first, in ANY state (§9, §12)
@@ -2005,6 +2281,37 @@ function routeInput(rawText, room, sessionActive) {
     return { topic: `qnet/${room}/ask`, payload: buildAsk(room, stripped, "query") };
   }
   return null;                                                // idle small talk — not for the house
+}
+
+/** Which device and service one wire message came from, for the System log's
+ * color coding. Device from the topic shape (agent topics vs room topics);
+ * service from the message kind, with status payloads disambiguated by their
+ * own fields (vision heartbeats carry a fall detector, voice ones carry
+ * idle/listening/speaking states, a look-only exporter says so).
+ *   wireOrigin(topic, payload) -> { device: brain|kitchen|bedroom|other,
+ *                                   service: agent|vision|look|voice|node }
+ */
+function wireOrigin(topic, payload) {
+  const p = payload && typeof payload === "object" ? payload : {};
+  const m = String(topic || "").match(/^qnet\/([^/]+)(?:\/([^/]+))?$/);
+  if (!m) return { device: "other", service: "node" };
+  const seg1 = m[1], kind = m[2];
+  if (seg1 === "session" || seg1 === "look" || seg1 === "summary") {
+    return { device: "brain", service: "agent" };
+  }
+  const device = (seg1 === "kitchen" || seg1 === "bedroom") ? seg1 : "other";
+  if (kind === "say" || kind === "contact" || kind === "cmd") return { device: "brain", service: "agent" };
+  if (kind === "event") return { device, service: "vision" };
+  if (kind === "looked") return { device, service: "look" };
+  if (kind === "heard" || kind === "ask") return { device, service: "voice" };
+  if (kind === "status") {
+    const det = String(p.detector || "");
+    if (/^fall/.test(det)) return { device, service: "vision" };
+    if (/look/.test(det) || p.state === "look-only") return { device, service: "look" };
+    if (/^(idle|listening|speaking|error|starting)$/.test(String(p.state || ""))) return { device, service: "voice" };
+    return { device, service: "node" };
+  }
+  return { device, service: "node" };
 }
 
 /** The typed-voice feature flag, decoded from what localStorage hands back.
@@ -2101,9 +2408,9 @@ function runSelfTest() {
     { name: "say -> QNet quoted, neutral",
       fn: () => humanize(fallLog[1], fallCtx),
       expect: (r) => r.iconId === "chat" && r.text === "QNet: “I saw you fall. Are you okay?”" && r.tone === "neutral" },
-    { name: "heard silence -> 'No response yet', dim",
+    { name: "heard silence -> 'No answer to the last question', dim",
       fn: () => humanize(fallLog[2], fallCtx),
-      expect: (r) => r.text === "No response yet" && r.tone === "dim" },
+      expect: (r) => r.text === "No answer to the last question" && r.tone === "dim" },
     { name: "heard with text -> derived resident name, quoted",
       fn: () => humanize({ event: "heard", text: "my hip hurts" }, { room: "kitchen", urgency: "safety", residentName: "Margaret" }),
       expect: (r) => r.iconId === "mic" && r.text === "Margaret: “my hip hurts”" },
@@ -2234,7 +2541,7 @@ function runSelfTest() {
       expect: (r) => r.label === "Help is on the way" && r.tone === "alert" },
     { name: "room state: recently closed -> 'All clear'",
       fn: () => roomState({ urgency: "safety", state: "closed" }, { now: 5000, closedAt: 4950 }),
-      expect: (r) => r.label === "All clear" && r.tone === "good" },
+      expect: (r) => r.label === "Resolved just now" && r.tone === "good" },
     { name: "room state: closed long ago -> back to 'All quiet ✓'",
       fn: () => roomState({ urgency: "safety", state: "closed" }, { now: 5000, closedAt: 100 }),
       expect: (r) => r.label === "All quiet ✓" },
@@ -2425,7 +2732,7 @@ function runSelfTest() {
         active: null, findCount: 0,
         lastIncident: { room: "kitchen", kind: "fall", atText: "8:14 PM",
                         outcome: "resolved", simulatedCall: true, notified: "Sarah" } }),
-      expect: (r) => r.headline === "All quiet in the house."
+      expect: (r) => r.headline === "Nothing needs attention right now."
         && r.bullets.length === 3
         && r.bullets[0] === "A fall in the Kitchen at 8:14 PM — resolved"
         && r.bullets[1] === "A SIMULATED emergency call was placed"
@@ -2443,7 +2750,7 @@ function runSelfTest() {
       expect: (r) => /marked a false alarm$/.test(r.bullets[0]) },
     { name: "summary: FIND-ONLY day - questions are counted, never alarming",
       fn: () => [composeSummary({ findCount: 2 }), composeSummary({ findCount: 1 })],
-      expect: (r) => r[0].headline === "All quiet in the house."
+      expect: (r) => r[0].headline === "Nothing needs attention right now."
                      && r[0].bullets.length === 1 && r[0].bullets[0] === "2 questions answered today"
                      && r[1].bullets[0] === "1 question answered today" },
     { name: "summary: everything at once - headline is the live alert, bullets in order",
@@ -2496,7 +2803,7 @@ function runSelfTest() {
       fn: () => composeSummary(summaryStateFrom(
         [{ id: "01A", room: "kitchen", urgency: "safety", state: "closed", phase: "resolved", log: fallLog }],
         { now: 1200, clockText: () => "8:14 PM", contactName: "Sarah" })),
-      expect: (r) => r.headline === "All quiet in the house."
+      expect: (r) => r.headline === "Nothing needs attention right now."
         && r.bullets[0] === "A fall in the Kitchen at 8:14 PM — resolved"
         && r.bullets[1] === "A SIMULATED emergency call was placed"
         && r.bullets[2] === "Sarah was notified" },
@@ -2506,7 +2813,7 @@ function runSelfTest() {
                     { now: 2100, clockText: () => "9:00 AM" });
                   return [st.active, st.findCount, composeSummary(st)]; },
       expect: (r) => r[0] === null && r[1] === 1
-                     && r[2].headline === "All quiet in the house."
+                     && r[2].headline === "Nothing needs attention right now."
                      && r[2].bullets[0] === "1 question answered today" },
     { name: "summary state: IDLE - nothing at all -> the quiet digest",
       fn: () => composeSummary(summaryStateFrom([], { now: 1 })),
@@ -2524,7 +2831,7 @@ function runSelfTest() {
     /* ================= T5.7: TYPED VOICE ROUTING =================
        These cases mirror dev/sim.html's routing self-test - the contract is
        contracts/mqtt.md's ask/heard shapes, and the routing must be
-       indistinguishable from what the sim (and one day qnet/node/voice.py)
+       indistinguishable from what the sim (and one day apps/ventuno-q/qnet-voice-node)
        would have published for the same spoken words. */
 
     { name: "typed routing: responder phrase, idle -> responder brief request, empty text (contract)",
@@ -2564,6 +2871,27 @@ function runSelfTest() {
       expect: (r) => r.every((v) => v === false) },
     { name: "typed voice flag: ON only for \"1\" (what Save writes)",
       fn: () => parseVoiceSimFlag("1"), expect: (r) => r === true },
+    // ---- wire origin (System log color coding) ----
+    { name: "wire origin: agent topics -> brain/agent",
+      fn: () => [wireOrigin("qnet/session/01X", {}), wireOrigin("qnet/look", {}),
+                 wireOrigin("qnet/kitchen/say", {}), wireOrigin("qnet/kitchen/contact", {})],
+      expect: (r) => r.every((o) => o.device === "brain" && o.service === "agent") },
+    { name: "wire origin: status disambiguates vision vs look-only vs voice",
+      fn: () => [wireOrigin("qnet/kitchen/status", { detector: "fall-yolo11n@hexagon-npu" }),
+                 wireOrigin("qnet/bedroom/status", { state: "look-only", detector: "none (look+stream node)" }),
+                 wireOrigin("qnet/kitchen/status", { state: "idle", node: "kitchen-voice-01" })],
+      expect: (r) => r[0].service === "vision" && r[0].device === "kitchen"
+                     && r[1].service === "look" && r[1].device === "bedroom"
+                     && r[2].service === "voice" },
+    { name: "wire origin: events are vision, looked is look, heard/ask are voice",
+      fn: () => [wireOrigin("qnet/kitchen/event", {}), wireOrigin("qnet/bedroom/looked", {}),
+                 wireOrigin("qnet/kitchen/heard", {}), wireOrigin("qnet/bedroom/ask", {})],
+      expect: (r) => r[0].service === "vision" && r[1].service === "look"
+                     && r[2].service === "voice" && r[3].service === "voice" },
+    { name: "wire origin: unknown shapes never crash",
+      fn: () => [wireOrigin("weird", null), wireOrigin(null, null), wireOrigin("qnet/attic/status", {})],
+      expect: (r) => r.every((o) => o.device === "other" || o.device === "brain" || o.service === "node")
+                     && r[2].device === "other" },
     { name: "fullscreen flag: DEFAULT OFF - only a stored '1' turns the takeover on",
       fn: () => [null, undefined, "", "0", "true", "yes", 1].map(parseFullscreenFlag)
                   .concat([parseFullscreenFlag("1")]),
@@ -2614,7 +2942,7 @@ if (typeof module !== "undefined" && module.exports) {
                      deviceListText, composeSummary, summaryStateFrom,
                      // T5.7 - typed voice + camera preview
                      newUlid, normalize, matchesResponderPhrase, stripWakePhrase,
-                     buildAsk, buildHeard, routeInput, parseVoiceSimFlag, parseFullscreenFlag,
+                     buildAsk, buildHeard, routeInput, parseVoiceSimFlag, parseFullscreenFlag, wireOrigin,
                      defaultVoiceRoom, camBustUrl, camUrlForRoom };
 }
 
@@ -2629,7 +2957,7 @@ const $ = (id) => document.getElementById(id);
    setup (user request, 2026-08-06). Corp DHCP can move the board - if the chip
    says Reconnecting forever, fix the address in Settings (it persists). Local
    dev against dev/broker.py: enter ws://127.0.0.1:9001/mqtt there. */
-const DEFAULT_HUB = "ws://10.73.51.175:19001/mqtt";
+const DEFAULT_HUB = "ws://192.168.1.31:19001/mqtt";
 const STORE_KEY = "qnethome.hub";
 
 function loadHubUrl() {
@@ -2706,7 +3034,8 @@ let fullscreenAlerts = loadFullscreenPref();
    pre-filled so the room modal shows the LIVE preview with zero setup. A saved
    Settings value wins; clearing the field reverts to this default on reload
    (empty fields are not stored - collectCamUI). */
-const DEFAULT_CAM_URLS = { kitchen: "http://10.73.51.123:8090/kitchen.jpg" };
+const DEFAULT_CAM_URLS = { kitchen: "http://192.168.1.30:8090/kitchen.jpg",
+                           bedroom: "http://192.168.1.76:8090/bedroom.jpg" };
 let camUrls = Object.assign({}, DEFAULT_CAM_URLS, loadCamUrls());
 
 /* ---- state (same indexing as dashboard/admin.html; see the header) ---- */
@@ -2783,7 +3112,38 @@ function scheduleReconnect() {
   reconnectTimer = setTimeout(() => { if (!client.connected) client.connect(hubUrl); }, 3000);
 }
 
+/* ---- raw system log pane ----
+   Newest first, capped, rendered only while the pane is open - a closed pane
+   costs one array push per message and nothing else. */
+const SYSLOG_CAP = 200;
+const syslogLines = [];   // { text, device, service }
+function syslogRender() {
+  $("syslogBody").innerHTML = syslogLines.map((e) =>
+    `<div class="sl-line sl-${e.device} sl-svc-${e.service}">${escapeHtml(e.text)}</div>`).join("");
+}
+function syslogPush(topic, payloadStr) {
+  const t = new Date();
+  const hh = String(t.getHours()).padStart(2, "0"), mm = String(t.getMinutes()).padStart(2, "0"),
+        ss = String(t.getSeconds()).padStart(2, "0"), ms = String(t.getMilliseconds()).padStart(3, "0");
+  let payload = null;
+  try { payload = JSON.parse(payloadStr); } catch (_e) { /* raw line stays raw */ }
+  const origin = wireOrigin(topic, payload);
+  // A detection event outranks the color scheme: dark red, unmissable.
+  const alert = /\/event$/.test(topic) || (payload && payload.result === "SIMULATED");
+  syslogLines.unshift({ text: `${hh}:${mm}:${ss}.${ms}  ${topic}  ${payloadStr}`,
+                        device: origin.device, service: alert ? "alert" : origin.service });
+  if (syslogLines.length > SYSLOG_CAP) syslogLines.length = SYSLOG_CAP;
+  const pane = $("syslogPane");
+  $("syslogCount").textContent = `(${syslogLines.length})`;
+  if (pane && pane.open) syslogRender();
+}
+document.addEventListener("DOMContentLoaded", () => {
+  const pane = $("syslogPane");
+  if (pane) pane.addEventListener("toggle", () => { if (pane.open) syslogRender(); });
+});
+
 client.onMessage = (topic, payloadStr) => {
+  syslogPush(topic, payloadStr);
   let payload = null;
   try { payload = JSON.parse(payloadStr); } catch (_e) { return; }
 
@@ -2984,6 +3344,16 @@ function pushTypedLine(line, hint) {
   if (typedLines.length > 100) typedLines.shift();
 }
 
+// §14 twice over read "— SIMULATED [SIMULATED]" on the line (user report,
+// 3PM test): the word is required IN the sentence AND as the red pill. The
+// pill IS the word - when the text ends with it, the plain copy goes and the
+// badge carries it. The humanizer's text (and its self-test) is unchanged.
+function dropBadgeSuffix(text, badge) {
+  if (!badge) return text;
+  const suffix = " — " + badge;
+  return text.endsWith(suffix) ? text.slice(0, text.length - badge.length - 1) : text;
+}
+
 function renderFeed() {
   // Every run's every line, humanized; nulls simply never appear.
   const items = [];
@@ -3006,7 +3376,7 @@ function renderFeed() {
   feed.innerHTML = items.slice(0, 200).map(({ ts, key, line, hint }) => `
     <div class="entry tone-${escapeHtml(line.tone)}${isNew(key) ? " flash" : ""}">
       <span class="icon">${iconMarkup(line.iconId)}</span>
-      <span class="body"><span class="text">${escapeHtml(line.text)}</span>${
+      <span class="body"><span class="text">${escapeHtml(dropBadgeSuffix(line.text, line.badge))}</span>${
         line.badge ? `<span class="sim-badge">${escapeHtml(line.badge)}</span>` : ""}${
         hint ? `<span class="line-hint">${escapeHtml(hint)}</span>` : ""}</span>
       <span class="when">${escapeHtml(clockTime(ts))}</span>
@@ -3104,7 +3474,7 @@ function renderTakeover() {
   const strip = $("toStrip");
   strip.hidden = facts.length === 0;
   strip.innerHTML = facts.map((f) =>
-    `<span class="fact${f.simulated ? " sim" : ""}">${escapeHtml(f.text)}${
+    `<span class="fact${f.simulated ? " sim" : ""}">${escapeHtml(dropBadgeSuffix(f.text, f.simulated ? "SIMULATED" : ""))}${
       f.simulated ? `<span class="sim-badge">SIMULATED</span>` : ""}</span>`
   ).join(`<span class="sep">·</span>`);
 
@@ -3307,6 +3677,8 @@ function startCamPreview(url) {
     img.hidden = true;
     $("rmCamLive").hidden = true;
     $("rmCamErr").hidden = false;
+    const link = $("rmCamLink");
+    if (link) { link.textContent = `open ${camActiveUrl} directly →`; link.href = camActiveUrl; }
   };
   const tick = () => {
     if (!$("roomModal").classList.contains("open")) { stopCamPreview(); return; }

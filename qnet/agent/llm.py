@@ -72,9 +72,16 @@ CHANNEL_MARK = "<channel|>"  # Gemma 4's thinking-channel terminator
 MAX_LINE_CHARS = 200         # a spoken line, not a paragraph
 BRIEF_MAX_CHARS = 900        # ...except the brief, which is a whole timeline
 
+# A reply to something the person just said is one sentence, two at most -
+# answering "I'm cold" with a paragraph is its own kind of not listening.
+REPLY_MAX_TOKENS = 60
+
 # Per-kind caps for `word_line`. A kind that is not listed gets the one-sentence
 # defaults, so adding a new kind never needs an entry here.
-LINE_LIMITS: dict[str, tuple[int, int]] = {"brief": (BRIEF_MAX_TOKENS, BRIEF_MAX_CHARS)}
+LINE_LIMITS: dict[str, tuple[int, int]] = {
+    "brief": (BRIEF_MAX_TOKENS, BRIEF_MAX_CHARS),
+    "reply": (REPLY_MAX_TOKENS, MAX_LINE_CHARS),
+}
 LINE_TIMEOUTS: dict[str, float] = {"brief": BRIEF_TIMEOUT_S}
 
 _WS_RE = re.compile(r"\s+")
@@ -108,10 +115,13 @@ def options_for(phase: Any) -> tuple[str, ...]:
       a claim a language model gets to make on the strength of a transcript.
     """
     exits = getattr(phase, "exits", {}) or {}
+    # "unclear" rides along everywhere a decision is requested: Whisper garble
+    # ("I'm so leading") must earn an ask-to-repeat, not a guessed feeling.
+    # The engine speaks a canned line for it; it is never an exit.
     if "ok" in exits and "escalate" in exits:
-        return ("ok", "escalate")
+        return ("ok", "escalate", "unclear")
     if "check" in exits:
-        return ("check", "wait")
+        return ("check", "wait", "unclear")
     return ()
 
 
@@ -302,8 +312,10 @@ class LlmClient:
         is wording, never content. §6: "grounded in what tools actually
         returned, never filler".
 
-        **Three kinds share this one method and one recipe** (T6.1, T6.2):
-        ``comfort`` is the fall loop's status line, ``find`` is the answer to
+        **Four kinds share this one method and one recipe** (T6.1, T6.2):
+        ``comfort`` is the fall loop's status line, ``reply`` answers what the
+        person just said mid-escalation (any first-aid content arrives as an
+        engine-matched fact, never the model's own), ``find`` is the answer to
         "where are my glasses", ``brief`` is the responder timeline. Only the
         prompt and the caps differ - a kind with no entry in ``LINE_LIMITS``
         gets the one-sentence defaults, so ``comfort``'s measured behaviour
@@ -342,16 +354,56 @@ class LlmClient:
                 "You are a home safety system briefing a first responder who has just walked in and "
                 "knows nothing about what happened. Speak to them, not to the person who fell.\n\n"
                 f"{goal or _BRIEF_GOAL}\n\n"
-                f"These are the only facts you have, in the order they happened:\n{listed}\n\n"
-                "Speak the summary out loud. Rules:\n"
-                "- One flowing spoken summary, not a list, not bullet points, not headings.\n"
-                "- Use only the facts above, all of them, in that order. Never invent a fact, a name, "
-                "a time, a diagnosis or a reassurance.\n"
+                f"These are the only facts you have:\n{listed}\n\n"
+                "Give a spoken HANDOVER, the way a paramedic would: not a minute-by-minute chronicle. Rules:\n"
+                "- Lead with what happened and the person's condition - what they said, in their own "
+                "words, especially any complaint of injury.\n"
+                "- Then what has been done (who was contacted, whether they acknowledged, whether "
+                "emergency services were called), then where things stand right now.\n"
+                "- Compress: merge related facts, skip repetition. You may leave a minor fact out; you "
+                "may never invent, alter or embellish one - no invented names, times, diagnoses or reassurances.\n"
                 "- Keep the names straight: the person who fell and the contact who was messaged are "
                 "different people. Attribute every quote to whoever the facts say said it.\n"
-                "- Plain past tense, calm and factual. End with where things stand right now.\n"
-                "- No quotes around the whole answer, no emoji. Under 120 words.\n"
+                "- One flowing spoken paragraph, plain past tense, calm. No lists, no headings.\n"
+                "- No quotes around the whole answer, no emoji. Under 80 words.\n"
                 "Summary:"
+            )
+        if kind == "reply":
+            return (
+                "You are QNet, a home safety companion staying with an older person who has "
+                "fallen. Help is already being arranged, and they just said something to you. "
+                "You are NOT a general-purpose assistant: you exist only to keep this person "
+                "safe, calm, and informed until help arrives.\n\n"
+                f"What you know:\n{listed}\n\n"
+                "Write ONE short reply they will hear out loud - one sentence, two at most. Rules:\n"
+                # Live 2026-08-06 4:26PM: Whisper heard "I'm still bleeding" as
+                # "I'm so leading"; the model, given nothing concrete, invented
+                # "you are feeling quite unsteady". Asking to repeat is honest
+                # AND self-healing - the retake usually transcribes cleanly.
+                # This rule goes FIRST: the 2B model ignored it mid-list.
+                "- BEFORE anything else, check their words make sense. They reach you through "
+                "speech recognition, which garbles words - a statement like 'I am so leading' is "
+                "a mishearing, not a real sentence. If their words are unclear or nonsensical, your "
+                "ENTIRE reply is to say you did not quite catch that and ask them to say it again. "
+                "Do not guess what they meant, and never describe or assume how they are feeling.\n"
+                "- Answer only what they just said, warmly and briefly. No status recap unless they asked.\n"
+                "- Never echo their words back at them ('I understand you can't reach it') - respond "
+                "the way a caring person would, to what it means for them.\n"
+                "- If they say they already did something or that it is not working, acknowledge that "
+                "and give the next step if guidance offers one - never repeat an instruction they "
+                "already followed.\n"
+                "- Never say someone is coming or on their way unless a fact explicitly says so.\n"
+                "- If they ask about anything unrelated to their wellbeing or this incident "
+                "(technology, trivia, how you work, the news, anything else), do NOT answer it - "
+                "gently bring them back: acknowledge in a few words, then ask how they are "
+                "feeling or remind them help is on the way.\n"
+                "- If a fact is marked 'relevant guidance', use it only if it directly answers what "
+                "they said; otherwise leave it out entirely.\n"
+                "- Never add medical advice beyond that guidance line. Never invent a fact, a name, "
+                "a time or a promise. Never explain your own workings.\n"
+                "- If a fact says 'do not reuse this wording', say it differently.\n"
+                "- No quotes, no emoji, no lists. Under 30 words.\n"
+                "Reply:"
             )
         if kind == "find":
             return (
@@ -372,8 +424,13 @@ class LlmClient:
             f"These are the only facts you know ({kind} update):\n{listed}\n\n"
             "Write ONE short sentence they will hear out loud. Rules:\n"
             "- Let them know you are still there with them.\n"
-            "- Include every fact above, the elapsed time included, and use only those facts. "
-            "Never invent a fact, a name, a time or a promise.\n"
+            "- Mention the one fact that matters most to them right now - do not recite the whole "
+            "list in one breath; a status report read aloud sounds like a machine, not care.\n"
+            "- If any 'do not reuse this wording' lines are given, say something meaningfully "
+            "different from ALL of them - a different thought, not a re-phrasing, and preferably "
+            "a different fact.\n"
+            "- Use only those facts. Never invent a fact, a name, a time or a promise, and never "
+            "contradict a fact by implying something else is happening.\n"
             "- Do not tell them to move, stand up, or get comfortable.\n"
             "- No quotes, no emoji, no lists. Under 30 words.\n"
             "Sentence:"
@@ -384,9 +441,16 @@ class LlmClient:
         joined = "; ".join(facts)
         if kind == "brief":
             return (
-                f"Facts, in order: {joined}.\n"
-                "Tell a first responder what happened, out loud, using only those facts. "
-                "One flowing summary, no list, under 120 words."
+                f"Facts: {joined}.\n"
+                "Give a first responder a spoken handover using only those facts: what happened and "
+                "the person's condition first, then what was done, then where things stand. Compress, "
+                "never invent. One flowing paragraph, no list, under 80 words."
+            )
+        if kind == "reply":
+            return (
+                f"Facts: {joined}.\n"
+                "Reply warmly, in one short spoken sentence, to what the person just said. Use only "
+                "those facts, add no medical advice beyond any guidance given, under 25 words, no quotes."
             )
         if kind == "find":
             return (
@@ -443,6 +507,7 @@ _FALLBACK_CONDITION = {
     "escalate": "they ask for help, report pain, or do not really answer",
     "check": "they respond coherently, so go back and reassess how they are",
     "wait": "they said nothing meaningful; keep listening",
+    "unclear": "their words came through garbled or do not make sense as a sentence",
 }
 
 
@@ -474,7 +539,10 @@ def _clean_line(answer: str | None, max_chars: int = MAX_LINE_CHARS) -> str | No
 # "where are they" is exactly the follow-up §13 routes to `guide` by remembering
 # the last object, not by searching for the word "them".
 _PRONOUNS = frozenset(
-    {"none", "it", "them", "they", "that", "this", "these", "those", "thing", "something", "anything", "one"}
+    {"none", "it", "them", "they", "that", "this", "these", "those", "thing", "something", "anything", "one",
+     # bare determiners survive the determiner-strip (it needs a word after) -
+     # observed live: the model answered "my" for "do you see my chair"
+     "my", "your", "the", "a", "an", "our", "his", "her", "their", "some", "mine", "yours"}
 )
 
 

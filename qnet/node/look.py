@@ -34,6 +34,14 @@ The reply discipline, from the frozen contract:
 The prompt/parse/trim helpers are pure - no cv2, no network - and unit-tested
 on the laptop (``tests/test_look_logic.py``), same split as vision.py.
 
+``--export-every S`` (default 0 = off) is for look+stream nodes that run NO
+vision.py (D2's bedroom: fall detection stays kitchen-only). It starts one
+background thread that owns the camera, drains it continuously, and writes
+``/dev/shm/qnet_<room>_frame.jpg`` every S seconds (same atomic write vision.py
+uses), so stream.py has a live preview and this process answers looks from its
+own fresh export. It also publishes the ``qnet/<room>/status`` heartbeat every
+5 s - on a vision node that beat is vision.py's job, so the default stays off.
+
 Run it on the node:
 
     ~/qnet-venv/bin/python -m qnet.node.look --room kitchen \
@@ -51,7 +59,7 @@ import threading
 import time
 from pathlib import Path
 
-from qnet.node.vision import parse_source
+from qnet.node.vision import _atomic_write, parse_source
 
 # cv2, paho and openai are imported lazily (frame/publish/VLM only run on the
 # node); everything the hermetic tests touch is stdlib-only.
@@ -347,6 +355,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--frame-path", default=None, help="vision.py's export (default /dev/shm/qnet_<room>_frame.jpg)")
     parser.add_argument("--fresh-s", type=float, default=None, help=f"export age that still counts as live (default {FRESH_S})")
     parser.add_argument("--vlm-timeout", type=float, default=30.0, help="per-request VLM timeout seconds")
+    parser.add_argument("--export-every", type=float, default=0.0,
+                        help="own the camera and export --frame-path every S seconds, plus the 5 s "
+                             "qnet/<room>/status heartbeat - ONLY for nodes with no vision.py (0 = off)")
     args = parser.parse_args(argv)
 
     config_path = Path(args.config)
@@ -423,7 +434,58 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as exc:  # noqa: BLE001 - a room node must outlive one bad query
                 print(f"look: qid={payload.get('qid')} failed ({exc!r}) - not replying", flush=True)
 
+    eyes = {"frames": 0, "started": time.monotonic()}  # exporter counters, one writer
+
+    def exporter() -> None:
+        """Own the camera, drain it, export a frame every ``--export-every`` s.
+
+        Draining every frame keeps V4L2's buffer queue from serving stale
+        frames; only the JPEG write is throttled. With this thread running the
+        shm export is always fresh, so handle() answers from it and the
+        open-a-second-capture fallback never fires.
+        """
+        import cv2
+
+        while True:
+            cap = cv2.VideoCapture(parse_source(source))
+            if not cap.isOpened():
+                print(f"look: exporter cannot open {source!r} - retry in 5s", flush=True)
+                time.sleep(5.0)
+                continue
+            print(f"look: exporter owns {source!r} -> {frame_path} every {args.export_every:g}s", flush=True)
+            last_write = 0.0
+            while True:
+                ok, frame = cap.read()
+                if not ok:
+                    print("look: exporter lost the camera - reopening", flush=True)
+                    break
+                eyes["frames"] += 1
+                now = time.monotonic()
+                if now - last_write >= args.export_every:
+                    encoded, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                    if encoded:
+                        _atomic_write(frame_path, jpg.tobytes())
+                    last_write = now
+            cap.release()
+            time.sleep(1.0)
+
+    def heartbeat() -> None:
+        # Same topic/shape as vision.py's T4.2 settlement (contracts/mqtt.md),
+        # with the detector field telling the truth: nothing detects here.
+        elapsed = time.monotonic() - eyes["started"]
+        client.publish(f"qnet/{room}/status", json.dumps({
+            "node": node_id,
+            "room": room,
+            "ts": time.time(),
+            "state": "look-only",
+            "fps": round(eyes["frames"] / elapsed, 2) if elapsed > 0 else 0.0,
+            "frames": eyes["frames"],
+            "detector": "none (look+stream node)",
+        }), qos=0)
+
     threading.Thread(target=worker, daemon=True, name="look-worker").start()
+    if args.export_every > 0:
+        threading.Thread(target=exporter, daemon=True, name="look-exporter").start()
     client.on_connect = on_connect
     client.on_message = on_message
     client.connect(broker, port, keepalive=30)
@@ -431,6 +493,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         while True:
             time.sleep(WATCHDOG_S)
+            if args.export_every > 0 and client.is_connected():
+                heartbeat()
             if not client.is_connected():
                 print("look: broker connection lost - forcing reconnect", flush=True)
                 try:

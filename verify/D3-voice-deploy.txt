@@ -1,0 +1,223 @@
+# D3 — voice node deployed to the kitchen board (Ventuno Q "ventuno", 10.73.51.123)
+# Date: 2026-08-06 (UTC timestamps below). Branch voice-integration, not committed.
+# Scope: machine half of D3 — app running, models loaded, heartbeat on broker,
+# RAM gate measured, say pipeline proven on the wire. The audible G3 checklist
+# and T6.4 wake soak remain for the human in the room.
+
+================================================================
+1. INVENTORY (board 1, before any change)
+================================================================
+
+$ arduino-app-cli version
+Arduino App CLI version 0.12.1
+daemon version: 0.12.1
+# daemon running as user process: /usr/bin/arduino-app-cli daemon --port 8800 --log-level error
+# (systemd unit "arduino-app-daemon" reports inactive; the daemon itself is up)
+
+$ aplay -l   (playback — the D3 stop-condition check: an output DOES exist)
+card 0: monacogertrude [monaco-gertrude], device 0: MultiMedia1 Playback (*) []
+card 2: Seri [Plantronics Blackwire 3225 Seri], device 0: USB Audio [USB Audio]
+
+$ arecord -l  (capture)
+card 0: monacogertrude [monaco-gertrude], device 1: MultiMedia2 Capture (*) []
+card 1: Camera [USB Camera], device 0: USB Audio [USB Audio]        <- HHWei UVC camera mic
+card 2: Seri [Plantronics Blackwire 3225 Seri], device 0: USB Audio [USB Audio]
+
+USB audio mapping (arduino.app_peripherals semantics: usb:N = Nth USB card in
+ALSA card-index order, 1-based, capture and playback enumerated separately):
+  mic     usb:1 = Camera (card 1), usb:2 = Seri (card 2)
+  speaker usb:1 = Seri (card 2; only USB playback device)
+Known-good reference: the leftover living-room config on this same board
+(~/ArduinoApps/qhome-voice-node/qnet... qhome-config.json, 2026-08-06 00:29)
+used microphone_device usb:2 + speaker_device usb:1 — the Seri headset both ways.
+
+$ docker images (relevant; ALL already present, byte-identical tags to board 2 — no pulls needed)
+ghcr.io/arduino/app-bricks/python-apps-base:0.11.0                          1.21GB
+artifacts.codelinaro.org/iot-solutions-microservices/audio-analytics:1.0.2  1.45GB
+ghcr.io/arduino/app-bricks/audio-analytics-models-runner:0.10.0             2.16GB
+
+Model registry /var/lib/arduino-app-cli/models/audio-analytics/asr/ — BOTH
+whisper artifacts were ALREADY PRESENT on board 1 (staged 2026-08-05/06),
+files byte-size-identical to board 2's reference:
+  whisper_small-voice_ai-float-qualcomm_qcs8275/
+    config.json 737  decoder.bin 361689088  encoder.bin 267300864
+    metadata.json 17534  vocab.bin 357313
+  whisper_small_quantized-voice_ai-w8a16-qualcomm_qcs8275/   (RAM-pressure rollback)
+    config.json 874  decoder.bin 225320960  encoder.bin 133320704
+    metadata.json 43808  vocab.bin 357313
+=> Step "install whisper" was a no-op: install_whisper_voice_ai_model.sh
+   refuses to overwrite an existing registry dir, and the runner log below
+   proves both models register and float actually transcribes.
+
+Pre-existing services (must survive): qnet-vision, qnet-look, qnet-stream all
+active (room kitchen, camera /dev/v4l/by-id/usb-HHWei..., broker
+10.73.51.175:11883); genai-llm-vlm-service container Up 17 hours.
+Note: her old app "user:qhome-voice-node" exists on board 1 in status
+"failed"/not running — untouched.
+
+================================================================
+2. DEPLOY
+================================================================
+
+- Laptop has no rsync, so scripts/deploy_voice_node.sh could not run verbatim.
+  Replicated its exact effect with tar-over-ssh (same source
+  apps/ventuno-q/qnet-voice-node/, same target
+  /home/arduino/ArduinoApps/qnet-voice-node/, same qnet-config.json exclusion;
+  additionally excluded __pycache__). Files landed:
+  app.yaml, qnet-config.example.json, assets/{app.js,index.html,style.css},
+  python/{config.py,main.py,message_schema.py,mqtt_transport.py,
+  requirements.txt,speech_backend.py,transcript_buffer.py,voice_controller.py,
+  wake_gate.py}
+
+- Device config written to /home/arduino/ArduinoApps/qnet-voice-node/qnet-config.json
+  (the App CLI bind-mounts the app dir at /app, so this is the
+  /app/qnet-config.json that python/config.py reads — mount verified in the
+  generated app-compose.yaml). Content = config/voice-nodes/ventuno-kitchen.json
+  with ONE audio fix to match this board's hardware:
+    microphone_device: "usb:1" -> "usb:2"   (Seri headset mic, not the camera mic;
+                                             matches the proven config on this board)
+  speaker_device stays "usb:1" (Seri — the only USB playback device).
+  Repo copy config/voice-nodes/ventuno-kitchen.json updated to usb:2 as well.
+  room kitchen, iq9_host 10.73.51.175, mqtt_port 11883, asr_model whisper-small.
+
+================================================================
+3. RAM GATE — BEFORE
+================================================================
+
+=== free -m BEFORE app start (2026-08-06T16:47:06Z) ===
+               total        used        free      shared  buff/cache   available
+Mem:           15284       10080        3298          68        2229        5204
+Swap:              0           0           0
+
+================================================================
+4. START (first start; containers created, no image pulls needed)
+================================================================
+
+$ arduino-app-cli app start /home/arduino/ArduinoApps/qnet-voice-node
+[INFO] Starting app "QNet Voice Node"
+[INFO]  Network qnet-voice-node_default  Created
+[INFO]  Container qnet-voice-node-audio-analytics-runner-1  Created
+[INFO]  Container qnet-voice-node-main-1  Created
+[INFO]  Container qnet-voice-node-audio-analytics-runner-1  Started
+[INFO]  Container qnet-voice-node-audio-analytics-runner-1  Healthy
+[INFO]  Container qnet-voice-node-main-1  Started
+✓ App "QNet Voice Node" started successfully
+EXIT=0
+
+$ arduino-app-cli app list | head
+user:qnet-voice-node    QNet Voice Node    🏠    running    false
+
+$ docker ps --format "{{.Names}}\t{{.Status}}"
+qnet-voice-node-main-1                     Up 17 seconds
+qnet-voice-node-audio-analytics-runner-1   Up 23 seconds (healthy)
+genai-llm-vlm-service                      Up 17 hours
+
+================================================================
+5. MODELS LOADED (runner log — the runbook's acceptance lines, verbatim)
+================================================================
+
+[server] 2026-08-06 16:47:17 INFO [common.model_loader] Loaded model config: whisper-small from /mnt/work/models/asr/whisper_small-voice_ai-float-qualcomm_qcs8275
+[server] 2026-08-06 16:47:17 INFO [common.model_loader] Loaded model config: whisper-small-quantized from /mnt/work/models/asr/whisper_small_quantized-voice_ai-w8a16-qualcomm_qcs8275
+[server] 2026-08-06 16:47:17 INFO [common.base_service.ASR] Available ASR models: ['whisper-small', 'whisper-small-quantized']
+[server] 2026-08-06 16:47:26 INFO [common.base_service.ASR] Transcription request: model=whisper-small, stream=True, has_file=False, filename=None, language=en, keep_alive=False
+[server] 2026-08-06 16:47:30 INFO [common.base_service.ASR] Singleton WhisperWrapper created and initialized
+  (TranscriptionsCreateRequest ... model='whisper-small', language='en', stream=True,
+   parameters vad=700, sampling_rate 16000, pcm_s16le)
+TTS models available: ['piper-tts-de', 'piper-tts-en', 'piper-tts-it']
+
+App boot (main container log):
+2026-08-06 16:47:26 WARNING ALSAMicrophone: Requested buffer_size 1024 not supported by plug_card_2_dev_0_mic. Using 2000 instead.   <- Seri mic (card 2) = usb:2, resolved correctly
+2026-08-06 16:47:35 INFO ALSASpeaker: Successfully started Seri                                                                      <- Seri speaker = usb:1
+2026-08-06 16:47:37 INFO App: App started
+INFO:qnet.ventuno.mqtt:Connected to IQ9; subscribed to qnet/kitchen/say and qnet/session/+
+
+================================================================
+6. HEARTBEATS ON OUR BROKER (laptop spy; vision + voice interleaved on one topic)
+================================================================
+
+$ .venv/Scripts/python.exe dev/spy.py --broker 10.73.51.175 --port 11883 -t 'qnet/kitchen/status' -C 6
+# spy: 10.73.51.175:11883 qnet/kitchen/status
+09:47:52.796 qnet/kitchen/status {"node":"kitchen-voice-01","room":"kitchen","ts":1786034872.7607164,"state":"listening"}
+09:47:52.858 qnet/kitchen/status {"node": "kitchen-01", "room": "kitchen", "ts": 1786034872.8269844, "state": "armed", "fps": 2.71, "frames": 1096, "detector": "fall-yolo11n@hexagon-npu"}
+09:47:57.819 qnet/kitchen/status {"node":"kitchen-voice-01","room":"kitchen","ts":1786034877.7615192,"state":"listening"}
+09:47:57.964 qnet/kitchen/status {"node": "kitchen-01", "room": "kitchen", "ts": 1786034877.998016, "state": "armed", "fps": 2.71, "frames": 1112, "detector": "fall-yolo11n@hexagon-npu"}
+09:48:02.839 qnet/kitchen/status {"node":"kitchen-voice-01","room":"kitchen","ts":1786034882.7623463,"state":"listening"}
+09:48:03.449 qnet/kitchen/status {"node": "kitchen-01", "room": "kitchen", "ts": 1786034883.3756907, "state": "armed", "fps": 2.72, "frames": 1127, "detector": "fall-yolo11n@hexagon-npu"}
+
+Both heartbeaters share qnet/kitchen/status per the contract: voice node
+kitchen-voice-01 at 5 s cadence (state listening), vision kitchen-01 armed.
+
+================================================================
+7. SAY PIPELINE SMOKE (no ears needed — state transition on the wire)
+================================================================
+
+Published from the laptop (paho, qos 1) to qnet/kitchen/say:
+  {"text": "test line one two three", "prio": "routine"}    -> published, rc = 0
+
+Second spy capture (-C 14) around the publish:
+09:48:32.847 qnet/kitchen/status {"node":"kitchen-voice-01","room":"kitchen","ts":1786034912.7663324,"state":"listening"}
+09:48:33.256 qnet/kitchen/status {"node":"kitchen-voice-01","room":"kitchen","ts":1786034913.1697075,"state":"speaking","say_id":"local-6e93501c-cdf3-4360-94cd-b6707028c4e2"}
+09:48:35.816 qnet/kitchen/status {"node":"kitchen-voice-01","room":"kitchen","ts":1786034915.8284419,"state":"idle","say_id":"local-6e93501c-cdf3-4360-94cd-b6707028c4e2"}
+09:48:35.872 qnet/kitchen/status {"node":"kitchen-voice-01","room":"kitchen","ts":1786034915.828969,"state":"listening"}
+
+listening -> speaking (say_id) -> idle -> listening in ~2.6 s. Runner log
+confirms real synthesis against the device path:
+[api] TTS synthesis complete, closing response
+POST /audio-analytics/v1/api/tts/synthesize 200 385.578 ms
+[server] 2026-08-06 16:48:35 INFO [common.service_coordinator] ASR requested, TTS keep_alive enabled — skipping TTS cleanup
+No error states on the wire; no errors/tracebacks in the main container log.
+(Audible confirmation is the human half — nobody was in the room.)
+
+================================================================
+8. RAM GATE — AFTER (app + runner + both speech models active)
+================================================================
+
+=== free -m AFTER app+models up (2026-08-06T16:49:02Z) ===
+               total        used        free      shared  buff/cache   available
+Mem:           15284       11523        3327          69         758        3761
+Swap:              0           0           0
+
+Delta: +1443 MiB used. Headroom AFTER = 3761 MiB available >> 800 MiB gate
+=> ACTIVE MODEL STAYS whisper-small (float). Quantized rollback registered and
+   discoverable (runner listed it) — flip qnet-config.json asr_model to
+   "whisper-small-quantized" + app restart if pressure ever appears.
+
+================================================================
+9. PRE-EXISTING SERVICES UNHARMED
+================================================================
+
+$ systemctl is-active qnet-vision qnet-look qnet-stream
+active / active / active
+Vision heartbeat live throughout both spy captures (armed, fps 2.71-2.74,
+frames counter monotonically increasing 1096 -> 1253).
+$ curl http://localhost:8090/kitchen.jpg -> http 200, bytes 28738
+/dev/shm/qnet_kitchen_frame.jpg mtime 2026-08-06 16:49:16.263 vs date -u
+2026-08-06T16:49:16Z — frame fresh to the second.
+genai-llm-vlm-service container still Up. Board 2 untouched (read-only
+inspection only; her app there never started).
+
+================================================================
+10. REMAINING — HUMAN-IN-ROOM HALF (plan D3 gate)
+================================================================
+
+G3 in-the-room checklist, verbatim from the plan:
+  - audible ask -> spoken "I'm fine" -> pain check -> resolved
+  - silence path -> SIMULATED call
+  - responder phrase ("I am the first responder") -> audible brief
+T6.4 wake soak:
+  - 10 min room chatter -> 0 false asks
+  - 5 wake trials ("hey home") -> >= 4/5
+Also worth a human ear: confirm the say smoke line was actually audible from
+the Seri headset speaker and that speaker volume suits the room.
+
+================================================================
+Files touched
+================================================================
+Laptop (branch voice-integration, NOT committed):
+  config/voice-nodes/ventuno-kitchen.json   (mic usb:1 -> usb:2)
+  verify/D3-voice-deploy.txt                (this file)
+  measurements.md                           (D3 RAM gate entry)
+Board 1 (ventuno):
+  /home/arduino/ArduinoApps/qnet-voice-node/   (new app dir + qnet-config.json)
+  App CLI state: user:qnet-voice-node running (2 containers)
+Board 2 (ventuno2): nothing modified.

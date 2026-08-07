@@ -1,0 +1,23 @@
+# QNet Home - bedroom look node on the second Ventuno Q (D2). Install:
+#   sudo cp infra/systemd/qnet-look-bedroom.service /etc/systemd/system/qnet-look.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now qnet-look
+# This board runs NO vision.py (fall detection stays kitchen-only), so look
+# itself owns the camera via --export-every 1: it writes the /dev/shm frame
+# stream.py serves AND publishes the 5 s qnet/bedroom/status heartbeat.
+# Needs the Qualcomm LLM/VLM container serving Qwen3-VL on :9001 (Docker,
+# setup/ventuno-vlm/README.md).
+
+[Unit]
+Description=QNet Home bedroom look - on-node VLM answers for qnet/look (no vision on this board)
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+User=arduino
+WorkingDirectory=/home/arduino/qnet-node
+ExecStart=/home/arduino/qnet-venv/bin/python -u -m qnet.node.look --room bedroom --broker 10.73.51.175 --port 11883 --source /dev/v4l/by-id/usb-046d_Logitech_BRIO_DA650E32-video-index0 --export-every 1
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

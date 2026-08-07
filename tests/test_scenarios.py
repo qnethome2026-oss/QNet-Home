@@ -40,7 +40,7 @@ from qnet.agent import engine
 
 CHECK_OPENING = "I saw you fall. Take a breath — are you okay?"
 ESCALATE_OPENING = "It's okay — I'm getting you help. Try to get comfortable, and don't strain to move."
-CALL_HELP_OPENING = "You haven't answered, so I'm calling emergency services now."
+CALL_HELP_OPENING = ("I'm calling emergency services for you right now. Help is coming — stay with me.")
 
 
 def phase_pairs(lines: list[dict]) -> list[tuple[str, str]]:
@@ -423,3 +423,109 @@ def test_recorder_registry_is_the_only_tool_source(tmp_path) -> None:
     assert rec is recorder
     assert set(agent.tools) == {"notify_contacts", "call_emergency", "look_in_rooms"}
     assert agent.tools["call_emergency"].engine_only is True
+
+
+def test_pain_denial_with_the_pain_word_resolves(tmp_path) -> None:
+    """"no, i'm not hurt" contains "hurt" - without negation handling the
+    --no-llm mind escalated an explicit denial (found by the voice system
+    harness, tests/voice/test_voice_system.py). Denials resolve; bare "hurt"
+    still escalates; ambiguity still errs toward escalation."""
+    from qnet.agent.engine import classify_reply, _NEGATED_PAIN_RE
+    assert _NEGATED_PAIN_RE.search("no, i'm not hurt")
+    assert _NEGATED_PAIN_RE.search("no i am not in pain")
+    assert _NEGATED_PAIN_RE.search("nothing hurts")
+    assert not _NEGATED_PAIN_RE.search("my hip hurts")
+    assert not _NEGATED_PAIN_RE.search("yes it hurts")
+    # "no... but my head hurt when i fell" - the negation window is 2 words,
+    # so a far-away pain word still escalates (the safe direction).
+    assert not _NEGATED_PAIN_RE.search("no idea what happened but my head really seriously hurts")
+
+
+def test_help_me_gets_an_answer_not_the_status_recording(tmp_path) -> None:
+    """Live finding (2026-08-06): "Help me" / "What can I do?" mid-call_help
+    earned only the next timed status line. An unrouted utterance in a safety
+    session now gets a responsive reply - and since skills/first-aid.md, a
+    responsive one: "help me" keyword-matches its stuck topic and the canned
+    reply carries that topic's sentence, while "what can i do" matches nothing
+    and gets the acknowledgment-only fallback. Either way it resets the
+    comfort clock instead of stacking on it."""
+
+    async def scenario() -> None:
+        agent, bus, rec = make_agent(tmp_path, timer_scale=0.05, comfort_interval_s=1000)
+        session = await fall(agent)
+        for _ in range(3):
+            await heard(agent, silence=True)
+        await until(lambda: rec.count("call_emergency") == 1, why="reach call_help")
+        before = len(bus.said())
+
+        await heard(agent, text="help me")
+        await until(lambda: len(bus.said()) > before, why="a reply to the person")
+        stuck = agent.first_aid.match("help me")
+        assert stuck is not None and stuck.id == "stuck"
+        assert bus.said()[-1] == engine.REPLY_GUIDED.replace("{guidance}", stuck.guidance)
+
+        await heard(agent, text="what can i do")
+        await until(lambda: len(bus.said()) > before + 1, why="a second reply")
+        assert bus.said()[-1] == engine.REPLY_FALLBACK
+        # Still in call_help - answering is not an exit, and silence heards
+        # never trigger it (no chatty replies to timeouts).
+        assert session.phase == "call_help"
+        prev = len(bus.said())
+        await heard(agent, silence=True)
+        await asyncio.sleep(0.2)
+        assert len(bus.said()) == prev
+
+    asyncio.run(scenario())
+
+
+def test_head_hurts_transcript_no_stupid_replay(tmp_path) -> None:
+    """The 2026-08-06 live transcript, as a regression: (1) "i'm not okay my
+    head hurts" escalates AND earns the head guidance, not just the generic
+    opening; (2) "but my head hurts, what should i do" jumps back to check
+    WITHOUT replaying "I saw you fall - are you okay?" and gets the guidance
+    answered instead."""
+
+    async def scenario() -> None:
+        agent, bus, rec = make_agent(tmp_path, timer_scale=0.05, comfort_interval_s=1000)
+        session = await fall(agent)
+        assert bus.said().count(CHECK_OPENING) == 1
+
+        await heard(agent, text="i'm not okay my head hurts")
+        await until(lambda: session.phase == "escalate", why="pain words escalate")
+        await until(lambda: any("lying down" in t for t in bus.said()),
+                    why="head guidance follows the escalate opening")
+
+        await heard(agent, text="but my head hurts, what should i do")
+        await until(lambda: session.phase == "check", why="responding jumps back to check")
+        # a moment for the revisit reply to land
+        await until(lambda: sum(1 for t in bus.said() if "lying down" in t) >= 2,
+                    why="the question gets the guidance answered again")
+        # THE bug: the opening must not replay on re-entry.
+        assert bus.said().count(CHECK_OPENING) == 1
+
+    asyncio.run(scenario())
+
+
+def test_im_fine_mid_escalation_double_checks_then_resolves(tmp_path) -> None:
+    """User call (2026-08-06): "I'm fine" mid-escalation should re-run the pain
+    double-check and a clean answer should CLOSE the incident - not leave it
+    simmering behind a generic acknowledgment."""
+
+    async def scenario() -> None:
+        agent, bus, rec = make_agent(tmp_path, timer_scale=0.05, comfort_interval_s=1000)
+        session = await fall(agent)
+        for _ in range(2):
+            await heard(agent, silence=True)
+        await until(lambda: session.phase == "escalate", why="silence escalates")
+
+        await heard(agent, text="i'm fine")
+        await until(lambda: engine.PAIN_QUESTION in bus.said(),
+                    why="re-entry runs the pain double-check, not a generic ack")
+        # The opening must still not replay on the re-entry.
+        assert bus.said().count(CHECK_OPENING) == 1
+
+        await heard(agent, text="no i'm not hurt")
+        await until(lambda: session.state == "closed", why="clean answer resolves")
+        assert session.final == "ok"
+
+    asyncio.run(scenario())

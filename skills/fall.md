@@ -48,7 +48,12 @@ emergency_number: "911"
                                             # must never strand someone
 
 - id: call_help
-  opening: "You haven't answered, so I'm calling emergency services now."
+  # No "you haven't answered" claim in this opening: call_help is reached by
+  # more than the pure-silence path (live 3PM test: the person had spoken
+  # seconds earlier and was told "I haven't heard from you"). The line must
+  # be true on every route here.
+  opening: "I'm calling emergency services for you right now. Help is coming
+            — stay with me."
   goal: "Stay with them and keep talking. You have no tools to call — the
          call is already being placed automatically."
   tools: []

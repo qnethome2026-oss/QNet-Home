@@ -1,5 +1,12 @@
 # `asr-tts-mqtt` branch — integration review
 
+> **Resolution (2026-08-06):** integrated per this review on branch
+> `voice-integration` — extraction (never merged), all five blockers fixed
+> test-driven (B1 wake gate wired node-side, B2 contract conformance with our
+> frozen fixtures, B3 reliability trio), everything AGPL. Live plan and phase
+> tracking: `docs/voice-integration-plan.md`. Device phases (her stack
+> retirement, second Ventuno, in-room gates) pending hardware access.
+
 *2026-08-06. Three independent review passes (voice-node internals · wire-contract
 compatibility · overlap/runtime-collision inventory) over commit `70700bd`,
 before any integration. Verdict up front: **integrate — it's worth it — but by

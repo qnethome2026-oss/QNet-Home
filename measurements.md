@@ -4,6 +4,25 @@ Every number here was measured on the named hardware, with the method stated —
 nothing modelled, nothing quoted from a datasheet. DESIGN.md's rule: nothing
 `[?]` goes on a slide until it's measured.
 
+## D3 — voice node RAM gate on the kitchen Ventuno Q (2026-08-06)
+
+Board: kitchen Ventuno Q (10.73.51.123), already running qnet-vision +
+qnet-look + qnet-stream + the Qualcomm LLM/VLM container. Method: `free -m` on
+the board immediately before `arduino-app-cli app start qnet-voice-node`, and
+again after both containers were up, the audio-analytics runner had registered
+`['whisper-small', 'whisper-small-quantized']`, float whisper-small had served
+a real streaming transcription session, and piper TTS had synthesized one say.
+
+| free -m | total | used | available |
+|---|---|---|---|
+| Before app start (16:47:06Z) | 15284 | 10080 | **5204** |
+| After app + models up (16:49:02Z) | 15284 | 11523 | **3761** |
+
+- Voice node cost: **+1443 MiB** used. Headroom after = 3761 MiB, comfortably
+  above the ~800 MiB gate → **float whisper-small stays active**; the
+  quantized rollback remains registered (config flip + restart, no copy).
+- Evidence: `verify/D3-voice-deploy.txt`.
+
 ## T6.3 — look→looked round trip on the Ventuno Q (2026-08-05)
 
 Board: Arduino Ventuno Q, `node/look.py` answering `qnet/look` with
@@ -80,3 +99,98 @@ around each call, printed by the service at EOF.
   Threshold/N-of-M tuning against labelled clips is exactly T4.3's job.
 - The model reads *deliberate* lying down (UR Fall adl-01) as `fallen` —
   posture, not intent. Known, stated limitation.
+
+
+## Fall-model threshold probe (live, 2026-08-06 — feeds T4.3)
+
+Live experiment on the kitchen board (screen-replay attempts + a wall-aimed
+camera), all values from the on-board NPU pipeline via the detwatch probe:
+
+| Scene | fallen conf observed |
+|---|---|
+| Real fallen-person frames (UR clips, direct source) | 0.86–0.94 |
+| Photo of fallen person on a screen, held to camera (best attempts) | 0.40–0.52, intermittent |
+| Blank wall + mounted dome cameras (floor 0.35 active) | **up to 0.52 — pure noise** |
+| Person close-up at desk (no full body visible) | sitting 0.2–0.9; no reliable class |
+
+Conclusions: conf_floor 0.6 restored and REAFFIRMED (0.35 fires on empty
+walls); screen-replay is not a viable demo trigger (signal sits in the same
+band as blank-wall noise); the reliable triggers are a real person on a real
+floor (camera repositioned to see floor) or the file-source clip run. One
+screen-replay event did fire at 0.47/0.49 during the low-floor window —
+indistinguishable from noise, which is exactly why it's excluded.
+
+
+## Voice-loop latency + dropped-speech bench (live, 2026-08-06 evening)
+
+Instrumented run: ms timestamps on both loggers, drop-path log lines on the
+node, `dev/voice_bench.py` (new, passive) on `qnet/#`, one injected kitchen
+fall session with two typed replies. Raw captures in verify/T-voice-bench.txt.
+
+Latency legs (n small, one session — directional but unambiguous):
+
+| Leg | Measured |
+|---|---|
+| heard → say (engine decide + wording) | 0.97 / 2.37 / 5.58 s (median 2.37) |
+| LLM classify (gemma, warm) | 424–494 ms |
+| LLM classify (cold, first of session) | 5 545 ms |
+| LLM reply wording | 1.8 s; comfort 1.5 s |
+| notify_contacts (Telegram HTTP) | 1.0–1.3 s |
+| TTS synth+playback | 1.8–9.6 s per line (~9 chars/s) |
+| Deaf window per say (tts start → guard done) | 2.3–10.1 s |
+| Deaf stretch, chained says (safety+comfort back to back) | up to 15.2 s continuous |
+| TTS runner hang (1 occurrence) | ~30 s, line never spoken (RemoteDisconnected) |
+
+Dropped-speech attribution, same 2.5 min window:
+
+- 25 session snapshots published for ONE session (engine republishes the doc
+  on every internal log line) → the node cancelled listen generations 2, 3,
+  4 and 6; **of ~7 session listens opened, exactly 1 survived to publish a
+  heard**. Every cancelled listen discards its partial transcript without
+  publishing — this is the "it never heard me" mechanism, now with counts.
+- Gen 4 was killed by a snapshot alone (no say pending) — pure collateral.
+- The wake gate rejects ambient finals every few seconds in idle mode
+  (previously invisible; now logged with sizes).
+- One 30 s TTS hang made the node deaf AND mute from second 0 of the session
+  (the opening line was lost) — matches the known runner failure mode in
+  docs/operations/troubleshooting.md.
+
+Ranked causes: (1) session-snapshot cancellation storm, (2) TTS duration +
+back-to-back says (deaf 6–15 s stretches; barge-in impossible by design),
+(3) TTS runner hangs, (4) LLM cold-start classify. End-of-speech → heard
+(T3.1 exact number) still needs a scripted SPOKEN run — the path is now fully
+timestamped, so it falls out of the next live test for free.
+
+Fix round (same evening, proof rerun with the identical scenario): node now
+ignores session snapshots that don't flip the idle<->session mode + LLM
+warm-up ping at session open. heard->say median 2.37 -> 1.61 s, max 5.58 ->
+1.64 s (first reply 0.48 s - cold start gone); snapshot-cancelled listens
+~19 -> 1 (the legitimate session-open flip); session heards published 1 -> 3
+plus a clean silence. Say-chaining and a TTS-hang watchdog deliberately
+deferred (risk > benefit pre-demo); full reasoning in verify/T-voice-bench.txt.
+
+## T8.1 — IM SDK front-half engine, clip parity + throughput (2026-08-07)
+
+Board: a Ventuno Q at a home LAN (no camera attached, local mosquitto as
+broker — the hub was off-network), model + venv as mainline. Engine:
+`qnet/node/vision_imsdk.py` — GStreamer/IM SDK capture→decode→letterbox
+(`qtimlvconverter`, uint8/NHWC, `image-disposition=centre`) piped to the
+unchanged `qnn-net-run` + decode + FallGate. Method + full transcript:
+`verify/T-imsdk-fall.txt`; clips rebuilt on-board from the UR Fall dataset
+(H.264, 320×240 RGB crop).
+
+| Measure [M] | mainline (cv2 preproc) | IM SDK engine | note |
+|---|---|---|---|
+| fall-01 gate fires | frames [4, 104] | frames [4, 104] | floors 0.5 vs 0.45 (below) |
+| adl-01 gate fires | 1 (frame 116) | 1 (frame 114) | the documented lying-down fire |
+| per-frame verdict agreement | — | 134/160 · 147/150 | disagreements all near-floor |
+| fallen-conf median (fall-01) | 0.8264 | 0.7837 | systematic −0.043: pad-0 vs pad-114, NV12 chroma, scaler |
+| throughput over MQTT, `--batch 8` | 14.55 fps (T4.2, batch 8) | 8.81 fps · NPU 87.1 ms/frame | different clip/site; NPU leg still `qnn-net-run`-bound |
+
+- The engine's default conf floor is **0.45** — the measured compensation for
+  the −0.03…−0.05 systematic preproc offset; with it, gate-fire parity is
+  exact on both clips. Change either floor → re-run the Stage 2 parity.
+- The float/NCHW converter path that would allow in-pipeline `qtimlqnn` is
+  broken on this board build (all-zero tensors; full matrix in
+  `setup/ventuno-imsdk/README.md`) — the uint8/NHWC path used here was
+  verified frame-unique and data-bearing (160/160 unique MD5s).

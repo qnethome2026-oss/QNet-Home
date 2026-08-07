@@ -8,7 +8,7 @@
 
   A single HTML page standing in for an entire room: pick a room, type what a
   person would have said aloud, and this page routes it exactly the way the
-  real node's adapter (qnet/node/voice.py, DESIGN.md S9) would - responder
+  real voice node (apps/ventuno-q/qnet-voice-node, DESIGN.md S9) would - responder
   phrase -> ask/responder_brief (checked first, any state), active session ->
   heard, wake phrase -> ask/query (phrase stripped), anything else discarded
   and shown greyed. A Fall button publishes the fall fixture for the selected
@@ -210,7 +210,7 @@
     </section>
 
     <footer class="footer">
-      <span>dev tool — DESIGN.md §5. Routing mirrors <code>qnet/node/voice.py</code>. Try <code>?selftest=1</code>.</span>
+      <span>dev tool — DESIGN.md §5. Routing mirrors the <code>qnet-voice-node</code> app. Try <code>?selftest=1</code>.</span>
       <button id="selftestBtn" title="Run the routing self-test (also callable as runSelfTest() from the console)">Run self-test</button>
     </footer>
 
@@ -506,7 +506,7 @@ function buildFallEvent(room) {
   };
 }
 
-// routing duplicated in qnet/node/voice.py — change both
+// routing mirrored from the real voice node (apps/ventuno-q/qnet-voice-node/python/voice_controller.py) — keep in step
 function routeInput(rawText, room, sessionActive) {
   const norm = normalize(rawText);
   if (matchesResponderPhrase(norm)) {                      // checked first, in ANY state (§9, §12)

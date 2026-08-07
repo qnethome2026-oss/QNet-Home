@@ -26,6 +26,7 @@ import glob
 import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlparse
 
 FRAME_DIR = Path("/dev/shm")
 FRAME_GLOB = "qnet_*_frame.jpg"
@@ -34,7 +35,12 @@ ROOM_RE = re.compile(r"^/([a-z0-9_-]+)\.jpg$")
 
 class FrameHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler's spelling
-        match = ROOM_RE.match(self.path)
+        # Match on the PATH only: every browser consumer cache-busts with a
+        # query string ("...jpg?t=1786..."), and matching the raw request
+        # target 404'd all of them - curl without a query worked, so the
+        # preview appeared broken only in the dashboard (found 2026-08-06).
+        path = urlparse(self.path).path
+        match = ROOM_RE.match(path)
         if match:
             frame = FRAME_DIR / f"qnet_{match.group(1)}_frame.jpg"
             try:
@@ -50,7 +56,7 @@ class FrameHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
             return
-        if self.path == "/" or self.path == "/index.html":
+        if path == "/" or path == "/index.html":
             rooms = [Path(p).name[len("qnet_"):-len("_frame.jpg")]
                      for p in sorted(glob.glob(str(FRAME_DIR / FRAME_GLOB)))]
             body = ("QNet Home node camera preview (LAN only)\n"

@@ -1,0 +1,20 @@
+# QNet Home - start the App Lab voice node at boot (T7.1).
+# The Arduino App CLI daemon starts at boot but does NOT restore running apps,
+# and its containers carry restart=no - so without this unit the room loses its
+# voice after a power cycle (found by the cold-start audit, 2026-08-06).
+[Unit]
+Description=QNet Home voice node (Arduino App Lab app)
+After=network-online.target docker.service arduino-app-cli.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# The daemon needs a moment after boot before it accepts app commands.
+ExecStartPre=/bin/sleep 20
+ExecStart=/usr/bin/arduino-app-cli app start user:qnet-voice-node
+ExecStop=/usr/bin/arduino-app-cli app stop user:qnet-voice-node
+User=arduino
+
+[Install]
+WantedBy=multi-user.target

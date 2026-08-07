@@ -4,6 +4,10 @@ Everything learned getting `melihuzunoglu/human-fall-detection` running end-to-e
 on real Hexagon NPU hardware — both the IQ-9075 and the Ventuno Q — so it
 doesn't have to be re-discovered. Written after a working session on 2026-08-05.
 
+**See also:** [`docs/VENTUNO_Q_CPU_VS_NPU_FALL_DETECTION_BENCHMARK.md`](../../docs/VENTUNO_Q_CPU_VS_NPU_FALL_DETECTION_BENCHMARK.md)
+— measured CPU-vs-NPU comparison on the Ventuno Q (latency, utilization,
+power, energy efficiency), with full methodology.
+
 ## Model
 
 - **Source:** [melihuzunoglu/human-fall-detection](https://huggingface.co/melihuzunoglu/human-fall-detection)
@@ -67,7 +71,7 @@ entirely — see that section below.
 | IP (at time of writing — corp DHCP, will change) | `10.73.51.175` |
 | SSH user | `ubuntu` |
 | SSH auth | Password auth on first connect; a dedicated Ed25519 keypair (`~/.ssh/id_iq9075` on the Windows host, comment `quad-client-iq9075`) was provisioned into the board's `~/.ssh/authorized_keys` so future connections don't need the password |
-| SSH password | `Qcom@2026` |
+| SSH password | Ask the team / use your own board's provisioning credentials — not committed |
 | Credentials (full set) | Also stored in `QUAD-Client-main\.env_boards` (gitignored, not in this repo) — `IQ9075_HOST`, `IQ9075_SSH_USER`, `IQ9075_SSH_PASSWORD`, `IQ9075_PLINK_PATH`, `IQ9075_SSH_HOST_KEY_FINGERPRINT` |
 | Windows SSH tooling | Windows OpenSSH can't do password auth non-interactively — installed PuTTY (`winget install PuTTY.PuTTY`) for `plink.exe`/`pscp.exe` |
 
@@ -83,7 +87,7 @@ entirely — see that section below.
 | QNN SDK on-device | **Not installed by default** — installed manually this session: `sudo apt-get install -y qairt-tools qairt-libs qairt-dsp-binaries qairt-headers` → pulled QAIRT 2.46.0 (same version as IQ-9075) from the board's own apt repos |
 | IP (at time of writing — corp DHCP, will change) | `10.73.51.123` |
 | SSH user | `arduino` |
-| SSH password | `oelinux@123` |
+| SSH password | Ask the team / the Arduino image's default — not committed |
 | SSH auth | Password auth used directly this session; no dedicated key was provisioned yet (unlike the IQ-9075) — do that if this becomes a recurring target |
 
 **Important — QCS8300 is not in Qualcomm AI Hub's device catalog.** Checked

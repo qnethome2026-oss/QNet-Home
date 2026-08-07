@@ -54,18 +54,18 @@
 <title>QNet Home — Admin portal</title>
 <style>
   :root {
-    --bg: #0f1117;
-    --panel: #171a23;
-    --panel-2: #1c2029;
-    --panel-3: #21262f;
-    --border: #2a2f3d;
-    --text: #e6e8ee;
-    --muted: #8b90a0;
-    --accent: #5b8def;
-    --danger: #e5484d;
-    --success: #2fb344;
-    --warn: #f2b705;
-    --violet: #a56bff;
+    --bg: #06070b;
+    --panel: #10131c;
+    --panel-2: #161a26;
+    --panel-3: #1c2231;
+    --border: #1f2532;
+    --text: #eef1f8;
+    --muted: #8c95a9;
+    --accent: #7ba3ff;
+    --danger: #ff5f6d;
+    --success: #34d399;
+    --warn: #fbbf24;
+    --violet: #b18cff;
   }
   @media (prefers-color-scheme: light) {
     :root {
@@ -75,9 +75,18 @@
     }
   }
   :root[data-theme="dark"] {
-    --bg: #0f1117; --panel: #171a23; --panel-2: #1c2029; --panel-3: #21262f;
-    --border: #2a2f3d; --text: #e6e8ee; --muted: #8b90a0; --accent: #5b8def;
-    --danger: #e5484d; --success: #2fb344; --warn: #f2b705; --violet: #a56bff;
+    --bg: #06070b;
+    --panel: #10131c;
+    --panel-2: #161a26;
+    --panel-3: #1c2231;
+    --border: #1f2532;
+    --text: #eef1f8;
+    --muted: #8c95a9;
+    --accent: #7ba3ff;
+    --danger: #ff5f6d;
+    --success: #34d399;
+    --warn: #fbbf24;
+    --violet: #b18cff;
   }
   :root[data-theme="light"] {
     --bg: #f4f5f8; --panel: #ffffff; --panel-2: #f0f1f5; --panel-3: #e7e9f0;
@@ -264,6 +273,28 @@
     border-radius: 10px; padding: 12px; font: 12px/1.5 ui-monospace, Consolas, monospace;
     white-space: pre-wrap; max-height: 44vh; overflow-y: auto;
   }
+
+  /* ---- depth layer (presentation only, matches dashboard/index.html) ---- */
+  body {
+    background:
+      radial-gradient(1000px 560px at 8% -10%, rgba(123,163,255,0.09), transparent 62%),
+      radial-gradient(820px 520px at 98% 2%, rgba(177,140,255,0.08), transparent 60%),
+      var(--bg);
+    background-attachment: fixed;
+  }
+  :root[data-theme="light"] body { background: var(--bg); }
+  ::selection { background: color-mix(in srgb, var(--accent) 32%, transparent); }
+  .feed, .card, .panel, section, .box {
+    box-shadow: 0 1px 2px rgba(0,0,0,0.5), 0 12px 30px rgba(0,0,0,0.42),
+                inset 0 1px 0 rgba(255,255,255,0.06);
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border); border-radius: 999px;
+    border: 3px solid transparent; background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: content-box; }
 </style>
 </head>
 <body>
@@ -275,7 +306,7 @@
       </div>
       <div class="broker-row">
         <label for="brokerUrl">Broker</label>
-        <input id="brokerUrl" type="text" value="ws://10.73.51.175:19001/mqtt" spellcheck="false">
+        <input id="brokerUrl" type="text" value="ws://192.168.1.31:19001/mqtt" spellcheck="false">
         <button id="connectBtn">Connect</button>
         <span class="status"><span id="statusDot" class="dot dot-disconnected"></span><span id="statusText">disconnected</span></span>
         <button id="selftestBtn" title="Run the self-test suite (also ?selftest=1)">Self-test</button>

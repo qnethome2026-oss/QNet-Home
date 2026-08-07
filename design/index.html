@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QNet Home — Smart Home Solution</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="index.html"><span class="dot"></span>QNet Home</a>
+    <div class="nav-links">
+      <a href="index.html" aria-current="page">Overview</a>
+      <a href="fall.html">Fall Detection &amp; Safety Monitoring</a>
+      <a href="find.html">Smart Object Discovery</a>
+      <a href="details/index.html" class="back">Full docs →</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+
+<div class="hero">
+  <div class="eyebrow">Smart Home Solution · <span class="timebadge">⏱ 2 min 30</span></div>
+  <h1>A house that notices, answers, and acts.</h1>
+  <p class="talk-lede">
+    Two rooms watch and listen entirely on-device. It <strong>acts on what it sees</strong> —
+    a fall gets a spoken check-in, a contact at 30 s, help at 60 — and
+    <strong>answers what you ask</strong>: "where are my glasses?" is checked by every room's
+    own camera. No video or audio ever leaves the room.
+  </p>
+</div>
+
+<div class="chips">
+  <div class="chip"><span class="ico">👶</span> Child</div>
+  <div class="chip"><span class="ico">🧓</span> Elder care</div>
+  <div class="chip"><span class="ico">🔒</span> Security</div>
+  <div class="chip"><span class="ico">🔎</span> Object discovery</div>
+</div>
+
+<h2>Monitor, and act</h2>
+
+<p>
+  Most monitoring stops at the notification — a camera sees something, a phone buzzes, and a
+  human somewhere has to notice, interpret, and decide. <strong>That gap is where the minutes
+  go.</strong> QNet Home closes it, and it works in both directions: the house can start a
+  session because a model saw something, or you can start one by asking.
+</p>
+
+<figure class="figure">
+<svg viewBox="0 0 760 132" role="img" aria-label="System-initiated safety path: detect, ask and listen, notify, escalate, then call">
+  <text class="sub" x="10" y="20" style="fill:var(--safety)">① THE HOUSE STARTS IT — SAFETY, ON A CLOCK</text>
+
+  <rect x="10" y="34" width="118" height="42" rx="8" fill="var(--surface)" stroke="var(--safety)" stroke-width="1.5"/>
+  <text class="lbl" x="69" y="60" text-anchor="middle">detect</text>
+  <path class="wire" d="M128 55 H 166" stroke-width="1.5" stroke="var(--safety)" marker-end="url(#s1)"/>
+
+  <rect x="166" y="34" width="126" height="42" rx="8" fill="var(--surface)" stroke="var(--safety)" stroke-width="1.5"/>
+  <text class="lbl" x="229" y="60" text-anchor="middle">ask &amp; listen</text>
+  <path class="wire" d="M292 55 H 330" stroke-width="1.5" stroke="var(--safety)" marker-end="url(#s1)"/>
+
+  <rect x="330" y="34" width="118" height="42" rx="8" fill="var(--surface)" stroke="var(--safety)" stroke-width="1.5"/>
+  <text class="lbl" x="389" y="60" text-anchor="middle">notify</text>
+  <path class="wire" d="M448 55 H 486" stroke-width="1.5" stroke="var(--safety)" marker-end="url(#s1)"/>
+
+  <rect x="486" y="34" width="118" height="42" rx="8" fill="var(--surface)" stroke="var(--safety)" stroke-width="1.5"/>
+  <text class="lbl" x="545" y="60" text-anchor="middle">escalate</text>
+  <path class="wire" d="M604 55 H 642" stroke-width="1.5" stroke="var(--safety)" marker-end="url(#s1)"/>
+
+  <rect x="642" y="34" width="108" height="42" rx="8" fill="var(--safety-bg)" stroke="var(--safety)" stroke-width="2"/>
+  <text class="lbl" x="696" y="60" text-anchor="middle" style="fill:var(--safety)">call</text>
+
+  <text class="sub" x="10" y="106" style="fill:var(--ink-3)">timers · automatic notifications · no human in the loop required</text>
+  <text class="sub" x="696" y="106" text-anchor="middle" style="fill:var(--ink-3)">T+60s</text>
+  <text class="sub" x="69" y="106" text-anchor="middle" style="fill:var(--ink-3)">T+0s</text>
+
+  <defs>
+    <marker id="s1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="var(--safety)"/></marker>
+  </defs>
+</svg>
+<figcaption>
+  Detection is the easy half. Everything after it runs automatically, on a timer — see
+  <a href="fall.html">Fall Detection &amp; Safety Monitoring</a>.
+</figcaption>
+</figure>
+
+<figure class="figure">
+<svg viewBox="0 0 760 132" role="img" aria-label="Person-initiated routine path: you ask, every room looks with its own vision model, and the answer is spoken back">
+  <text class="sub" x="10" y="20" style="fill:var(--routine)">② YOU START IT — ROUTINE, NO TIMERS</text>
+
+  <rect x="10" y="34" width="150" height="42" rx="8" fill="var(--surface)" stroke="var(--routine)" stroke-width="1.5"/>
+  <text class="lbl" x="85" y="60" text-anchor="middle">you ask</text>
+  <path class="wire" d="M160 55 H 198" stroke-width="1.5" stroke="var(--routine)" marker-end="url(#s2)"/>
+
+  <rect x="198" y="34" width="210" height="42" rx="8" fill="var(--surface)" stroke="var(--routine)" stroke-width="1.5"/>
+  <text class="lbl" x="303" y="60" text-anchor="middle">every room looks</text>
+  <path class="wire" d="M408 55 H 446" stroke-width="1.5" stroke="var(--routine)" marker-end="url(#s2)"/>
+
+  <rect x="446" y="34" width="210" height="42" rx="8" fill="var(--routine-bg)" stroke="var(--routine)" stroke-width="2"/>
+  <text class="lbl" x="551" y="60" text-anchor="middle" style="fill:var(--routine)">spoken answer</text>
+
+  <text class="sub" x="10" y="106" style="fill:var(--ink-3)">same nodes · same broker · same agent · same skill format</text>
+  <text class="sub" x="551" y="106" text-anchor="middle" style="fill:var(--ink-3)">answered in the room you asked from</text>
+
+  <defs>
+    <marker id="s2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="var(--routine)"/></marker>
+  </defs>
+</svg>
+<figcaption>
+  The calm inverse — person-initiated, two or three turns, no escalation — see
+  <a href="find.html">Smart Object Discovery</a>.
+</figcaption>
+</figure>
+
+<h2>Architecture</h2>
+
+<figure class="figure">
+<svg viewBox="0 0 880 330" role="img" aria-label="Topology: two Ventuno Q room nodes connect to the IQ-9075, which runs both the Mosquitto MQTT broker and the Gemma LLM; the laptop hub subscribes to the same broker">
+
+  <rect x="8" y="34" width="180" height="100" rx="10" fill="var(--edge-bg)" stroke="var(--edge)" stroke-width="1.5"/>
+  <text class="lbl" x="24" y="60">Ventuno Q · room 1</text>
+  <text class="sub" x="24" y="80">camera · fall detect</text>
+  <text class="sub" x="24" y="97">VLM · ASR/TTS</text>
+  <text class="sub" x="24" y="120" style="fill:var(--edge)">EDGE PROCESSING</text>
+
+  <rect x="8" y="180" width="180" height="100" rx="10" fill="var(--edge-bg)" stroke="var(--edge)" stroke-width="1.5"/>
+  <text class="lbl" x="24" y="206">Ventuno Q · room 2</text>
+  <text class="sub" x="24" y="226">camera · fall detect</text>
+  <text class="sub" x="24" y="243">VLM · ASR/TTS</text>
+  <text class="sub" x="24" y="266" style="fill:var(--edge)">EDGE PROCESSING</text>
+
+  <!-- the IQ-9075 contains BOTH the broker and the LLM -->
+  <rect x="300" y="14" width="320" height="302" rx="12" fill="var(--brain-bg)" stroke="var(--brain)" stroke-width="1.5"/>
+  <text class="lbl" x="460" y="40" text-anchor="middle">IQ-9075</text>
+
+  <rect x="316" y="58" width="288" height="86" rx="9" fill="var(--accent-bg)" stroke="var(--accent)" stroke-width="1.5"/>
+  <text class="lbl" x="460" y="84" text-anchor="middle">Mosquitto — the MQTT broker</text>
+  <text class="sub" x="460" y="103" text-anchor="middle">event · ask · say · heard</text>
+  <text class="sub" x="460" y="120" text-anchor="middle">look · looked · status · session</text>
+  <text class="sub" x="460" y="138" text-anchor="middle" style="fill:var(--ink-2)">semantic JSON only — no frames, no audio</text>
+
+  <rect x="316" y="176" width="288" height="90" rx="9" fill="var(--surface)" stroke="var(--brain)" stroke-width="1.5"/>
+  <text class="lbl" x="460" y="202" text-anchor="middle">Gemma 4 E2B on the NPU</text>
+  <text class="sub" x="460" y="221" text-anchor="middle">via GenieX · agent · skills · tools</text>
+  <text class="sub" x="460" y="240" text-anchor="middle">classify a reply · word a sentence</text>
+  <text class="sub" x="460" y="258" text-anchor="middle" style="fill:var(--brain)">MAIN LLM PROCESSING</text>
+
+  <path class="wire" d="M460 144 V 176" stroke-width="1.5"/>
+  <text class="edge-lbl" x="472" y="165">localhost</text>
+
+  <text class="sub" x="460" y="298" text-anchor="middle" style="fill:var(--brain)">ONE BOARD — BROKER AND BRAIN</text>
+
+  <rect x="700" y="120" width="172" height="100" rx="10" fill="var(--surface-2)" stroke="var(--accent)" stroke-width="1.5"/>
+  <text class="lbl" x="716" y="146">Laptop</text>
+  <text class="sub" x="716" y="166">dashboard · floor plan</text>
+  <text class="sub" x="716" y="183">deploys · control</text>
+  <text class="sub" x="716" y="206" style="fill:var(--accent)">THE HUB</text>
+
+  <path class="wire" d="M188 84 H 316" stroke-width="1.5"/>
+  <path class="wire" d="M188 230 H 250 V 118 H 316" stroke-width="1.5"/>
+  <path class="wire" d="M604 100 H 656 V 170 H 700" stroke-width="1.5"/>
+  <circle cx="316" cy="84" r="3" fill="var(--accent)"/>
+  <circle cx="316" cy="118" r="3" fill="var(--accent)"/>
+  <circle cx="604" cy="100" r="3" fill="var(--accent)"/>
+</svg>
+<figcaption>
+  <strong>IQ-9075</strong> — main LLM processing <em>and</em> the Mosquitto broker: the event
+  fabric and the brain are the same board ·
+  <strong>2× Ventuno Q (Monza / IQ8-class)</strong> — edge processing, one per room ·
+  <strong>Laptop</strong> — the hub, a pure subscriber ·
+  <strong>Phone</strong> — trusted contact over Telegram.
+  One LAN, no cloud, no backend API.
+</figcaption>
+</figure>
+
+<h2>Five models. All on-device. All on Hexagon NPUs.</h2>
+
+<figure class="figure">
+<svg viewBox="0 0 740 236" role="img" aria-label="Model placement: YOLO11n, the LLM-VLM microservice running Qwen3-VL, Whisper and Piper run on the Ventuno Q room nodes; Gemma 4 E2B runs on the IQ-9075">
+
+  <rect x="8" y="12" width="392" height="212" rx="12" fill="var(--edge-bg)" stroke="var(--edge)" stroke-width="1.5"/>
+  <text class="sub" x="26" y="36" style="fill:var(--edge)">VENTUNO Q — near the photons and the sound</text>
+
+  <rect x="26" y="50" width="172" height="58" rx="8" fill="var(--surface)" stroke="var(--line-2)"/>
+  <text class="lbl" x="112" y="74" text-anchor="middle">YOLO11n</text>
+  <text class="sub" x="112" y="92" text-anchor="middle">fall detection</text>
+
+  <rect x="212" y="50" width="172" height="58" rx="8" fill="var(--surface)" stroke="var(--line-2)"/>
+  <text class="lbl" x="298" y="70" text-anchor="middle">LLM-VLM microservice</text>
+  <text class="sub" x="298" y="87" text-anchor="middle">Qwen3-VL-4B</text>
+  <text class="sub" x="298" y="101" text-anchor="middle">"do you see X?"</text>
+
+  <rect x="26" y="122" width="172" height="58" rx="8" fill="var(--surface)" stroke="var(--line-2)"/>
+  <text class="lbl" x="112" y="146" text-anchor="middle">Whisper-small</text>
+  <text class="sub" x="112" y="164" text-anchor="middle">ASR — the room's ears</text>
+
+  <rect x="212" y="122" width="172" height="58" rx="8" fill="var(--surface)" stroke="var(--line-2)"/>
+  <text class="lbl" x="298" y="146" text-anchor="middle">Piper</text>
+  <text class="sub" x="298" y="164" text-anchor="middle">TTS — the room's voice</text>
+
+  <text class="sub" x="204" y="206" text-anchor="middle" style="fill:var(--ink-2)">raw frames and audio stop here</text>
+
+  <rect x="420" y="12" width="312" height="212" rx="12" fill="var(--brain-bg)" stroke="var(--brain)" stroke-width="1.5"/>
+  <text class="sub" x="438" y="36" style="fill:var(--brain)">IQ-9075 — where the reasoning is</text>
+
+  <rect x="438" y="50" width="276" height="58" rx="8" fill="var(--surface)" stroke="var(--line-2)"/>
+  <text class="lbl" x="576" y="74" text-anchor="middle">Gemma 4 E2B · via GenieX</text>
+  <text class="sub" x="576" y="92" text-anchor="middle">classify a reply · word a sentence</text>
+
+  <rect x="438" y="122" width="276" height="58" rx="8" fill="none" stroke="var(--line-2)" stroke-dasharray="5 4"/>
+  <text class="sub" x="576" y="146" text-anchor="middle">~16 tok/s · 0.18 s to first token</text>
+  <text class="sub" x="576" y="164" text-anchor="middle">measured, warm, on the NPU</text>
+
+  <text class="sub" x="576" y="206" text-anchor="middle" style="fill:var(--ink-2)">only text arrives here</text>
+</svg>
+<figcaption>
+  Perception happens where the camera and microphone are — that <em>is</em> the privacy
+  argument. Language reasoning wants one capable device, so it lives on the IQ9.
+  Underneath: Qualcomm <strong>IM SDK</strong> for the camera pipeline, the
+  <strong>GenAI microservices</strong> for ASR/TTS, the <strong>LLM-VLM microservice</strong>
+  for vision, <strong>GenieX</strong> for the LLM, all on <strong>QNN</strong>.
+</figcaption>
+</figure>
+
+<div class="stack-strip">
+  <span class="m e">IM SDK · GStreamer</span>
+  <span class="m e">Audio Analytics · ASR/TTS</span>
+  <span class="m e">LLM-VLM microservice</span>
+  <span class="m b">GenieX</span>
+  <span class="m b">QNN / QAIRT</span>
+  <span class="m e">MQTT · Mosquitto</span>
+</div>
+
+<h2>Only text crosses the wire</h2>
+
+<figure class="figure">
+<svg viewBox="0 0 720 250" role="img" aria-label="Raw frames and audio stay inside the room node; only semantic JSON crosses to the fabric; only a caregiver message leaves the house">
+
+  <rect x="8" y="14" width="290" height="224" rx="12" fill="var(--edge-bg)" stroke="var(--edge)" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text class="sub" x="24" y="36" style="fill:var(--edge)">INSIDE THE ROOM — never transmitted</text>
+
+  <rect x="28" y="52" width="112" height="42" rx="7" fill="var(--surface)" stroke="var(--line-2)"/>
+  <text class="lbl" x="84" y="78" text-anchor="middle">📷 frames</text>
+
+  <rect x="166" y="52" width="112" height="42" rx="7" fill="var(--surface)" stroke="var(--line-2)"/>
+  <text class="lbl" x="222" y="78" text-anchor="middle">🎙 audio</text>
+
+  <rect x="28" y="118" width="250" height="46" rx="7" fill="var(--surface)" stroke="var(--line-2)"/>
+  <text class="lbl" x="153" y="138" text-anchor="middle">on-device models</text>
+  <text class="sub" x="153" y="155" text-anchor="middle">YOLO11n · Qwen3-VL · Whisper</text>
+
+  <rect x="28" y="184" width="250" height="38" rx="7" fill="var(--surface)" stroke="var(--edge)" stroke-width="1.5"/>
+  <text class="lbl" x="153" y="208" text-anchor="middle">semantic JSON</text>
+
+  <path class="wire" d="M84 94 V 118" stroke-width="1.5"/>
+  <path class="wire" d="M222 94 V 118" stroke-width="1.5"/>
+  <path class="wire" d="M153 164 V 184" stroke-width="1.5"/>
+
+  <path d="M298 203 H 380" stroke="var(--edge)" stroke-width="2" fill="none" marker-end="url(#h1)"/>
+  <text class="edge-lbl" x="339" y="193" text-anchor="middle">text only</text>
+
+  <rect x="386" y="146" width="150" height="94" rx="10" fill="var(--accent-bg)" stroke="var(--accent)" stroke-width="1.5"/>
+  <text class="lbl" x="461" y="172" text-anchor="middle">MQTT fabric</text>
+  <text class="sub" x="461" y="196" text-anchor="middle">{ "found": true,</text>
+  <text class="sub" x="461" y="212" text-anchor="middle">"answer": "on the</text>
+  <text class="sub" x="461" y="228" text-anchor="middle">counter" }</text>
+
+  <rect x="386" y="26" width="150" height="76" rx="10" fill="var(--brain-bg)" stroke="var(--brain)" stroke-width="1.5"/>
+  <text class="lbl" x="461" y="52" text-anchor="middle">IQ-9075</text>
+  <text class="sub" x="461" y="72" text-anchor="middle">agent + Gemma</text>
+  <text class="sub" x="461" y="90" text-anchor="middle">+ the MQTT broker</text>
+  <path class="wire" d="M461 146 V 102" stroke-width="1.5"/>
+
+  <path d="M536 64 H 616" stroke="var(--safety)" stroke-width="2" fill="none" marker-end="url(#h2)"/>
+  <text class="edge-lbl" x="576" y="54" text-anchor="middle" style="fill:var(--safety)">the only exit</text>
+
+  <rect x="622" y="34" width="90" height="60" rx="10" fill="var(--safety-bg)" stroke="var(--safety)" stroke-width="1.5"/>
+  <text class="lbl" x="667" y="58" text-anchor="middle">Telegram</text>
+  <text class="sub" x="667" y="76" text-anchor="middle">caregiver</text>
+
+  <defs>
+    <marker id="h1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="var(--edge)"/></marker>
+    <marker id="h2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="var(--safety)"/></marker>
+  </defs>
+</svg>
+<figcaption>
+  The boundary is enforced by <em>where the models run</em>, not by a policy or a config flag.
+  There is no frame to intercept, because the frame never went anywhere. MQTT is the only
+  coupling between devices — no REST API, no service discovery — and the broker itself runs on
+  the IQ-9075, alongside the agent. A node that boots starts publishing, and the house notices.
+</figcaption>
+</figure>
+
+<h2>Two capabilities, one fabric</h2>
+
+<div class="grid">
+  <div class="card" style="border-color: var(--safety)">
+    <span class="pill safety">system-initiated · urgent</span>
+    <h3>Fall Detection &amp; Safety Monitoring</h3>
+    <p>The room notices, asks if you're okay, listens, and escalates to a contact and then
+    emergency services — narrating every step.</p>
+    <p><a href="fall.html">See it →</a></p>
+  </div>
+  <div class="card" style="border-color: var(--routine)">
+    <span class="pill routine">person-initiated · calm</span>
+    <h3>Smart Object Discovery</h3>
+    <p>"Hey Home, where are my glasses?" Every room checks its own camera; the answer is
+    spoken where you asked.</p>
+    <p><a href="find.html">See it →</a></p>
+  </div>
+</div>
+
+<p class="punch">
+  Same nodes, same broker, same agent, same skill format. The second capability exists partly
+  to prove the first one wasn't a one-off.
+</p>
+
+<div class="next">
+  <a href="fall.html">
+    <div class="next-label">Next · 1 min 30</div>
+    <div class="next-title">Fall Detection &amp; Safety Monitoring →</div>
+    <div class="sub">Detect, ask, escalate, call</div>
+  </a>
+  <a href="find.html">
+    <div class="next-label">Then · 1 min</div>
+    <div class="next-title">Smart Object Discovery →</div>
+    <div class="sub">Ask once, every room looks, the answer comes back</div>
+  </a>
+</div>
+
+</main>
+
+<footer>
+  <div class="footer-inner">
+    QNet Home — privacy-first smart home solution. AGPL-3.0.
+    Deeper on any of this: <a href="details/index.html">full documentation →</a>
+  </div>
+</footer>
+
+</body>
+</html>

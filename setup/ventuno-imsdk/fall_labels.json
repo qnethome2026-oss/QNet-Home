@@ -1,0 +1,5 @@
+[
+  {"id": 0, "color": "0xFF0000FF", "label": "fallen"},
+  {"id": 1, "color": "0xFFFF00FF", "label": "sitting"},
+  {"id": 2, "color": "0x00FF00FF", "label": "standing"}
+]

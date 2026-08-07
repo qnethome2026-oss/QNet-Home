@@ -1,0 +1,33 @@
+# QNet Home - EXPERIMENTAL fall detection via the IM SDK GStreamer front half
+# (T8.1). NOT the demo path - mainline is qnet-vision.service; this unit ships
+# DISABLED and is only ever swapped in explicitly:
+#   bash scripts/bring_up.sh --imsdk          (from the laptop; swaps back without the flag)
+# or on the board:
+#   sudo systemctl disable --now qnet-vision && sudo systemctl enable --now qnet-vision-imsdk
+# The Conflicts= lines (both units) make systemd itself stop the other engine -
+# both open the same camera, so they can never run together.
+# Install (deploys but does NOT enable): scripts/deploy_vision_imsdk.sh
+# Rationale, findings, verification: setup/ventuno-imsdk/README.md
+# Note the confidence floor 0.45 (mainline 0.5): measured compensation for the
+# IM SDK preprocessing's systematically lower confidences - see the module docstring.
+
+[Unit]
+Description=QNet Home node vision (EXPERIMENTAL) - IM SDK front half + Hexagon NPU
+After=network-online.target
+Conflicts=qnet-vision.service
+
+[Service]
+Type=simple
+User=arduino
+WorkingDirectory=/home/arduino/qnet-node
+# --conf 0.76 --fire-on 6/6 mirrors mainline's LIVE calibration (0.8 + 6/6,
+# DESIGN §8) minus the measured ~0.04 IM SDK preproc offset. The offset was
+# measured at the clip-regression floors (0.5/0.45, exact gate parity); 0.76
+# is the same correction EXTRAPOLATED to the live floor - validate against
+# mainline on a live camera before trusting it in front of anyone.
+ExecStart=/home/arduino/qnet-venv/bin/python -u -m qnet.node.vision_imsdk --room kitchen --source /dev/v4l/by-id/usb-HHWei_Technology_Co.__Ltd._USB_Camera_HHW001-video-index0 --broker 10.73.51.175 --port 11883 --batch 4 --conf 0.76 --fire-on 6/6
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

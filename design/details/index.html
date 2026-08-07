@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QNet Home — Overview</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="../index.html"><span class="dot"></span>QNet Home</a>
+    <div class="nav-links"><a href="../index.html" class="back">← 5-min version</a>
+      <a href="index.html" aria-current="page">Overview</a>
+      <a href="architecture.html">Architecture</a>
+      <a href="ai-stack.html">AI &amp; Speech Stack</a>
+      <a href="implementation.html">Implementation</a>
+      <a href="fall-detection.html">Fall Detection &amp; Safety Monitoring</a>
+      <a href="object-finder.html">Smart Object Discovery</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+
+<div class="hero">
+  <div class="eyebrow">Privacy-first monitoring · on-device AI</div>
+  <h1>A house that notices, asks, and acts.</h1>
+  <p class="lede">
+    QNet Home is a monitoring system for the people who need watching over — a child, an
+    elderly parent, someone recovering from surgery, or an empty house at 3am. Rooms sense
+    and speak locally. Devices exchange small semantic JSON events over MQTT. <strong>No video,
+    no audio, ever leaves the room it was captured in.</strong>
+  </p>
+  <p class="lede">
+    It doesn't just watch. It <em>acts</em>: it speaks to the person, listens to the answer,
+    messages a trusted contact, and escalates to an emergency call when nobody replies.
+  </p>
+</div>
+
+<h2>Monitor, and act</h2>
+
+<p>
+  Most home monitoring stops at the notification. A camera sees something, a phone buzzes,
+  and a human somewhere has to work out what it meant and what to do. That gap — between
+  detection and response — is where the minutes go.
+</p>
+
+<p>
+  QNet Home closes it. The same event that lights up the dashboard also opens a conversation
+  in the room, starts a timer, and puts a named human on the hook with a deadline. Nobody is
+  left in silence, and no step depends on someone happening to look at their phone.
+</p>
+
+<div class="grid">
+  <div class="card">
+    <h3>👶 Child</h3>
+    <p>Is a toddler on the floor and not getting up? The room asks, listens, and escalates
+    to a parent if it hears nothing back.</p>
+  </div>
+  <div class="card">
+    <h3>🧓 Elder care</h3>
+    <p>The canonical case. A fall with nobody home is measured in hours, not minutes.
+    Here it is measured in seconds, and the escalation runs itself.</p>
+  </div>
+  <div class="card">
+    <h3>🏥 Medical</h3>
+    <p>Post-operative or mobility-impaired residents. Sourced first-aid guidance is spoken
+    from the skill file — calm, one instruction at a time, never invented by a model.</p>
+  </div>
+  <div class="card">
+    <h3>🔒 Security</h3>
+    <p>The event fabric is generic. Any room node can publish any event kind; the skill file
+    decides what the house does about it.</p>
+  </div>
+</div>
+
+<h2>The two capabilities that ship</h2>
+
+<div class="grid">
+  <div class="card">
+    <span class="pill safety">urgency: safety</span>
+    <h3>Fall Detection &amp; Safety Monitoring</h3>
+    <p>
+      System-initiated and urgent. The room notices a fall on the NPU, asks
+      <em>"Are you okay?"</em>, listens, and climbs an escalation ladder — reassurance out
+      loud, a Telegram to a trusted contact, an emergency call if there is still no answer —
+      narrating every step.
+    </p>
+    <p><a href="fall-detection.html">How it works →</a></p>
+  </div>
+  <div class="card">
+    <span class="pill routine">urgency: routine</span>
+    <h3>Smart Object Discovery</h3>
+    <p>
+      Person-initiated and calm. Say <em>"Hey Home, where are my glasses?"</em> and every
+      room checks its own camera with its own on-device vision model. Only text crosses the
+      wire, and the answer is spoken in the room you asked from.
+    </p>
+    <p><a href="object-finder.html">How it works →</a></p>
+  </div>
+</div>
+
+<p>
+  They share the same nodes, the same broker, the same agent, the same skill format and the
+  same dashboard. The second one exists partly to prove the first one wasn't a one-off — that
+  this is a fabric with pluggable capabilities, not a single hard-coded demo.
+</p>
+
+<h2>The hardware</h2>
+
+<figure class="figure">
+<svg viewBox="0 0 880 330" role="img" aria-label="Topology: two Ventuno Q room nodes connect to the IQ-9075, which runs both the Mosquitto MQTT broker and the Gemma LLM; the laptop hub subscribes to the same broker">
+
+  <rect x="8" y="34" width="180" height="100" rx="10" fill="var(--edge-bg)" stroke="var(--edge)" stroke-width="1.5"/>
+  <text class="lbl" x="24" y="60">Ventuno Q · room 1</text>
+  <text class="sub" x="24" y="80">camera · fall detect</text>
+  <text class="sub" x="24" y="97">VLM · ASR/TTS</text>
+  <text class="sub" x="24" y="120" style="fill:var(--edge)">EDGE PROCESSING</text>
+
+  <rect x="8" y="180" width="180" height="100" rx="10" fill="var(--edge-bg)" stroke="var(--edge)" stroke-width="1.5"/>
+  <text class="lbl" x="24" y="206">Ventuno Q · room 2</text>
+  <text class="sub" x="24" y="226">camera · fall detect</text>
+  <text class="sub" x="24" y="243">VLM · ASR/TTS</text>
+  <text class="sub" x="24" y="266" style="fill:var(--edge)">EDGE PROCESSING</text>
+
+  <!-- the IQ-9075 contains BOTH the broker and the LLM -->
+  <rect x="300" y="14" width="320" height="302" rx="12" fill="var(--brain-bg)" stroke="var(--brain)" stroke-width="1.5"/>
+  <text class="lbl" x="460" y="40" text-anchor="middle">IQ-9075</text>
+
+  <rect x="316" y="58" width="288" height="86" rx="9" fill="var(--accent-bg)" stroke="var(--accent)" stroke-width="1.5"/>
+  <text class="lbl" x="460" y="84" text-anchor="middle">Mosquitto — the MQTT broker</text>
+  <text class="sub" x="460" y="103" text-anchor="middle">event · ask · say · heard</text>
+  <text class="sub" x="460" y="120" text-anchor="middle">look · looked · status · session</text>
+  <text class="sub" x="460" y="138" text-anchor="middle" style="fill:var(--ink-2)">semantic JSON only — no frames, no audio</text>
+
+  <rect x="316" y="176" width="288" height="90" rx="9" fill="var(--surface)" stroke="var(--brain)" stroke-width="1.5"/>
+  <text class="lbl" x="460" y="202" text-anchor="middle">Gemma 4 E2B on the NPU</text>
+  <text class="sub" x="460" y="221" text-anchor="middle">via GenieX · agent · skills · tools</text>
+  <text class="sub" x="460" y="240" text-anchor="middle">classify a reply · word a sentence</text>
+  <text class="sub" x="460" y="258" text-anchor="middle" style="fill:var(--brain)">MAIN LLM PROCESSING</text>
+
+  <path class="wire" d="M460 144 V 176" stroke-width="1.5"/>
+  <text class="edge-lbl" x="472" y="165">localhost</text>
+
+  <text class="sub" x="460" y="298" text-anchor="middle" style="fill:var(--brain)">ONE BOARD — BROKER AND BRAIN</text>
+
+  <rect x="700" y="120" width="172" height="100" rx="10" fill="var(--surface-2)" stroke="var(--accent)" stroke-width="1.5"/>
+  <text class="lbl" x="716" y="146">Laptop</text>
+  <text class="sub" x="716" y="166">dashboard · floor plan</text>
+  <text class="sub" x="716" y="183">deploys · control</text>
+  <text class="sub" x="716" y="206" style="fill:var(--accent)">THE HUB</text>
+
+  <path class="wire" d="M188 84 H 316" stroke-width="1.5"/>
+  <path class="wire" d="M188 230 H 250 V 118 H 316" stroke-width="1.5"/>
+  <path class="wire" d="M604 100 H 656 V 170 H 700" stroke-width="1.5"/>
+  <circle cx="316" cy="84" r="3" fill="var(--accent)"/>
+  <circle cx="316" cy="118" r="3" fill="var(--accent)"/>
+  <circle cx="604" cy="100" r="3" fill="var(--accent)"/>
+</svg>
+<figcaption>
+  <strong>IQ-9075</strong> — main LLM processing <em>and</em> the Mosquitto broker: the event
+  fabric and the brain are the same board ·
+  <strong>2× Ventuno Q (Monza / IQ8-class)</strong> — edge processing, one per room ·
+  <strong>Laptop</strong> — the hub, a pure subscriber ·
+  <strong>Phone</strong> — trusted contact over Telegram.
+  One LAN, no cloud, no backend API.
+</figcaption>
+</figure>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Device</th><th>Count</th><th>Job</th><th>What runs on it</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="pill brain">IQ9</span></td>
+      <td>1</td>
+      <td><strong>Main LLM processing</strong></td>
+      <td>Gemma 4 E2B on the Hexagon NPU via GenieX · the agent engine · skills · tools · the Mosquitto broker</td>
+    </tr>
+    <tr>
+      <td><span class="pill edge">Ventuno Q</span><br><span class="sub">Monza / IQ8-class</span></td>
+      <td>2</td>
+      <td><strong>Edge processing</strong>, one per room</td>
+      <td>Camera capture · fall detection (YOLO11n on NPU) · VLM lookups via the LLM-VLM microservice (Qwen3-VL-4B) · ASR / TTS / STT (Whisper-small on NPU + Piper)</td>
+    </tr>
+    <tr>
+      <td><span class="pill hub">Laptop</span></td>
+      <td>1</td>
+      <td><strong>The hub</strong></td>
+      <td>Floor-plan dashboard with live camera health · activity feed · incident banner · deploys and bring-up · packaged as a Windows app</td>
+    </tr>
+    <tr>
+      <td>Phone</td>
+      <td>1+</td>
+      <td>Trusted contact</td>
+      <td>Two-way Telegram — receives escalations, replies <code>OK</code> or <code>call 911</code></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note">
+  <p><strong>Where the work happens is the whole design.</strong> Heavy language reasoning
+  needs one capable device, so it lives on the IQ9. Perception has to happen where the
+  photons and the sound are, so it lives on the Ventuno Q nodes. The laptop is the human's
+  way in — the hub where you watch the house and push changes to it.</p>
+</div>
+
+<h2>Four principles</h2>
+
+<h3>1. The agent runs the conversation; the engine guarantees what must not fail</h3>
+<p>
+  Timers, contact notifications, and the emergency call are automatic — enforced in code,
+  not requested from a model. A slow or wrong LLM can only ever make the small talk worse,
+  never the response. The system runs correctly with the model switched off entirely.
+</p>
+
+<h3>2. Privacy by construction, not by policy</h3>
+<p>
+  Nodes publish semantic JSON, never media. The vision model that finds your glasses runs
+  <em>inside the room</em> and emits a sentence. There is no frame to intercept, because the
+  frame never went anywhere. The only thing that leaves the house is a message to a caregiver.
+</p>
+
+<h3>3. Skills are data</h3>
+<p>
+  Each capability is a markdown file of phases and guidance. Adding one touches no engine
+  code. The escalation ladder, the timers, and the exit conditions are all editable text —
+  validated at startup, so a typo fails when the agent boots rather than at 3am mid-incident.
+</p>
+
+<h3>4. Measured, not asserted</h3>
+<p>
+  Every performance number in this project is tagged measured or unmeasured, with the method
+  written down. Failures are documented alongside the wins — the NPU contention, the TTS
+  hang, the dropped-speech investigation and its fix.
+</p>
+
+<div class="next">
+  <a href="architecture.html">
+    <div class="next-label">Next</div>
+    <div class="next-title">Architecture →</div>
+    <div class="sub">The event fabric, the wire contract, and where each model runs</div>
+  </a>
+  <a href="ai-stack.html">
+    <div class="next-label">Then</div>
+    <div class="next-title">AI &amp; Speech Stack →</div>
+    <div class="sub">IM SDK, GenAI microservices, ASR/TTS, GenieX — and what each one measured</div>
+  </a>
+  <a href="implementation.html">
+    <div class="next-label">Then</div>
+    <div class="next-title">Implementation →</div>
+    <div class="sub">The engine, the rails, and how a skill file becomes behaviour</div>
+  </a>
+</div>
+
+</main>
+
+<footer>
+  <div class="footer-inner">
+    QNet Home — a privacy-first, multi-device home safety system.
+    Released under the GNU AGPL-3.0. These pages are design documentation; the
+    authoritative specification is <code>docs/DESIGN.md</code>.
+  </div>
+</footer>
+
+</body>
+</html>
