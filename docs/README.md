@@ -35,7 +35,6 @@ One page per purpose; the long-standing files keep their paths (code and
 **Rebuild a board from a blank image:** [`operations/rebuild.md`](operations/rebuild.md).
 
 **Power everything back on:** wait ~3 minutes, then run `bash scripts/health_check.sh` from the repo root — one read-only command that checks all three boards and prints ALL GREEN or the exact fix.
- (new — the hard-won runbooks)
 
 | Doc | What it is |
 |---|---|
@@ -51,7 +50,18 @@ One page per purpose; the long-standing files keep their paths (code and
 | [`../setup/iq9-gemma-geniex/README.md`](../setup/iq9-gemma-geniex/README.md) | Gemma 4 E2B under GenieX on the IQ-9075 (:18181) — install, the model-cache bug, `pkill -x` gotcha, measured tok/s. |
 | [`../setup/ventuno-voice/arduino-speech.md`](../setup/ventuno-voice/arduino-speech.md) | The Arduino speech runtime the voice node drives. |
 | [`../models/fall-detection/README.md`](../models/fall-detection/README.md) | Fall model conversion + NPU deployment: the AI Hub device-catalog workaround, per-board credentials table, measured inference times. |
-| [`../infra/`](../infra/) | `mosquitto.conf` (ports 11883/19001 + the switch-back procedure in its header) and the six systemd units — the unit headers double as install docs. |
+| [`../infra/`](../infra/) | `mosquitto.conf` (ports 11883/19001 + the switch-back procedure in its header) and the systemd units for every service — the unit headers double as install docs. |
+
+## Notes & references
+
+| What | Where |
+|---|---|
+| Every measured number, with method | [`../measurements.md`](../measurements.md) |
+| CPU vs NPU fall detection on the Ventuno Q (latency, power, ~7.8× energy efficiency) | [`VENTUNO_Q_CPU_VS_NPU_FALL_DETECTION_BENCHMARK.md`](VENTUNO_Q_CPU_VS_NPU_FALL_DETECTION_BENCHMARK.md) |
+| Fall model source | [`melihuzunoglu/human-fall-detection`](https://huggingface.co/melihuzunoglu/human-fall-detection) (YOLO11n fine-tune, AGPL-3.0) |
+| Fall test footage provenance (UR Fall Detection Dataset) | [`../clips/README.md`](../clips/README.md) |
+| VLM container | `artifacts.codelinaro.org/iot-solutions-microservices/genai-llm-vlm-service` ([`../setup/ventuno-vlm/`](../setup/ventuno-vlm/)) |
+| Raw per-task evidence (34+ transcripts) | [`../verify/`](../verify/) |
 
 ## Evidence (`verify/` highlights)
 

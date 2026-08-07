@@ -11,6 +11,29 @@ This runbook replaces the earlier proposed HTTP `/listen` and `/speak`
 service. QNet Home uses Arduino App CLI bricks directly inside one Ventuno Q
 application. The application is the sole owner of the microphone and speaker.
 
+**What this builds:** a room node that hears and speaks — Whisper ASR on the
+Hexagon NPU plus TTS, running as two containers managed by Arduino App Lab,
+driven by the `apps/ventuno-q/qnet-voice-node` application over MQTT.
+
+**Order of operations for a fresh board** (each detailed in the sections
+below; condensed per-device in `docs/operations/rebuild.md`):
+
+1. Confirm the runtime versions and USB audio devices (*Verified runtime*).
+2. Deploy the app: `bash scripts/deploy_voice_node.sh <board-ip>`, then write
+   `qnet-config.json` from `config/voice-nodes/` (room, hub IP, `usb:N`
+   mic/speaker indices from `arecord -l` / `aplay -l`).
+3. Pick the ASR model (*ASR model provisioning*): the board's **built-in
+   `whisper-small-quantized` works out of the box** — no download needed; the
+   float `whisper-small` artifact is an optional accuracy upgrade installed
+   with `scripts/install_whisper_voice_ai_model.sh`.
+4. Start it: `arduino-app-cli app start user:qnet-voice-node`, and install
+   `infra/systemd/qnet-voice-app.service` so it survives reboots.
+5. Prove it: the *Phase 1 acceptance tests* at the end.
+
+**Outcome:** say the wake phrase in the room and the stripped command appears
+on `qnet/<room>/ask`; a `say` on the bus is spoken aloud; raw audio never
+leaves the board.
+
 ## Verified runtime
 
 Inspected on the living-room Ventuno Q on 2026-08-05:

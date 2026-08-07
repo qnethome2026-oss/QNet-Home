@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# QNet Home - a privacy-first, multi-device home safety system.
+# Copyright (C) 2026 QNet Home contributors. This is free software under the
+# GNU Affero General Public License v3 or later, with ABSOLUTELY NO WARRANTY.
+#
+# Gemma 4 E2B under GenieX on the IQ-9075 - the OpenAI-compatible LLM endpoint
+# the agent calls on 127.0.0.1:18181 (localhost-only by design, DESIGN §10).
+# Install AFTER the GenieX runbook (setup/iq9-gemma-geniex/README.md) has
+# pulled the model and applied the geniex.json ModelType patch - the patch
+# must be re-applied after any `geniex pull` (runbook step 5).
+#
+# Install on the IQ-9075:
+#   sudo cp geniex-serve.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now geniex-serve
+# Verify: curl -s http://127.0.0.1:18181/v1/models | grep gemma
+# (endpoint back ~8 s after restart; model loads on first request, ~12 s)
+
+[Unit]
+Description=GenieX OpenAI-compatible LLM server (Gemma 4 E2B for QNet Home)
+After=network.target
+
+[Service]
+User=ubuntu
+ExecStart=/home/ubuntu/.local/bin/geniex serve --skip-update
+Restart=always
+RestartSec=3
+Environment=HOME=/home/ubuntu
+
+[Install]
+WantedBy=multi-user.target

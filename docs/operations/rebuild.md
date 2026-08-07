@@ -12,6 +12,9 @@ live in `~/.ssh/config`, secrets in each board's gitignored
 
 ## IQ-9075 — the brain
 
+*Outcome: the hub — LLM endpoint on `:18181`, broker on `11883`/`19001`, and
+the agent connected to both.*
+
 1. **LLM**: follow [`setup/iq9-gemma-geniex/README.md`](../../setup/iq9-gemma-geniex/README.md)
    (GenieX + Gemma 4 E2B + the `geniex-serve` unit). Verify with the tests in
    that folder. *Board gotcha: never `apt --fix-broken install` here — use
@@ -31,6 +34,10 @@ live in `~/.ssh/config`, secrets in each board's gitignored
    Verify: `journalctl -u qnet-agent | grep connected` says `127.0.0.1:11883`.
 
 ## Ventuno Q — a room node
+
+*Outcome: a room that watches (fall detection where there's a camera), looks
+("where's my stuff" via its own VLM), streams a LAN preview, and hears/speaks
+— all auto-starting on boot.*
 
 Steps 1–4 apply to every room; 5 is kitchen-only; 6–7 are per-capability.
 
@@ -54,10 +61,13 @@ Steps 1–4 apply to every room; 5 is kitchen-only; 6–7 are per-capability.
    `docker compose up -d`. Verify `/v1/models` lists `qwen3_vl_4b_instruct`.
    **Set `restart: unless-stopped`** or the room comes back blind after a
    reboot.
-7. **Voice (every room that hears/speaks)**: register the Whisper QNN artifacts
-   with [`scripts/install_whisper_voice_ai_model.sh`](../../scripts/install_whisper_voice_ai_model.sh)
-   (they can be rsynced from another board's
-   `/var/lib/arduino-app-cli/models/audio-analytics/asr/`), deploy the app with
+7. **Voice (every room that hears/speaks)**: the board's built-in
+   `whisper-small-quantized` ASR model works with no download — for the float
+   `whisper-small` upgrade, register the Whisper QNN artifacts with
+   [`scripts/install_whisper_voice_ai_model.sh`](../../scripts/install_whisper_voice_ai_model.sh)
+   (rsync them from another board's
+   `/var/lib/arduino-app-cli/models/audio-analytics/asr/`, or use a Qualcomm
+   Voice AI artifact — details in the runbook below), deploy the app with
    [`scripts/deploy_voice_node.sh`](../../scripts/deploy_voice_node.sh), write
    `~/ArduinoApps/qnet-voice-node/qnet-config.json` from the matching file in
    [`config/voice-nodes/`](../../config/voice-nodes/) (set `room_id`,
@@ -72,6 +82,9 @@ Steps 1–4 apply to every room; 5 is kitchen-only; 6–7 are per-capability.
    Edit `--room` and `--broker` to match the board.
 
 ## Laptop — dashboard, harness, packaging
+
+*Outcome: the test suite green, the dashboard opening, and (optionally) the
+installable Windows app.*
 
 ```
 python -m venv .venv && .venv/Scripts/pip install -e ".[dev]" numpy pillow

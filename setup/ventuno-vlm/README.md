@@ -27,6 +27,9 @@ replication recipe.*
 4. Verify: `curl -m 120 http://127.0.0.1:9001/v1/models` lists the model. First
    call after a start may be slow or return empty — retry once (model load ≈ 50 s).
 
+Outcome: `qnet/node/look.py` on this board can answer "do you see X?" from the
+room's own camera, on the room's own NPU — no image ever leaves the board.
+
 ## Gotchas (all observed)
 
 - **First call after container start can return empty** — retry; `qnet/node/look.py` does this itself.
