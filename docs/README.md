@@ -39,6 +39,7 @@ One page per purpose; the long-standing files keep their paths (code and
 | Doc | What it is |
 |---|---|
 | [`operations/cold-start.md`](operations/cold-start.md) | Power everything on: what auto-starts where, expected timings, the full verification sequence, boot-order truth. |
+| [`../scripts/bring_up.md`](../scripts/bring_up.md) | The one-command bring-up script explained: stages, diagnostics, and the USB-replug rules (camera vs audio). |
 | [`operations/troubleshooting.md`](operations/troubleshooting.md) | Symptom-indexed fixes: camera offline, wrong broker, no fall triggers, VLM/NPU transients, ports, Telegram. |
 | [`operations/devices.md`](operations/devices.md) | One section per device: what runs on it, ports, hardware quirks, where credentials live (not here). |
 

@@ -4,6 +4,8 @@
 # laptop. The counterpart to health_check.sh (which verifies but starts
 # nothing): this one (re)starts every service on every board, waits out the
 # slow loaders, then runs the health check.
+# Companion doc (stages, diagnostics explained, USB replug rules):
+# scripts/bring_up.md - same name, they go together.
 #
 #     bash scripts/bring_up.sh                       # use the IPs below
 #     bash scripts/bring_up.sh 10.0.0.5 10.0.0.6 10.0.0.7   # iq9 kitchen bedroom

@@ -224,3 +224,29 @@ the camera. Order of escalation, cheapest first: different port -> different
 cable -> different camera. After any move the by-id path stays the same
 (it's derived from the device, not the port), so no config change is needed
 - just restart qnet-vision.
+
+## Voice node deaf or mute after replugging USB audio (2026-08-07)
+
+Symptoms after unplugging/replugging a headset or moving it to another port:
+`docker logs qnet-voice-node-main-1` shows repeated
+`ALSASpeaker: Unexpected error writing audio chunk: No such device
+[plug_card_N_dev_0_spk]` (speaker handle died with the old device node),
+and/or transcripts stop matching what is said near the headset — because the
+`usb:N` indices in `qnet-config.json` follow **ALSA card numbers, which can
+renumber on any replug**. Live case: the Plantronics moved card 2 → card 1,
+so `"microphone_device": "usb:2"` silently captured from the CAMERA's
+built-in mic instead.
+
+Fix, on the board:
+1. `arecord -l` and `aplay -l` — note the headset's current card numbers.
+2. Edit `~/ArduinoApps/qnet-voice-node/qnet-config.json` so
+   `microphone_device`/`speaker_device` are `usb:<card>` per those lists
+   (mind camera mics appearing in `arecord -l` — pick the headset).
+3. `arduino-app-cli app restart user:qnet-voice-node` (~45 s), then verify
+   `Connected to IQ9` in the app log with no new ALSA errors.
+4. Mirror the change into `config/voice-nodes/<board>.json` in the repo.
+
+Contrast with the camera: `/dev/v4l/by-id/` paths are derived from the
+device, not the port — a camera can move ports with NO config change (just
+restart `qnet-vision`). Audio has no such stable path in our config; the
+`usb:N` check is mandatory after any audio replug.

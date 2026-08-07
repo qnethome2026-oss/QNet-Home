@@ -26,6 +26,10 @@ and re-runs this check — IPs are arguments (or edit the top of the script):
 bash scripts/bring_up.sh <HUB-IP> <KITCHEN-IP> <BEDROOM-IP>
 ```
 
+Its companion doc, [`scripts/bring_up.md`](../../scripts/bring_up.md),
+explains every stage and diagnostic — including the two rules for USB
+replugging (cameras need no config; audio `usb:N` must be re-checked).
+
 Expected final line: **`ALL GREEN - the house is demo-ready`**. Any red line
 names the failing service and the fix; the symptom-indexed deep dive is
 [`docs/operations/troubleshooting.md`](../../docs/operations/troubleshooting.md).
