@@ -59,69 +59,84 @@
 <title>QNet Home</title>
 <style>
   /* ------------------------------------------------------------------
-     Product surface. Light by default, dark when the OS asks (S14 wants
-     a dark-friendly page; prefers-color-scheme plus an explicit
-     data-theme override so a host that stamps one still wins).
+     Product surface. Dark by default - this is a wall-mounted, always-on
+     panel in a home, often in a dim room at night, so the dark surface is
+     the product, not a preference. Light remains available for a host that
+     stamps data-theme="light".
      System font stack, generous spacing, no frameworks.
      ------------------------------------------------------------------ */
   :root {
-    --bg: #f6f7f9;
-    --bg-soft: #eef0f4;
-    --card: #ffffff;
-    --card-2: #f4f6f9;
-    --line: #e2e5ec;
-    --line-soft: #eceff4;
-    --text: #14161d;
-    --muted: #626a7a;
-    --brand: #2f6fed;
-    --calm: #12805a;
-    --caution: #a06a00;
-    --alert: #c22630;
-    --shadow: 0 1px 2px rgba(16, 20, 32, 0.05), 0 6px 20px rgba(16, 20, 32, 0.05);
-    /* T5.5 floor plan */
-    --fp-room: #f1f4f8; --fp-wall: #6f7787; --fp-chip: #ffffff;
-    --fp-caution-fill: rgba(160, 106, 0, 0.20);
-    --fp-alert-fill: rgba(194, 38, 48, 0.20);
-    --fp-clear-fill: rgba(18, 128, 90, 0.18);
+    /* Ink-dark base. Near-black with a cool cast so the accent colours read
+       as light sources rather than paint. */
+    --bg: #06070b;
+    --bg-soft: #0b0d14;
+    --card: #10131c;
+    --card-2: #161a26;
+    --line: #1f2532;
+    --line-soft: #171c27;
+    --text: #eef1f8;
+    --muted: #8c95a9;
+    --brand: #7ba3ff;
+    --calm: #34d399;
+    --caution: #fbbf24;
+    --alert: #ff5f6d;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.55), 0 14px 38px rgba(0, 0, 0, 0.48);
+    --fp-room: #131824; --fp-wall: #59637a; --fp-chip: #1a2130;
+    --fp-caution-fill: rgba(251, 191, 36, 0.22);
+    --fp-alert-fill: rgba(255, 95, 109, 0.26);
+    --fp-clear-fill: rgba(52, 211, 153, 0.16);
+    /* fancy layer */
+    --sheen: linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0) 46%);
+    --hairline: rgba(255,255,255,0.07);
+    --glow-alert: 0 0 0 1px rgba(255,95,109,0.30), 0 0 30px rgba(255,95,109,0.26);
+    --glow-calm: 0 0 12px rgba(52,211,153,0.55);
+    --glow-caution: 0 0 12px rgba(251,191,36,0.55);
+    --glow-brand: 0 0 24px rgba(123,163,255,0.30);
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #0d0f14;
-      --bg-soft: #14171e;
-      --card: #171a22;
-      --card-2: #1d212a;
-      --line: #272c37;
-      --line-soft: #21252e;
-      --text: #e9ebf1;
-      --muted: #949bab;
-      --brand: #6d9bff;
-      --calm: #3fc287;
-      --caution: #efb54a;
-      --alert: #ff6b70;
-      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
-      --fp-room: #1b1f28; --fp-wall: #6b7488; --fp-chip: #232833;
-      --fp-caution-fill: rgba(239, 181, 74, 0.22);
-      --fp-alert-fill: rgba(255, 107, 112, 0.22);
-      --fp-clear-fill: rgba(63, 194, 135, 0.20);
-    }
-  }
+  /* Light is now opt-in: the hub is a dark-room surface by default. */
   :root[data-theme="light"] {
     --bg: #f6f7f9; --bg-soft: #eef0f4; --card: #ffffff; --card-2: #f4f6f9;
     --line: #e2e5ec; --line-soft: #eceff4; --text: #14161d; --muted: #626a7a;
     --brand: #2f6fed; --calm: #12805a; --caution: #a06a00; --alert: #c22630;
+    --shadow: 0 1px 2px rgba(16, 20, 32, 0.05), 0 6px 20px rgba(16, 20, 32, 0.05);
     --fp-room: #f1f4f8; --fp-wall: #6f7787; --fp-chip: #ffffff;
     --fp-caution-fill: rgba(160, 106, 0, 0.20);
     --fp-alert-fill: rgba(194, 38, 48, 0.20);
     --fp-clear-fill: rgba(18, 128, 90, 0.18);
+    --sheen: linear-gradient(180deg, rgba(255,255,255,0.9), rgba(255,255,255,0) 46%);
+    --hairline: rgba(16,20,32,0.05);
+    --glow-alert: 0 0 0 1px rgba(194,38,48,0.20), 0 0 22px rgba(194,38,48,0.14);
+    --glow-calm: 0 0 10px rgba(18,128,90,0.35);
+    --glow-caution: 0 0 10px rgba(160,106,0,0.35);
+    --glow-brand: 0 0 18px rgba(47,111,237,0.20);
   }
   :root[data-theme="dark"] {
-    --bg: #0d0f14; --bg-soft: #14171e; --card: #171a22; --card-2: #1d212a;
-    --line: #272c37; --line-soft: #21252e; --text: #e9ebf1; --muted: #949bab;
-    --brand: #6d9bff; --calm: #3fc287; --caution: #efb54a; --alert: #ff6b70;
-    --fp-room: #1b1f28; --fp-wall: #6b7488; --fp-chip: #232833;
-    --fp-caution-fill: rgba(239, 181, 74, 0.22);
-    --fp-alert-fill: rgba(255, 107, 112, 0.22);
-    --fp-clear-fill: rgba(63, 194, 135, 0.20);
+    /* Ink-dark base. Near-black with a cool cast so the accent colours read
+       as light sources rather than paint. */
+    --bg: #06070b;
+    --bg-soft: #0b0d14;
+    --card: #10131c;
+    --card-2: #161a26;
+    --line: #1f2532;
+    --line-soft: #171c27;
+    --text: #eef1f8;
+    --muted: #8c95a9;
+    --brand: #7ba3ff;
+    --calm: #34d399;
+    --caution: #fbbf24;
+    --alert: #ff5f6d;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.55), 0 14px 38px rgba(0, 0, 0, 0.48);
+    --fp-room: #131824; --fp-wall: #59637a; --fp-chip: #1a2130;
+    --fp-caution-fill: rgba(251, 191, 36, 0.22);
+    --fp-alert-fill: rgba(255, 95, 109, 0.26);
+    --fp-clear-fill: rgba(52, 211, 153, 0.16);
+    /* fancy layer */
+    --sheen: linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0) 46%);
+    --hairline: rgba(255,255,255,0.07);
+    --glow-alert: 0 0 0 1px rgba(255,95,109,0.30), 0 0 30px rgba(255,95,109,0.26);
+    --glow-calm: 0 0 12px rgba(52,211,153,0.55);
+    --glow-caution: 0 0 12px rgba(251,191,36,0.55);
+    --glow-brand: 0 0 24px rgba(123,163,255,0.30);
   }
 
   * { box-sizing: border-box; }
@@ -433,7 +448,8 @@
     text-anchor: middle; pointer-events: none; user-select: none;
   }
   .fp-room:hover .fp-fill { filter: brightness(0.97); }
-  @media (prefers-color-scheme: dark) { .fp-room:hover .fp-fill { filter: brightness(1.22); } }
+  .fp-room:hover .fp-fill { filter: brightness(1.22); }
+  :root[data-theme="light"] .fp-room:hover .fp-fill { filter: brightness(0.97); }
   .fp-room:focus-visible .fp-focus { stroke: var(--brand); stroke-width: 2.5; opacity: 1; }
   .fp-focus { fill: none; stroke: none; opacity: 0; pointer-events: none; }
 
@@ -673,6 +689,207 @@
     background: rgba(0, 0, 0, 0.55); color: #cdd3df; font-size: 0.74rem;
   }
   .cam .cam-err[hidden] { display: none; }
+
+  /* ==================================================================
+     Depth layer. Everything below is presentation only - no rule here
+     changes layout, geometry or state semantics, so the wire contract
+     and every JS class toggle behave exactly as before.
+     ================================================================== */
+
+  body {
+    background:
+      radial-gradient(1100px 620px at 12% -12%, rgba(123, 163, 255, 0.10), transparent 62%),
+      radial-gradient(900px 560px at 96% 4%, rgba(155, 109, 255, 0.09), transparent 60%),
+      radial-gradient(760px 520px at 50% 108%, rgba(52, 211, 153, 0.06), transparent 62%),
+      var(--bg);
+    background-attachment: fixed;
+  }
+  :root[data-theme="light"] body { background: var(--bg); }
+
+  ::selection { background: color-mix(in srgb, var(--brand) 32%, transparent); }
+
+  /* Raised surfaces get a top sheen and a hairline, so cards read as lit
+     from above instead of as flat rectangles on a flat page. */
+  .room, .panel, .feed, .modal-card, .summary-inner, .cam, .voice-dock {
+    background-image: var(--sheen);
+    background-repeat: no-repeat;
+  }
+  .room, .panel, .feed, .modal-card {
+    border-color: var(--line);
+    box-shadow: var(--shadow), inset 0 1px 0 var(--hairline);
+  }
+
+  .topbar {
+    background: color-mix(in srgb, var(--bg) 72%, transparent);
+    backdrop-filter: saturate(1.6) blur(16px);
+    border-bottom: 1px solid var(--line);
+    box-shadow: 0 1px 0 var(--hairline), 0 10px 30px -18px rgba(0, 0, 0, 0.9);
+  }
+  .brand .mark { filter: drop-shadow(var(--glow-brand)); }
+
+  /* Status colour becomes light, not paint. */
+  .conn.online .dot { box-shadow: var(--glow-calm); }
+  .conn.offline .dot { box-shadow: var(--glow-caution); }
+  .room-state.good .bullet, .legend .bullet.good { box-shadow: var(--glow-calm); }
+  .room-state.caution .bullet { box-shadow: var(--glow-caution); }
+  .room-state.alert .bullet { box-shadow: 0 0 14px rgba(255, 95, 109, 0.75); }
+  .live-dot { filter: drop-shadow(var(--glow-calm)); }
+
+  .room.alert {
+    border-color: color-mix(in srgb, var(--alert) 55%, var(--line));
+    box-shadow: var(--glow-alert), var(--shadow);
+  }
+
+  #alertBanner {
+    background-image: linear-gradient(180deg,
+      color-mix(in srgb, var(--alert) 16%, transparent), transparent 70%);
+    box-shadow: 0 14px 40px -22px rgba(255, 95, 109, 0.85);
+  }
+
+  /* Controls: a little gradient and a little lift. */
+  .btn {
+    background-image: var(--sheen);
+    box-shadow: inset 0 1px 0 var(--hairline);
+    transition: transform 0.12s ease, filter 0.12s ease, box-shadow 0.12s ease;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+  .btn.primary {
+    background-image: linear-gradient(180deg,
+      color-mix(in srgb, var(--brand) 88%, white), var(--brand));
+    box-shadow: var(--glow-brand), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    color: #08101f;
+  }
+  .icon-btn {
+    background-image: var(--sheen);
+    box-shadow: inset 0 1px 0 var(--hairline);
+    transition: color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+  }
+  .icon-btn:hover { box-shadow: var(--glow-brand), inset 0 1px 0 var(--hairline); }
+
+  /* The floor plan is the centrepiece - give the walls presence and let a
+     live room glow rather than merely tint. */
+  .fp-wall { filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.55)); }
+  .fp-room .fp-fill { transition: filter 0.2s ease; }
+  .fp-room.is-alert .fp-fill { filter: drop-shadow(0 0 12px rgba(255, 95, 109, 0.55)); }
+  .fp-room.is-caution .fp-fill { filter: drop-shadow(0 0 10px rgba(251, 191, 36, 0.45)); }
+
+  .summary { box-shadow: var(--shadow), 0 0 34px -14px rgba(123, 163, 255, 0.55); }
+
+  /* Scrollbars, so the feed doesn't punch a bright hole in a dark panel. */
+  .feed-scroll, .syslog, .selftest-output, .modal-card { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+  .feed-scroll::-webkit-scrollbar, .syslog::-webkit-scrollbar,
+  .selftest-output::-webkit-scrollbar, .modal-card::-webkit-scrollbar { width: 10px; height: 10px; }
+  .feed-scroll::-webkit-scrollbar-thumb, .syslog::-webkit-scrollbar-thumb,
+  .selftest-output::-webkit-scrollbar-thumb, .modal-card::-webkit-scrollbar-thumb {
+    background: var(--line); border-radius: 999px; border: 3px solid transparent; background-clip: content-box;
+  }
+  .feed-scroll::-webkit-scrollbar-thumb:hover, .syslog::-webkit-scrollbar-thumb:hover,
+  .selftest-output::-webkit-scrollbar-thumb:hover, .modal-card::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: content-box; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .btn, .icon-btn, .fp-room .fp-fill { transition: none; }
+    .btn:hover { transform: none; }
+  }
+
+  /* ==================================================================
+     Adaptive layer. This panel lives on anything from a phone held in
+     the hallway to a wall-mounted display, so the shell is fluid across
+     the whole range rather than fixed at one desktop width. Layout only
+     - no state, no colour, no behaviour.
+     ================================================================== */
+
+  /* Type and gutters scale with the viewport instead of stepping. */
+  body { font-size: clamp(14.5px, 0.35vw + 13.6px, 17px); }
+  .shell, .topbar-inner { max-width: var(--shell-max, 1180px); }
+  .shell { padding-left: var(--gutter, 24px); padding-right: var(--gutter, 24px); }
+  .topbar-inner { padding-left: var(--gutter, 24px); padding-right: var(--gutter, 24px); }
+  #alertBanner { padding-left: var(--gutter, 24px); padding-right: var(--gutter, 24px); }
+
+  /* Never let a fixed minimum out-grow a narrow viewport. */
+  .rooms { grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 1fr)); }
+  .layout, .side, .panel, .feed, .room { min-width: 0; }
+  .topbar-inner, #alertBanner { flex-wrap: wrap; }
+
+  /* --- large: a wall-mounted or desk display ------------------------ */
+  @media (min-width: 1500px) {
+    :root { --shell-max: 1440px; --gutter: 40px; }
+    .layout { grid-template-columns: minmax(0, 1fr) minmax(340px, 430px); gap: 30px; }
+    .rooms { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+    .feed-scroll { max-height: 52vh; }
+  }
+  @media (min-width: 2000px) {
+    :root { --shell-max: 1680px; }
+    .feed-scroll { max-height: 56vh; }
+  }
+
+  /* --- tablet / small laptop ---------------------------------------- */
+  @media (max-width: 1100px) {
+    :root { --gutter: 20px; }
+    .layout { gap: 20px; }
+  }
+
+  /* --- the existing single-column collapse, plus breathing room ------ */
+  @media (max-width: 900px) {
+    :root { --gutter: 18px; }
+    .layout { margin-top: 24px; }
+    section { margin-top: 30px; }
+    .side { gap: 18px; }
+  }
+
+  /* --- phone --------------------------------------------------------- */
+  @media (max-width: 640px) {
+    :root { --gutter: 14px; }
+    .topbar-inner { padding-top: 11px; padding-bottom: 11px; gap: 10px; }
+    .brand { font-size: 1rem; }
+    .house-status { flex-basis: 100%; order: 3; font-size: 0.96rem; }
+    .conn span:not(.dot) { display: none; }          /* dot alone carries it */
+    .rooms { grid-template-columns: 1fr; gap: 12px; }
+    .room { padding: 16px; border-radius: 14px; }
+    .panel { border-radius: 14px; }
+    .fp-wrap { padding: 10px 12px 14px; }
+    .feed-scroll { max-height: 58vh; }
+    .feed-scroll .entry { padding: 10px 14px; }
+    .modal-card { padding: 20px 18px 22px; max-height: 92vh; border-radius: 16px; }
+    .modal-actions { flex-wrap: wrap; }
+    .modal-actions .btn { flex: 1 1 auto; }
+    #alertBanner { align-items: flex-start; row-gap: 8px; font-size: 0.94rem; }
+    #alertBanner .ab-actions { flex-basis: 100%; display: flex; gap: 8px; }
+    #alertBanner .ab-actions .btn { flex: 1 1 0; }
+    .summary-inner { padding: 14px 14px 16px; }
+  }
+
+  /* --- very small / older phones -------------------------------------- */
+  @media (max-width: 380px) {
+    :root { --gutter: 11px; }
+    .btn { padding: 9px 13px; }
+    .cam { border-radius: 11px; }
+  }
+
+  /* --- short viewports: laptops in landscape, phones on their side ----- */
+  @media (max-height: 620px) and (min-width: 901px) {
+    .feed-scroll { max-height: 40vh; }
+    .layout { margin-top: 20px; }
+  }
+  @media (max-height: 480px) {
+    .feed-scroll { max-height: 46vh; min-height: 100px; }
+    .modal-card { max-height: 94vh; }
+  }
+
+  /* --- touch: fingers need bigger targets than a mouse ----------------- */
+  @media (pointer: coarse) {
+    .icon-btn { width: 44px; height: 44px; }
+    .btn { padding: 12px 20px; }
+    .chiprow .link, .fp-room { touch-action: manipulation; }
+  }
+
+  /* Modern viewport units where supported: mobile browser chrome no longer
+     steals the bottom of a full-height surface. */
+  @supports (height: 100dvh) {
+    .to-inner { min-height: 100dvh; }
+    .modal-card { max-height: 86dvh; }
+    @media (max-width: 640px) { .modal-card { max-height: 92dvh; } }
+  }
 </style>
 </head>
 <body>
