@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QNet Home — Smart Object Discovery</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="index.html"><span class="dot"></span>QNet Home</a>
+    <div class="nav-links">
+      <a href="index.html">Overview</a>
+      <a href="fall.html">Fall Detection &amp; Safety Monitoring</a>
+      <a href="find.html" aria-current="page">Smart Object Discovery</a>
+      <a href="details/index.html" class="back">Full docs →</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+
+<div class="hero">
+  <div class="eyebrow"><span class="timebadge">⏱ 1 min</span> · <span class="pill routine">use case 2</span></div>
+  <h1>"Hey Home, where are my glasses?"</h1>
+  <p class="talk-lede">
+    The calm inverse of a fall — person-initiated, no timers, two or three turns. Every room
+    checks its own camera with its own vision model, and the answer is spoken where you asked.
+  </p>
+</div>
+
+<h2>1 · The flow</h2>
+
+<figure class="figure">
+<svg viewBox="0 0 720 320" role="img" aria-label="Sequence: person asks in the kitchen, node transcribes locally, agent broadcasts a look, both rooms run their own vision model in parallel, the answer is spoken back in the kitchen">
+
+  <text class="lbl" x="70"  y="20" text-anchor="middle">Person</text>
+  <text class="lbl" x="220" y="20" text-anchor="middle">Kitchen node</text>
+  <text class="lbl" x="400" y="20" text-anchor="middle">Agent · IQ9</text>
+  <text class="lbl" x="608" y="20" text-anchor="middle">Bedroom node</text>
+
+  <line x1="70"  y1="30" x2="70"  y2="302" stroke="var(--line)" stroke-dasharray="3 4"/>
+  <line x1="220" y1="30" x2="220" y2="302" stroke="var(--line)" stroke-dasharray="3 4"/>
+  <line x1="400" y1="30" x2="400" y2="302" stroke="var(--line)" stroke-dasharray="3 4"/>
+  <line x1="608" y1="30" x2="608" y2="302" stroke="var(--line)" stroke-dasharray="3 4"/>
+
+  <path d="M70 50 H 216" stroke="var(--routine)" stroke-width="1.6" fill="none" marker-end="url(#g1)"/>
+  <text class="edge-lbl" x="143" y="43" text-anchor="middle">"hey home, where are my glasses"</text>
+
+  <rect x="150" y="62" width="140" height="38" rx="6" fill="var(--edge-bg)" stroke="var(--edge)"/>
+  <text class="sub" x="220" y="78" text-anchor="middle">Whisper → wake match</text>
+  <text class="sub" x="220" y="93" text-anchor="middle">all on-device</text>
+
+  <path d="M220 118 H 396" stroke="var(--line-2)" stroke-width="1.6" fill="none" marker-end="url(#g1)"/>
+  <text class="edge-lbl" x="308" y="111" text-anchor="middle">ask · text only</text>
+
+  <path d="M400 146 H 224" stroke="var(--accent)" stroke-width="1.6" fill="none" marker-end="url(#g2)"/>
+  <path d="M400 146 H 604" stroke="var(--accent)" stroke-width="1.6" fill="none" marker-end="url(#g2)"/>
+  <text class="edge-lbl" x="504" y="139" text-anchor="middle">look · broadcast to every room</text>
+
+  <rect x="150" y="160" width="140" height="40" rx="6" fill="var(--edge-bg)" stroke="var(--edge)"/>
+  <text class="sub" x="220" y="177" text-anchor="middle">own frame → 640px</text>
+  <text class="sub" x="220" y="192" text-anchor="middle">→ own VLM</text>
+
+  <rect x="538" y="160" width="140" height="40" rx="6" fill="var(--edge-bg)" stroke="var(--edge)"/>
+  <text class="sub" x="608" y="177" text-anchor="middle">own frame → 640px</text>
+  <text class="sub" x="608" y="192" text-anchor="middle">→ own VLM</text>
+
+  <text class="edge-lbl" x="414" y="184" text-anchor="middle" style="fill:var(--edge)">in parallel</text>
+
+  <path d="M220 218 H 396" stroke="var(--line-2)" stroke-width="1.6" fill="none" marker-end="url(#g1)"/>
+  <text class="edge-lbl" x="308" y="211" text-anchor="middle">found = false</text>
+
+  <path d="M608 244 H 404" stroke="var(--line-2)" stroke-width="1.6" fill="none" marker-end="url(#g2)"/>
+  <text class="edge-lbl" x="506" y="237" text-anchor="middle">"on the nightstand"</text>
+
+  <path d="M396 282 H 224" stroke="var(--routine)" stroke-width="1.6" fill="none" marker-end="url(#g2)"/>
+  <text class="edge-lbl" x="310" y="275" text-anchor="middle">say → the room that asked</text>
+  <path d="M216 300 H 74" stroke="var(--routine)" stroke-width="1.6" fill="none" marker-end="url(#g2)"/>
+  <text class="edge-lbl" x="145" y="316" text-anchor="middle">"They're in the bedroom, on the nightstand."</text>
+
+  <defs>
+    <marker id="g1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="var(--line-2)"/></marker>
+    <marker id="g2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M8 0 L0 4 L8 8 z" fill="var(--line-2)"/></marker>
+  </defs>
+</svg>
+<figcaption>
+  Only text ever crosses the wire — each room runs its own vision model on its own frame and
+  returns a sentence. And the answer comes back in the room you asked from, because the reply
+  goes out on the topic the question arrived on. No person tracking, no speaker localisation.
+</figcaption>
+</figure>
+
+<h2>2 · The trigger</h2>
+
+<figure class="figure">
+<svg viewBox="0 0 720 222" role="img" aria-label="Wake gate: an utterance is transcribed on the board by Whisper, and only a transcript starting with hey home is published as an ask; anything else is discarded on the node">
+
+  <rect x="8" y="30" width="112" height="50" rx="8" fill="var(--edge-bg)" stroke="var(--edge)" stroke-width="1.5"/>
+  <text class="lbl" x="64" y="52" text-anchor="middle">🎙 utterance</text>
+  <text class="sub" x="64" y="69" text-anchor="middle">in the room</text>
+  <path class="wire" d="M120 55 H 152" stroke-width="1.5" marker-end="url(#w1)"/>
+
+  <rect x="152" y="30" width="150" height="50" rx="8" fill="var(--edge-bg)" stroke="var(--edge)" stroke-width="1.5"/>
+  <text class="lbl" x="227" y="52" text-anchor="middle">Whisper-small</text>
+  <text class="sub" x="227" y="69" text-anchor="middle">on the Hexagon HTP</text>
+  <path class="wire" d="M302 55 H 334" stroke-width="1.5" marker-end="url(#w1)"/>
+
+  <rect x="334" y="30" width="126" height="50" rx="8" fill="var(--surface)" stroke="var(--line-2)" stroke-width="1.5"/>
+  <text class="lbl" x="397" y="52" text-anchor="middle">transcript</text>
+  <text class="sub" x="397" y="69" text-anchor="middle">text, in memory</text>
+  <path class="wire" d="M460 55 H 492" stroke-width="1.5" marker-end="url(#w1)"/>
+
+  <rect x="492" y="22" width="220" height="66" rx="8" fill="var(--surface)" stroke="var(--routine)" stroke-width="2"/>
+  <text class="lbl" x="602" y="46" text-anchor="middle">starts with "hey home"?</text>
+  <text class="sub" x="602" y="63" text-anchor="middle">lowercase · strip punctuation</text>
+  <text class="sub" x="602" y="79" text-anchor="middle">small edit-distance tolerance</text>
+
+  <path class="wire" d="M602 88 V 108 H 396 V 132" stroke-width="1.5" stroke="var(--routine)" marker-end="url(#w2)"/>
+  <path class="wire" d="M602 88 V 108 H 618 V 132" stroke-width="1.5" marker-end="url(#w1)"/>
+
+  <rect x="286" y="132" width="220" height="68" rx="8" fill="var(--routine-bg)" stroke="var(--routine)" stroke-width="1.5"/>
+  <text class="lbl" x="396" y="154" text-anchor="middle" style="fill:var(--routine)">✓ publish qnet/&lt;room&gt;/ask</text>
+  <text class="sub" x="396" y="172" text-anchor="middle">the remainder only —</text>
+  <text class="sub" x="396" y="189" text-anchor="middle">"where are my glasses"</text>
+
+  <rect x="528" y="132" width="184" height="68" rx="8" fill="var(--surface-2)" stroke="var(--line-2)" stroke-width="1.5"/>
+  <text class="lbl" x="620" y="154" text-anchor="middle">✗ discard</text>
+  <text class="sub" x="620" y="172" text-anchor="middle">nothing leaves</text>
+  <text class="sub" x="620" y="189" text-anchor="middle">the board</text>
+
+  <defs>
+    <marker id="w1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="var(--line-2)"/></marker>
+    <marker id="w2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="var(--routine)"/></marker>
+  </defs>
+</svg>
+<figcaption>
+  <strong>There is no wake-word model</strong> — the trigger is a string comparison on a
+  transcript the ASR already produced. Requiring a literal phrase is a far stronger filter than
+  asking an LLM to judge whether speech was aimed at the house, and it avoids a model call on
+  every utterance in the room. Someone asking <em>another person</em> "where are my glasses?"
+  must not make the house answer.
+</figcaption>
+</figure>
+
+<h2>3 · Model performance</h2>
+
+<p>
+  This use case leans on two models per room — Whisper-small for the question, and the
+  vision-language model for the answer. Both run on the Ventuno Q's Hexagon NPU.
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Model</th><th>Published spec — Qualcomm AI Hub</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Whisper-Small</strong><br><span class="sub">ASR — the question</span></td>
+      <td>Encoder <strong>102 M</strong> parameters, 391 MB float · Decoder <strong>139 M</strong>,
+      533 MB float · input 80×3000 (30 s of audio) · max 200 decoded tokens</td>
+    </tr>
+    <tr>
+      <td><strong>Qwen3-VL-4B-Instruct</strong><br><span class="sub">VLM — the answer</span></td>
+      <td>Transformer with a ViT vision encoder, grouped-query attention and SwiGLU · 100+
+      languages · listed for Dragonwing IQ-9075, IQ-X7181 and Q-8750. AI Hub reports this class
+      of model as <strong>TTFT and response rate</strong> rather than a fixed latency, because
+      both vary with prompt length</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Measured on our board</h3>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Leg</th><th>Measured</th><th>Note</th></tr></thead>
+  <tbody>
+    <tr><td>Full round trip — board → broker → board → frame → VLM → back</td><td><strong>4.13 s</strong> median of 5</td><td>4.11 / 4.42 min–max, warm model</td></tr>
+    <tr><td>Node-side handling alone</td><td>3.9–5.4 s</td><td>from the service log</td></tr>
+    <tr><td>…of which the VLM call</td><td><strong>3.3–4.5 s</strong></td><td>w4a16, ~640 px input</td></tr>
+    <tr><td>Frame read — shared memory</td><td>0.02 s</td><td>reusing the fall-detection pipeline's frame</td></tr>
+    <tr><td>Frame read — direct camera open</td><td>0.6–0.7 s</td><td>the worst-case path, when vision.py isn't running</td></tr>
+    <tr><td>Voice node RAM cost</td><td>+1443 MiB</td><td>ASR + TTS containers and models resident; 3761 MiB headroom left</td></tr>
+    <tr><td>End-to-end ask → spoken answer</td><td>9.4 s → ~7.5 s</td><td>after cutting the look timeout 8 s → 6 s</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note measure">
+  <p><strong>The VLM dominates, so that is where the tuning went.</strong> Downscaling to ~640 px
+  before the model is nearly free and is the single biggest lever — time-to-first-token grows
+  steeply with input resolution. Reusing the frame the fall detector already captured saves a
+  further 0.6 s per query. What's left is the model call itself.</p>
+</div>
+
+<div class="note warn">
+  <p><strong>Where the numbers stop.</strong> AI Hub publishes no fixed latency for
+  Qwen3-VL-4B — for generative models it reports TTFT and response rate, both prompt-dependent,
+  so there is no reference figure to compare our 3.3–4.5 s against. Our measurements are n=5 on
+  one board with the NPU shared with fall detection and the voice stack, so treat them as
+  directional. And nothing here measures <em>accuracy</em> — how often the VLM is right about
+  where your glasses are is untested.</p>
+</div>
+
+<h2>4 · What crosses the wire</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Topic</th><th>Direction</th><th>Payload</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>qnet/&lt;room&gt;/ask</code></td><td>node → agent</td>
+      <td><code>{"id": "01JR…", "room": "kitchen", "text": "where are my glasses", "kind": "query"}</code></td>
+    </tr>
+    <tr>
+      <td><code>qnet/look</code><br><span class="sub">unqualified — broadcast</span></td><td>agent → <strong>all</strong></td>
+      <td><code>{"qid": "q7", "object": "glasses", "mode": "find", "room": null}</code></td>
+    </tr>
+    <tr>
+      <td><code>qnet/&lt;room&gt;/looked</code></td><td>node → agent</td>
+      <td><code>{"qid": "q7", "room": "bedroom", "found": true, "answer": "on the nightstand"}</code></td>
+    </tr>
+    <tr>
+      <td><code>qnet/&lt;room&gt;/say</code></td><td>agent → node</td>
+      <td><code>{"text": "They're in the bedroom…", "prio": "routine"}</code></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p class="punch">
+  <code>qid</code> is the correlation key. A <code>looked</code> whose <code>qid</code> isn't the
+  one just broadcast is dropped — reply topics are shared, and a late answer to the
+  <em>previous</em> question must never be read as an answer to this one.
+</p>
+
+<h2>5 · Step by step, what actually happens</h2>
+
+<ul class="ladder">
+  <li>
+    <div class="step-t">STEP 1 · Whisper-small on HTP · idle stream</div>
+    <div class="step-h">The node is already listening, locally</div>
+    <p class="step-b">
+      <code>transcribe_until_cancelled()</code> keeps one ASR stream open with a 700 ms VAD, so
+      there is no blind gap between utterances. Up to 10 s of finalised text plus the latest
+      partial is retained — enough to keep a short "Hey Home" that Whisper sometimes drops from
+      the final event.
+    </p>
+  </li>
+  <li class="warm">
+    <div class="step-t">STEP 2 · wake gate — a string comparison</div>
+    <div class="step-h">Match, or the transcript is discarded on the board</div>
+    <p class="step-b">
+      No wake-word model. Lowercase, strip punctuation, require a "hey home" prefix with small
+      edit-distance tolerance. On a match the remainder is published as an <code>ask</code>;
+      on a miss nothing is published and nothing leaves the node. This is what stops one person
+      asking <em>another person</em> "where are my glasses?" from triggering the house.
+    </p>
+  </li>
+  <li class="warm">
+    <div class="step-t">STEP 3 · engine.py · clause-cutting regex</div>
+    <div class="step-h">The object is extracted before the model is consulted</div>
+    <p class="step-b">
+      "where's my <strong>X</strong> <em>[anything after is noise]</em>" is cut by regex, not
+      by Gemma. Inbound traffic for rooms absent from <code>config/house.yaml</code>'s
+      <code>rooms:</code> map is dropped outright — a coexisting stack on a shared broker was
+      publishing raw STT chatter as queries.
+    </p>
+  </li>
+  <li class="warm">
+    <div class="step-t">STEP 4 · phases.py loads skills/find.md · phase search</div>
+    <div class="step-h">A routine session opens — no timers</div>
+    <p class="step-b">
+      Same loader, same validation, same refusal path as the fall skill.
+      <code>urgency: routine</code>, so it never takes over the dashboard.
+    </p>
+  </li>
+  <li>
+    <div class="step-t">STEP 5 · look_in_rooms → qnet/look</div>
+    <div class="step-h">One broadcast, every node subscribed</div>
+    <p class="step-b">
+      The search fires on <strong>phase entry</strong>, like an <code>on_enter</code> action —
+      because SDK-native tool-calling doesn't work on this GenieX build, a phase whose entire
+      job is one broadcast cannot depend on the model emitting a tool call. The allowlist is
+      still declared and still checked.
+    </p>
+  </li>
+  <li>
+    <div class="step-t">STEP 6 · qnet/node/look.py · Qwen3-VL-4B (w4a16)</div>
+    <div class="step-h">Every room looks at once, in its own room</div>
+    <p class="step-b">
+      The node reuses the frame already in memory from the fall-detection pipeline — no second
+      capture path, no rolling buffer. Downscaled to ~640 px before the model, never native
+      resolution. Each node returns one sentence; the frame stays put.
+    </p>
+  </li>
+  <li>
+    <div class="step-t">STEP 7 · collect · find.look_timeout_s = 6</div>
+    <div class="step-h">Return early, or answer with what arrived</div>
+    <p class="step-b">
+      The agent knows how many rooms to expect, so it returns the moment the last one answers —
+      the timeout is only ever paid for a room that is genuinely silent. Tuned from 8 s down to
+      6 s off measured data: worst observed node-side handling 5.4 s, plus margin.
+    </p>
+  </li>
+  <li class="warm">
+    <div class="step-t">STEP 8 · engine rails — deterministic wording</div>
+    <div class="step-h">The engine words the answer, not the model</div>
+    <p class="step-b">
+      Three distinct outcomes, three distinct sentences, all assembled in code. Then
+      <code>say</code> goes back on the topic the <code>ask</code> arrived on, with
+      <code>prio: routine</code>.
+    </p>
+  </li>
+  <li>
+    <div class="step-t">FOLLOW-UP · last_find window, 120 s</div>
+    <div class="step-h">"I still don't see them" → phase guide</div>
+    <p class="step-b">
+      A follow-up is a <em>new</em> ask, so one variable connects it: the agent remembers the
+      last find result for two minutes. A new ask naming no object inside that window goes to
+      <code>guide</code>, using the remembered object and whichever room the person is speaking
+      from <em>now</em>. One variable, one if-statement — no conversation history, no session
+      linking.
+    </p>
+  </li>
+</ul>
+
+<h2>6 · The skill behind it</h2>
+
+<figure class="figure">
+<svg viewBox="0 0 720 210" role="img" aria-label="Phase machine from skills/find.md: search leads to found or not_found, or to guide on a follow-up; guide exits done">
+
+  <rect x="20" y="76" width="160" height="62" rx="8" fill="var(--surface)" stroke="var(--routine)" stroke-width="1.5"/>
+  <text class="lbl" x="100" y="100" text-anchor="middle">search</text>
+  <text class="sub" x="100" y="118" text-anchor="middle">tools: [look_in_rooms]</text>
+  <text class="sub" x="100" y="132" text-anchor="middle">no timer</text>
+
+  <rect x="292" y="14" width="170" height="48" rx="8" fill="var(--routine-bg)" stroke="var(--routine)" stroke-width="1.5"/>
+  <text class="lbl" x="377" y="36" text-anchor="middle" style="fill:var(--routine)">found</text>
+  <text class="sub" x="377" y="52" text-anchor="middle">at least one room saw it</text>
+
+  <rect x="292" y="86" width="170" height="48" rx="8" fill="var(--surface-2)" stroke="var(--line-2)" stroke-width="1.5"/>
+  <text class="lbl" x="377" y="108" text-anchor="middle">not_found</text>
+  <text class="sub" x="377" y="124" text-anchor="middle">no room saw it</text>
+
+  <rect x="292" y="156" width="170" height="48" rx="8" fill="var(--surface)" stroke="var(--routine)" stroke-width="1.5"/>
+  <text class="lbl" x="377" y="178" text-anchor="middle">guide</text>
+  <text class="sub" x="377" y="194" text-anchor="middle">relative to a landmark</text>
+
+  <rect x="560" y="156" width="140" height="48" rx="8" fill="var(--routine-bg)" stroke="var(--routine)" stroke-width="1.5"/>
+  <text class="lbl" x="630" y="178" text-anchor="middle" style="fill:var(--routine)">done</text>
+  <text class="sub" x="630" y="194" text-anchor="middle">terminal</text>
+
+  <path class="wire" d="M180 96 H 236 V 38 H 288" stroke-width="1.5" stroke="var(--routine)" marker-end="url(#q1)"/>
+  <path class="wire" d="M180 110 H 288" stroke-width="1.5" marker-end="url(#q2)"/>
+  <path class="wire" d="M180 124 H 236 V 180 H 288" stroke-width="1.5" stroke="var(--routine)" marker-end="url(#q1)"/>
+  <text class="edge-lbl" x="212" y="150" text-anchor="middle" style="fill:var(--routine)">follow-up</text>
+  <path class="wire" d="M462 180 H 556" stroke-width="1.5" stroke="var(--routine)" marker-end="url(#q1)"/>
+
+  <text class="sub" x="500" y="122" style="fill:var(--ink-3)">both terminal — the session ends</text>
+
+  <defs>
+    <marker id="q1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="var(--routine)"/></marker>
+    <marker id="q2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="var(--line-2)"/></marker>
+  </defs>
+</svg>
+<figcaption>
+  <strong>Two phases, no timers, no <code>on_enter</code> actions.</strong> That is the entire
+  difference from <code>skills/fall.md</code> — same loader, same engine, same validation.
+</figcaption>
+</figure>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Skill file</th><th>What it contributes to this scenario</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>skills/find.md</code><br><span class="pill routine">urgency: routine</span></td>
+      <td>The two phases above, their goals in plain language, the <code>look_in_rooms</code>
+      allowlist, and four exit conditions. <code>trigger: kind=query</code> is what binds it to
+      the <code>ask</code> topic rather than to an event.</td>
+    </tr>
+    <tr>
+      <td><code>qnet/tools/look_in_rooms.py</code></td>
+      <td>Broadcasts the <code>look</code>, correlates <code>looked</code> replies by
+      <code>qid</code>, returns early once every configured room has answered, and reports
+      <em>which rooms actually replied</em> — which is what makes the third outcome below
+      possible.</td>
+    </tr>
+    <tr>
+      <td><code>qnet/node/look.py</code></td>
+      <td>The room side: subscribe to <code>qnet/look</code>, take the shared-memory frame,
+      downscale, prompt the LLM-VLM microservice, publish one sentence.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h2>7 · Honesty is the feature</h2>
+
+<figure class="figure">
+<svg viewBox="0 0 720 156" role="img" aria-label="Three outcomes that must sound different: found it, checked everywhere and did not find it, and could not reach a room">
+
+  <rect x="8" y="14" width="228" height="126" rx="10" fill="var(--routine-bg)" stroke="var(--routine)" stroke-width="1.5"/>
+  <text class="sub" x="26" y="38" style="fill:var(--routine)">ALL ANSWERED · ONE FOUND IT</text>
+  <text class="lbl" x="122" y="72" text-anchor="middle">"They're in the</text>
+  <text class="lbl" x="122" y="92" text-anchor="middle">bedroom, on the</text>
+  <text class="lbl" x="122" y="112" text-anchor="middle">nightstand."</text>
+
+  <rect x="246" y="14" width="228" height="126" rx="10" fill="var(--surface-2)" stroke="var(--line-2)" stroke-width="1.5"/>
+  <text class="sub" x="264" y="38">ALL ANSWERED · NONE FOUND IT</text>
+  <text class="lbl" x="360" y="72" text-anchor="middle">"I looked in the kitchen</text>
+  <text class="lbl" x="360" y="92" text-anchor="middle">and the bedroom and</text>
+  <text class="lbl" x="360" y="112" text-anchor="middle">I don't see them."</text>
+
+  <rect x="484" y="14" width="228" height="126" rx="10" fill="var(--safety-bg)" stroke="var(--safety)" stroke-width="2"/>
+  <text class="sub" x="502" y="38" style="fill:var(--safety)">A ROOM DIDN'T ANSWER</text>
+  <text class="lbl" x="598" y="72" text-anchor="middle">"I looked in the kitchen</text>
+  <text class="lbl" x="598" y="92" text-anchor="middle">and don't see them — I</text>
+  <text class="lbl" x="598" y="112" text-anchor="middle">couldn't reach the bedroom."</text>
+</svg>
+<figcaption>
+  The agent knows how many rooms to expect, so it can tell these three apart — and they must
+  not sound the same. Silently reporting "not found" when you only checked half the house is
+  exactly what makes people stop trusting a system.
+</figcaption>
+</figure>
+
+<div class="note warn">
+  <p><strong>The model never words a search answer — because we watched it lie.</strong> The
+  tool reported <em>no room answered</em>, and the model said: <em>"The item is in the living
+  room. The living room camera reported that the item is there."</em> A fabricated location
+  with a fabricated citation, spoken out loud.</p>
+  <p>The answer <em>is</em> this skill's safety content, so it moved permanently onto the
+  engine's rails. Prompt engineering can't make a guarantee; code can.</p>
+</div>
+
+<div class="note measure">
+  <p><strong>Measured on the Ventuno Q, five runs, warm model.</strong> Round trip
+  board → broker → board → frame grab → VLM → back: <strong>4.13 s median</strong> (4.11 / 4.42
+  min–max). Node-side handling alone 3.9–5.4 s, of which the VLM call is 3.3–4.5 s. A direct
+  camera grab costs ~0.6–0.7 s; the shared-memory frame path costs 0.02 s.</p>
+</div>
+
+<div class="next">
+  <a href="index.html">
+    <div class="next-label">Back to</div>
+    <div class="next-title">Overview →</div>
+    <div class="sub">Start of the 5-minute path</div>
+  </a>
+  <a href="details/object-finder.html">
+    <div class="next-label">If asked</div>
+    <div class="next-title">Deeper on object discovery →</div>
+    <div class="sub">Wake-phrase rationale, capture cost, every measurement</div>
+  </a>
+</div>
+
+</main>
+
+<footer>
+  <div class="footer-inner">
+    QNet Home — Smart Object Discovery. Skill file: <code>skills/find.md</code>.
+    Node module: <code>qnet/node/look.py</code>.
+  </div>
+</footer>
+
+</body>
+</html>

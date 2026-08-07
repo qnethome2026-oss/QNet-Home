@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QNet Home — Smart Object Discovery</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="../index.html"><span class="dot"></span>QNet Home</a>
+    <div class="nav-links"><a href="../index.html" class="back">← 5-min version</a>
+      <a href="index.html">Overview</a>
+      <a href="architecture.html">Architecture</a>
+      <a href="ai-stack.html">AI &amp; Speech Stack</a>
+      <a href="implementation.html">Implementation</a>
+      <a href="fall-detection.html">Fall Detection &amp; Safety Monitoring</a>
+      <a href="object-finder.html" aria-current="page">Smart Object Discovery</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+
+<div class="hero">
+  <div class="eyebrow">Use case 2 · <span class="pill routine">urgency: routine</span></div>
+  <h1>"Hey Home, where are my glasses?"</h1>
+  <p class="lede">
+    The calm inverse of a fall. Person-initiated instead of system-initiated, no timers, two
+    or three turns. Every room looks at its own camera with its own vision model, answers in
+    words, and the house replies out loud in the room you asked from.
+  </p>
+  <p class="lede">
+    It exists partly to prove a claim: that adding a whole second capability touches one node
+    module, one skill file, one tool, and three topic names — and leaves the fall path
+    completely untouched.
+  </p>
+</div>
+
+<h2>The flow</h2>
+
+<figure class="figure">
+<svg viewBox="0 0 720 372" role="img" aria-label="Sequence: person asks in the kitchen, node transcribes and matches wake phrase, agent broadcasts look, both rooms answer in parallel, agent replies to the kitchen">
+
+  <!-- lanes -->
+  <text class="lbl" x="72"  y="20" text-anchor="middle">Person</text>
+  <text class="lbl" x="222" y="20" text-anchor="middle">Kitchen node</text>
+  <text class="lbl" x="392" y="20" text-anchor="middle">Agent · IQ-9075</text>
+  <text class="lbl" x="602" y="20" text-anchor="middle">Bedroom node</text>
+
+  <line x1="72"  y1="30" x2="72"  y2="352" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 4"/>
+  <line x1="222" y1="30" x2="222" y2="352" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 4"/>
+  <line x1="392" y1="30" x2="392" y2="352" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 4"/>
+  <line x1="602" y1="30" x2="602" y2="352" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 4"/>
+
+  <!-- 1 -->
+  <path d="M72 52 H 218" stroke="var(--routine)" stroke-width="1.6" fill="none" marker-end="url(#a6)"/>
+  <text class="edge-lbl" x="145" y="45" text-anchor="middle">"hey home, where are my glasses"</text>
+
+  <!-- node local -->
+  <rect x="222" y="66" width="150" height="40" rx="6" fill="var(--edge-bg)" stroke="var(--edge)" stroke-width="1.2"/>
+  <text class="sub" x="297" y="83" text-anchor="middle">VAD → Whisper → wake</text>
+  <text class="sub" x="297" y="98" text-anchor="middle">phrase match, on-device</text>
+
+  <!-- 2 ask -->
+  <path d="M222 126 H 388" stroke="var(--line-2)" stroke-width="1.6" fill="none" marker-end="url(#a6)"/>
+  <text class="edge-lbl" x="305" y="119" text-anchor="middle">ask · text only</text>
+
+  <!-- 3 broadcast -->
+  <path d="M392 156 H 226" stroke="var(--accent)" stroke-width="1.6" fill="none" marker-end="url(#a7)"/>
+  <path d="M392 156 H 598" stroke="var(--accent)" stroke-width="1.6" fill="none" marker-end="url(#a7)"/>
+  <text class="edge-lbl" x="497" y="149" text-anchor="middle">look · broadcast, one topic</text>
+
+  <!-- parallel look -->
+  <rect x="150" y="172" width="144" height="40" rx="6" fill="var(--edge-bg)" stroke="var(--edge)" stroke-width="1.2"/>
+  <text class="sub" x="222" y="189" text-anchor="middle">own frame → 640px</text>
+  <text class="sub" x="222" y="204" text-anchor="middle">→ own VLM</text>
+
+  <rect x="530" y="172" width="144" height="40" rx="6" fill="var(--edge-bg)" stroke="var(--edge)" stroke-width="1.2"/>
+  <text class="sub" x="602" y="189" text-anchor="middle">own frame → 640px</text>
+  <text class="sub" x="602" y="204" text-anchor="middle">→ own VLM</text>
+
+  <text class="edge-lbl" x="412" y="196" text-anchor="middle" style="fill:var(--edge)">in parallel</text>
+
+  <!-- replies -->
+  <path d="M222 234 H 388" stroke="var(--line-2)" stroke-width="1.6" fill="none" marker-end="url(#a6)"/>
+  <text class="edge-lbl" x="305" y="227" text-anchor="middle">looked · found=false</text>
+
+  <path d="M602 262 H 396" stroke="var(--line-2)" stroke-width="1.6" fill="none" marker-end="url(#a7)"/>
+  <text class="edge-lbl" x="499" y="255" text-anchor="middle">looked · "on the nightstand"</text>
+
+  <!-- engine words -->
+  <rect x="316" y="278" width="152" height="38" rx="6" fill="var(--accent-bg)" stroke="var(--accent)" stroke-width="1.2"/>
+  <text class="sub" x="392" y="294" text-anchor="middle">engine words the answer</text>
+  <text class="sub" x="392" y="309" text-anchor="middle">deterministic sentence</text>
+
+  <!-- say back to kitchen -->
+  <path d="M388 336 H 226" stroke="var(--routine)" stroke-width="1.6" fill="none" marker-end="url(#a7)"/>
+  <text class="edge-lbl" x="307" y="329" text-anchor="middle">say → the room that asked</text>
+  <path d="M218 348 H 76" stroke="var(--routine)" stroke-width="1.6" fill="none" marker-end="url(#a7)"/>
+  <text class="edge-lbl" x="147" y="366" text-anchor="middle">"They're in the bedroom, on the nightstand."</text>
+
+  <defs>
+    <marker id="a6" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0 0 L8 4 L0 8 z" fill="var(--line-2)"/>
+    </marker>
+    <marker id="a7" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M8 0 L0 4 L8 8 z" fill="var(--line-2)"/>
+    </marker>
+  </defs>
+</svg>
+<figcaption>
+  Two things to notice. Only text ever crosses the wire — each node runs its own vision model
+  on its own frame and returns a sentence. And the answer is spoken where the question was
+  asked, because the reply goes back on the topic the question arrived on.
+</figcaption>
+</figure>
+
+<h2>The wake phrase is a string comparison</h2>
+
+<p>
+  <strong>There is no wake-word model.</strong> The transcript that Whisper already returned is
+  lowercased, stripped of punctuation, and required to start with "hey home" — with a small
+  edit-distance tolerance so "hey, home" and "hi home" pass. Match, and the remainder is
+  published as a question. No match, and it is discarded, having never left the board.
+</p>
+
+<div class="grid">
+  <div class="card">
+    <h3>Why not let the model decide intent?</h3>
+    <p>
+      Someone asking <em>another person</em> "where are my glasses?" must not make the house
+      answer. Requiring a literal phrase is a far stronger filter than asking an LLM to judge
+      whether speech was aimed at it — and letting the model judge would mean a model call on
+      every utterance in the room, putting all household conversation in front of it.
+    </p>
+  </div>
+  <div class="card">
+    <h3>Why not a trained keyword model?</h3>
+    <p>
+      Zero new models to build or train, the phrase is a config string, and it reuses the
+      listen loop that already exists. If it proves trigger-happy, the fallback is a small
+      keyword spotter in front of ASR. Notably <em>not</em> openWakeWord's pretrained
+      weights — they are CC-BY-NC-SA, incompatible with this project's AGPL licence. The code
+      is fine; the weights aren't shippable.
+    </p>
+  </div>
+</div>
+
+<p>
+  The fall use case doesn't use the phrase at all. During an active session the house has just
+  asked a question, so any speech is treated as the reply. Requiring someone who has just
+  fallen to say a magic phrase would be absurd.
+</p>
+
+<h2>The skill file is the whole difference</h2>
+
+<pre><code>---
+name: find-object
+trigger: kind=query
+urgency: routine
+---
+phases:
+  - id: search
+    goal: "Work out which room the object is in, then say so plainly."
+    tools: [look_in_rooms]
+    exits:
+      found:     "at least one room reports seeing it"
+      not_found: "no room reports seeing it"
+
+  - id: guide
+    goal: "They are in the right room but can't see it. Describe where it is
+           relative to something obvious nearby."
+    tools: [look_in_rooms]
+    exits:
+      done: "they have found it, or there is nothing more useful to say"</code></pre>
+
+<p>
+  <strong>No timers, no <code>on_enter</code> actions.</strong> That is the entire difference
+  from the fall skill. Same loader, same engine, same refusal path, same session logging.
+</p>
+
+<h3>"I still don't see them"</h3>
+<p>
+  A follow-up is a <em>new</em> question, so something has to connect it to the search it
+  follows. The rule is deliberately dumb: <strong>the agent remembers the last find result for
+  two minutes.</strong> A new question naming no object within that window goes to the
+  <code>guide</code> phase, using the remembered object and whichever room the person is
+  speaking from <em>now</em>. Any question that names an object starts a fresh search.
+</p>
+<p>
+  One variable and one if-statement. No conversation history, no session linking, no
+  cross-room person tracking. Walk to the bedroom, say "I still don't see them", and the
+  bedroom node re-looks in guide mode: <em>"Look left of the lamp, just behind the book."</em>
+</p>
+
+<h2>Honesty when a room doesn't answer</h2>
+
+<p>
+  A node can be down, busy running its own vision model, or off the network. The rule: wait up
+  to the configured timeout, then answer with whatever came back — <strong>and say what was
+  actually checked</strong>.
+</p>
+
+<p>
+  Because the agent knows how many rooms it expects from <code>house.yaml</code>, it can tell
+  three situations apart. They must not sound the same:
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>What came back</th><th>What it says</th></tr></thead>
+  <tbody>
+    <tr><td>All rooms answered, one found it</td><td>"They're in the bedroom, on the nightstand."</td></tr>
+    <tr><td>All answered, none found it</td><td>"I looked in the kitchen and the bedroom and I don't see them."</td></tr>
+    <tr><td><strong>Some didn't answer</strong></td><td><strong>"I looked in the kitchen and don't see them — I couldn't reach the bedroom."</strong></td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>
+  That third row is the one worth building. Silently reporting "not found" when you only
+  managed to check half the house is exactly the kind of thing that makes people stop trusting
+  a system.
+</p>
+
+<div class="note warn">
+  <p><strong>These sentences are deterministic — the model never words a search answer.</strong>
+  This was decided after watching it fail live: the tool reported <em>no room answered</em>,
+  and the model worded it as <em>"The item is in the living room. The living room camera
+  reported that the item is there."</em> A fabricated location, with a fabricated citation,
+  spoken aloud.</p>
+  <p>The answer <em>is</em> this skill's safety content, so it moved permanently onto the
+  engine's rails — the same sentence path that the no-LLM mode always used.</p>
+</div>
+
+<h3>Two related rails from the same evening</h3>
+<ul>
+  <li>The object is extracted by clause-cutting regex before the model is ever consulted —
+  "where's my X <em>[anything after is noise]</em>".</li>
+  <li>Traffic for rooms not in the configured room map is dropped outright. A coexisting stack
+  on the shared workshop broker was publishing raw speech-to-text chatter as queries.</li>
+</ul>
+
+<h2>Latency, and where it goes</h2>
+
+<div class="note measure">
+  <p><strong>Measured, five runs, warm model.</strong> Round trip from a client on the board —
+  board → broker → board → frame grab → vision model → broker → board — was
+  <strong>4.13 s median</strong> (4.11 / 4.42 min–max). Node-side handling alone was 3.9–5.4 s,
+  of which the vision model call is 3.3–4.5 s.</p>
+  <p>End-to-end question → spoken answer with one of two rooms responding was 9.4 s, dominated
+  by waiting out the full timeout for the absent room. So the timeout was tuned from 8 s down
+  to <strong>6 s</strong> — worst observed 5.4 s plus a margin — cutting that case to ~7.5 s.</p>
+</div>
+
+<p>
+  The broadcast returns as soon as every configured room has answered, so the timeout is only
+  ever paid for a room that is genuinely silent. Two further design choices keep the number
+  down:
+</p>
+<ul>
+  <li><strong>Reuse the frame that already exists.</strong> The node is already running a
+  camera pipeline for fall detection, so a look takes the latest frame from memory. No second
+  capture path, no rolling buffer. A frame up to a second old is fine for a stationary object.</li>
+  <li><strong>Downscale before the vision model</strong> — roughly 640 px, never native
+  resolution. Time-to-first-token grows steeply with input resolution, and downscaling is
+  nearly free. It is the single biggest lever on query latency.</li>
+</ul>
+
+<h3>Correlation, because reply topics are shared</h3>
+<p>
+  Every broadcast carries a query id, and a reply whose id isn't the one just asked is ignored.
+  A late answer to the <em>previous</em> question must never be read as an answer to this one —
+  the kind of bug that produces a confidently wrong answer rather than an obvious failure.
+</p>
+
+<h2>What it can't do, stated plainly</h2>
+
+<div class="note">
+  <p><strong>A live look only finds what is currently visible.</strong> Glasses in a drawer,
+  under a newspaper, or in a room with no node all produce an honest "sorry, I don't see
+  them."</p>
+  <p>This is a deliberate v1 choice, not an oversight. The fix is a last-sighting cache, which
+  turns a dead end into <em>"I last saw them on the kitchen counter about an hour ago"</em> —
+  and it is written down as a planned optimisation rather than quietly hoped for.</p>
+</div>
+
+<p>
+  One measurement window recorded every result as not-found because a teammate was leaning
+  centimetres from the lens. The vision model correctly reported that the queried object wasn't
+  visible. Live camera, live workshop — and the honest failure is the correct behaviour.
+</p>
+
+<h2>Why this capability matters beyond itself</h2>
+
+<p>
+  Adding it touched: one new node module, one new skill file, one new tool, three topic names.
+  The engine, the phase loop, the transport, and the entire fall path were untouched.
+</p>
+
+<p>
+  That is the "one fabric, pluggable skills" claim being <em>demonstrably</em> true rather than
+  asserted — and it is the strongest answer to anyone asking whether this generalises to the
+  next thing a house needs to watch for.
+</p>
+
+<div class="next">
+  <a href="fall-detection.html">
+    <div class="next-label">Use case 1</div>
+    <div class="next-title">Fall Detection &amp; Safety Monitoring →</div>
+    <div class="sub">The same fabric, running something urgent</div>
+  </a>
+  <a href="index.html">
+    <div class="next-label">Back to</div>
+    <div class="next-title">Overview →</div>
+    <div class="sub">What QNet Home is, and who it's for</div>
+  </a>
+</div>
+
+</main>
+
+<footer>
+  <div class="footer-inner">
+    QNet Home — Smart Object Discovery. Skill file: <code>skills/find.md</code>.
+    Node module: <code>qnet/node/look.py</code>. Spec: <code>docs/DESIGN.md</code> §13.
+  </div>
+</footer>
+
+</body>
+</html>

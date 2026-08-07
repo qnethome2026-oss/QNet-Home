@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QNet Home — Fall Detection &amp; Safety Monitoring</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="../index.html"><span class="dot"></span>QNet Home</a>
+    <div class="nav-links"><a href="../index.html" class="back">← 5-min version</a>
+      <a href="index.html">Overview</a>
+      <a href="architecture.html">Architecture</a>
+      <a href="ai-stack.html">AI &amp; Speech Stack</a>
+      <a href="implementation.html">Implementation</a>
+      <a href="fall-detection.html" aria-current="page">Fall Detection &amp; Safety Monitoring</a>
+      <a href="object-finder.html">Smart Object Discovery</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+
+<div class="hero">
+  <div class="eyebrow">Use case 1 · <span class="pill safety">urgency: safety</span></div>
+  <h1>Somebody is on the floor. Now what?</h1>
+  <p class="lede">
+    A fall alone is not the emergency. Being on the floor for three hours because nobody
+    knew is the emergency. This capability closes the gap between the two — it detects, it
+    asks, it listens, and when it hears nothing it escalates on a clock, without waiting for
+    a human to notice a notification.
+  </p>
+</div>
+
+<h2>Detection</h2>
+
+<p>
+  A <strong>YOLO11n fine-tune</strong> for fall detection runs continuously on the room node's
+  Hexagon NPU. The model is pre-compiled and committed to the repository as a QNN context
+  binary for both boards, so reproducing the system needs no model-conversion account.
+</p>
+
+<h3>The gate: 5 of 8 frames</h3>
+<p>
+  A single frame classified <code>fallen</code> means nothing — motion blur, a partial view, a
+  person crouching to pick something up. The detector fires only when the class holds across
+  <strong>5 of the last 8 frames</strong>, above a confidence floor of <strong>0.6</strong>.
+  After firing it enters a hold-off state rather than re-arming immediately, so one fall
+  produces one event.
+</p>
+
+<div class="note measure">
+  <p><strong>Why 0.6, with receipts.</strong> The floor was probed live rather than guessed.
+  Real fallen-person frames read 0.86–0.94. A photo of a fallen person held up to the camera
+  read 0.40–0.52, intermittently. A <em>blank wall</em> with a floor of 0.35 active read
+  <strong>up to 0.52 — pure noise</strong>.</p>
+  <p>Two conclusions were recorded: 0.6 is reaffirmed, because 0.35 fires on nothing at all;
+  and screen-replay is not a viable demo trigger, because its signal sits in the same band as
+  wall noise. One screen-replay event <em>did</em> fire during the low-floor window — and was
+  excluded precisely because it was indistinguishable from noise.</p>
+</div>
+
+<h3>What gets published</h3>
+<p>
+  Never a frame. Never a clip. One JSON object on <code>qnet/&lt;room&gt;/event</code>:
+</p>
+<pre><code>{ "id": "01JQ...", "ts": 1785790153.4, "room": "kitchen",
+  "kind": "fall.detected", "conf": 0.87,
+  "meta": { "cls": "Fallen", "frames": "5/8" } }</code></pre>
+
+<div class="note warn">
+  <p><strong>A stated limitation, not a hidden one.</strong> The model reads <em>deliberate</em>
+  lying down as a fall. It classifies posture, not intent. Someone choosing to lie on the floor
+  will trigger a session — which is why cancelling is always one word away, spoken or typed or
+  clicked.</p>
+</div>
+
+<h2>The escalation ladder</h2>
+
+<p>
+  Every step below is engine-owned. The timers fire on schedule, the notifications send
+  themselves, and the emergency call is placed automatically. The language model's entire
+  contribution is deciding whether "I'm alright I think" means <em>ok</em> or <em>escalate</em>,
+  and wording the reassurance in between.
+</p>
+
+<ul class="ladder">
+  <li class="hot">
+    <div class="step-t">T+0s · PHASE: check</div>
+    <div class="step-h">The room speaks first</div>
+    <p class="step-b">
+      <em>"I saw you fall. Take a breath — are you okay?"</em> — a canned line, spoken
+      instantly, with no model call. If the LLM is down, cold, or thinking, this line still
+      happens. Then the node opens the microphone and listens.
+    </p>
+  </li>
+  <li class="warm">
+    <div class="step-t">ON "I'M FINE"</div>
+    <div class="step-h">One mandatory double-check</div>
+    <p class="step-b">
+      <em>"Any pain? Did you hit your head?"</em> — canned, and unskippable. "I'm fine" can
+      <strong>never</strong> close a session without passing through this. People minimise,
+      especially to a machine, and a head strike is exactly the injury that gets talked away.
+      Only a clear denial of pain closes the session.
+    </p>
+  </li>
+  <li class="hot">
+    <div class="step-t">T+30s · PHASE: escalate</div>
+    <div class="step-h">Trusted contacts are messaged automatically</div>
+    <p class="step-b">
+      No answer, "no", or any report of pain moves here — and the timer moves here on its own
+      if nothing is said at all. The Telegram fires on phase entry as an
+      <code>on_enter</code> action, not as something the agent has to remember to do:
+    </p>
+    <p class="quote">🔴 Possible fall — Tony, kitchen. Reply OK if you can check on Tony —
+    otherwise I'll call emergency services in 30 seconds.</p>
+    <p class="step-b">
+      The room says what it did, out loud: <em>"I've messaged Sarah."</em> Not filler — an
+      actual fact about the world.
+    </p>
+  </li>
+  <li>
+    <div class="step-t">IF A CONTACT REPLIES "OK" · PHASE: contact_engaged</div>
+    <div class="step-h">The call is held, and the person is told who is coming</div>
+    <p class="step-b">
+      <em>"Good news — Sarah saw my message and is coming to check on you. I'll stay with you
+      until they arrive."</em> The contact gets a confirmation too: <em>"Got it — I'll hold off
+      on emergency services."</em>
+    </p>
+    <p class="step-b">
+      <strong>A 180-second backstop timer starts anyway.</strong> An acknowledged incident that
+      then goes quiet must never be a stranded one — if nobody resolves it, the call still gets
+      placed.
+    </p>
+  </li>
+  <li class="hot">
+    <div class="step-t">T+60s · PHASE: call_help</div>
+    <div class="step-h">Emergency services</div>
+    <p class="step-b">
+      <em>"I'm calling emergency services for you right now. Help is coming — stay with me."</em>
+      The contact is told: <em>"📞 No response from Tony — calling emergency services now
+      (kitchen)."</em>
+    </p>
+    <p class="step-b">
+      A contact can also skip the whole ladder at any point by replying <strong>"call
+      911"</strong> — that fires the call immediately.
+    </p>
+  </li>
+</ul>
+
+<div class="note">
+  <p><strong>The numbers in the message and the numbers in the timer are the same numbers.</strong>
+  The Telegram promises 30 seconds because <code>escalate</code>'s timer is 30 seconds; the
+  hold-off promises 3 minutes because <code>contact_engaged</code>'s backstop is 180 seconds.
+  Change one, change the other — the skill file says so explicitly, in the file, next to both.</p>
+</div>
+
+<h2>Nobody is left in silence</h2>
+
+<p>
+  The hardest part of this problem is not the escalation. It is the waiting. Between the
+  Telegram and the ambulance there is a person on the floor, alone, and the system has to be
+  present without being unbearable.
+</p>
+
+<h3>Three findings from testing on real people</h3>
+
+<h4>A status line every 20 seconds reads as hovering, not care</h4>
+<p>
+  The original design gave the agent a turn whenever ~20 seconds passed in silence. In
+  practice that is relentless. The default became a <strong>schedule</strong> instead: a
+  status update about a minute in, another at two minutes, then one every five. If something
+  else just spoke — a phase opening, a reply, a responder brief — the scheduled slot is
+  skipped outright, because that line already did the slot's only job.
+</p>
+
+<h4>A repeated sentence reads as a recording, not a companion</h4>
+<p>
+  The facts in a comfort update stay identical, but consecutive updates must never share
+  wording. The engine rotates through phrasings — <em>"I'm still here with you…"</em>,
+  <em>"Still with you —…"</em>, <em>"I haven't gone anywhere…"</em> — around the same
+  grounded facts.
+</p>
+
+<h4>"Help me" deserved better than the next scheduled status line</h4>
+<p>
+  Mid-escalation utterances that matched no exit condition were falling through to silence.
+  Now an unrouted utterance always gets a reply. If the person's words name a problem that
+  <code>skills/first-aid.md</code> knows about, that topic's <strong>sourced</strong> sentence
+  is spoken, wrapped in presence and the one promise the session has actually made. Otherwise
+  a fallback: <em>"I'm right here with you. Try to get comfortable and don't strain to move —
+  help is on the way."</em>
+</p>
+
+<div class="note warn">
+  <p><strong>The model never words medical guidance.</strong> First-aid content comes from
+  <code>skills/first-aid.md</code>, whose frontmatter cites its sources — IFRC 2020 First Aid
+  Guidelines, AHA 2020 Highlights, and a California DSS/IHSS fall-response guide. The engine
+  selects a topic and speaks that topic's sentence verbatim. A 2B model improvising medical
+  advice to someone who has just fallen is not a risk worth any amount of naturalness.</p>
+</div>
+
+<h3>And when speech itself is garbled</h3>
+<p>
+  Whisper misheard <em>"I'm still bleeding"</em> as <em>"I'm so leading"</em> in a live test.
+  The 2B model, prompted every which way, answered the garble with invented empathy — which is
+  the worst possible response to a possible report of bleeding.
+</p>
+<p>
+  The fix: <code>unclear</code> became one of the classification options, and the rails speak a
+  canned line — <em>"Sorry, I didn't quite catch that. Could you say it again?"</em> The model
+  flags. It never words.
+</p>
+
+<h2>Cancelling</h2>
+
+<p>
+  A false alarm has to be trivially easy to stop, or people learn to dread the system. Three
+  routes, all equivalent:
+</p>
+<ul>
+  <li><strong>Say it</strong> — "cancel", "stop", "never mind", "false alarm". Matched on the
+  engine rails as an interrupt, <em>before</em> the model ever sees the transcript.</li>
+  <li><strong>Click it</strong> — the dashboard incident banner's <strong>Mark resolved</strong>.</li>
+  <li><strong>Type it</strong> — from the admin portal.</li>
+</ul>
+<p>
+  Cancel matching uses word boundaries deliberately, so "stopped" and "cancelled the paper"
+  don't close a session. And <em>"I'm fine"</em> is deliberately <strong>not</strong> a cancel
+  phrase — it is a reply, and it goes through the pain double-check like every other reply.
+</p>
+<p>
+  If contacts were already notified, they get told: <em>"✅ False alarm — Tony confirmed
+  they're okay (kitchen). No action needed."</em> Nobody is left driving over for an incident
+  that resolved itself.
+</p>
+
+<h2>The first-responder brief</h2>
+
+<p>
+  Someone arrives. They don't know what happened, and the person on the floor may not be able
+  to tell them. They say:
+</p>
+<p class="quote">"I'm the first responder — give me a summary of what happened."</p>
+<p>
+  And they get a spoken handover, grounded entirely in the session log: <strong>condition
+  first, then what was done, then where things stand.</strong> The clinically relevant fact
+  leads, because that is the order a responder needs it in.
+</p>
+<p>
+  This is an engine-level <em>interrupt</em>, not a session — it pauses the comfort loop,
+  reads the room's latest fall file, words the timeline once, speaks it, and resumes. Because
+  it is not a session, the one-session-per-room rule cannot block it, so a responder can always
+  ask, even mid-escalation. The responder phrase is checked before the wake phrase, in any
+  state. Ask in a room with no fall on file and the answer is exactly: <em>"No fall has been
+  recorded in this room."</em>
+</p>
+
+<h2>What is real, and what is simulated</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Component</th><th>Status</th></tr></thead>
+  <tbody>
+    <tr><td>NPU fall detection on real video and a real camera</td><td><strong>Real</strong></td></tr>
+    <tr><td>On-device Whisper ASR and TTS in the room</td><td><strong>Real</strong></td></tr>
+    <tr><td>Escalation ladder, timers, phase transitions</td><td><strong>Real</strong></td></tr>
+    <tr><td>Two-way Telegram to a phone, with reply routing</td><td><strong>Real</strong></td></tr>
+    <tr><td>Emergency call</td><td><strong>Simulated</strong> — logged and announced as <code>SIMULATED</code> on the session stream and the dashboard</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>
+  The simulation boundary is drawn in the code and surfaced in the UI, not left to a verbal
+  disclaimer. A demo that quietly dials 911 is not a demo.
+</p>
+
+<div class="next">
+  <a href="object-finder.html">
+    <div class="next-label">Use case 2</div>
+    <div class="next-title">Smart Object Discovery →</div>
+    <div class="sub">The same fabric, running something calm</div>
+  </a>
+  <a href="implementation.html">
+    <div class="next-label">Back to</div>
+    <div class="next-title">Implementation →</div>
+    <div class="sub">How the skill file above becomes enforced behaviour</div>
+  </a>
+</div>
+
+</main>
+
+<footer>
+  <div class="footer-inner">
+    QNet Home — Fall Detection &amp; Safety Monitoring. Skill file: <code>skills/fall.md</code>.
+    Sourced guidance: <code>skills/first-aid.md</code>. Spec: <code>docs/DESIGN.md</code> §3–§9, §12.
+  </div>
+</footer>
+
+</body>
+</html>

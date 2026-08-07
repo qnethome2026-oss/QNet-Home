@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QNet Home — Architecture</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="../index.html"><span class="dot"></span>QNet Home</a>
+    <div class="nav-links"><a href="../index.html" class="back">← 5-min version</a>
+      <a href="index.html">Overview</a>
+      <a href="architecture.html" aria-current="page">Architecture</a>
+      <a href="ai-stack.html">AI &amp; Speech Stack</a>
+      <a href="implementation.html">Implementation</a>
+      <a href="fall-detection.html">Fall Detection &amp; Safety Monitoring</a>
+      <a href="object-finder.html">Smart Object Discovery</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+
+<div class="hero">
+  <div class="eyebrow">Design</div>
+  <h1>One fabric, three tiers, no backend.</h1>
+  <p class="lede">
+    Every device does the one job only it can do, and the only coupling between them is a
+    topic name on an MQTT broker. There is no REST API, no message schema negotiation, and
+    no service discovery — a node that boots starts publishing, and the house notices.
+  </p>
+</div>
+
+<h2>The three tiers</h2>
+
+<p>
+  The split is not arbitrary. It follows from a single question asked of every workload:
+  <em>what does this computation need to be near?</em>
+</p>
+
+<div class="grid">
+  <div class="card" style="border-color: var(--edge)">
+    <span class="pill edge">Edge · 2× Ventuno Q</span>
+    <h3>Near the photons</h3>
+    <p>
+      Perception must happen where the camera and the microphone are — that is the entire
+      privacy argument. If a frame has to travel to be understood, it can be intercepted,
+      logged, or subpoenaed. So it doesn't travel.
+    </p>
+    <p><strong>Runs:</strong> camera capture, fall detection (YOLO11n, Hexagon NPU), the
+    room's own VLM via the LLM-VLM microservice (Qwen3-VL-4B, w4a16), ASR/STT (Whisper-small on NPU), TTS (Piper), and
+    the wake-phrase gate.</p>
+  </div>
+
+  <div class="card" style="border-color: var(--brain)">
+    <span class="pill brain">Brain · IQ-9075</span>
+    <h3>Where the reasoning is</h3>
+    <p>
+      Language reasoning is the one workload that genuinely wants a single capable device.
+      Running a general LLM on every node would multiply cost and memory for no gain — there
+      is only ever one conversation happening at a time.
+    </p>
+    <p><strong>Runs:</strong> Gemma 4 E2B on the Hexagon NPU via GenieX (OpenAI-compatible on
+    <code>:18181</code>), the agent engine, the skill files, the tool registry, and the
+    Mosquitto broker that everything else talks through.</p>
+  </div>
+
+  <div class="card" style="border-color: var(--accent)">
+    <span class="pill hub">Hub · Laptop</span>
+    <h3>Where the human is</h3>
+    <p>
+      The hub is the operator's seat: the floor plan, the live feed of what the house is
+      doing, the incident banner with one-click resolve, and the place deploys are driven
+      from. It is a pure subscriber — nothing depends on it being switched on.
+    </p>
+    <p><strong>Runs:</strong> the dashboard (a single HTML file over MQTT websockets, no
+    build step and no backend), the bring-up and deploy scripts, and the packaged Windows
+    app.</p>
+  </div>
+</div>
+
+<div class="note">
+  <p><strong>Terminology note.</strong> These pages call the laptop <em>the hub</em> — the
+  human's control point for the house. In <code>docs/DESIGN.md</code> and the repository
+  README, the word "hub" refers to the IQ-9075 as the <em>message</em> hub. Same topology,
+  two vantage points: the IQ9 is the centre of the fabric, the laptop is the centre of the
+  operator's view.</p>
+</div>
+
+<h2>Where each model runs</h2>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Model</th><th>Job</th><th>Device</th><th>Accelerator</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>YOLO11n</strong><br><span class="sub">fall fine-tune</span></td>
+      <td>Is there a fallen person in this frame?</td>
+      <td><span class="pill edge">Ventuno Q</span></td>
+      <td>Hexagon NPU, FP32 QNN context binary</td>
+    </tr>
+    <tr>
+      <td><strong>Qwen3-VL-4B</strong><br><span class="sub">w4a16</span></td>
+      <td>Do you see the glasses? Where, relative to something obvious?</td>
+      <td><span class="pill edge">Ventuno Q</span></td>
+      <td>Hexagon NPU, via the LLM-VLM microservice</td>
+    </tr>
+    <tr>
+      <td><strong>Whisper-small</strong></td>
+      <td>Speech → text, in the room, discarded unless it matters</td>
+      <td><span class="pill edge">Ventuno Q</span></td>
+      <td>Hexagon NPU, audio-analytics runner</td>
+    </tr>
+    <tr>
+      <td><strong>Piper</strong></td>
+      <td>Text → speech, the room's voice</td>
+      <td><span class="pill edge">Ventuno Q</span></td>
+      <td>CPU</td>
+    </tr>
+    <tr>
+      <td><strong>Gemma 4 E2B</strong></td>
+      <td>Classify a reply · word a sentence from facts the engine already has</td>
+      <td><span class="pill brain">IQ-9075</span></td>
+      <td>Hexagon NPU via GenieX</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>
+  Note what Gemma is <em>not</em> asked to do. It never routes a decision, never invents a
+  location, never chooses whether to call for help, and never sees a trusted contact's reply.
+  It classifies, and it words. Everything consequential is a rail.
+</p>
+
+<div class="note">
+  <p><strong>Platform references.</strong> Both edge tiers are Qualcomm silicon running the
+  vendor Ubuntu images, so the accelerator and multimedia stacks come from Qualcomm's own
+  documentation rather than anything we built:</p>
+  <ul>
+    <li><a href="https://imsdkdocs.qualcomm.com/">Qualcomm Intelligent Multimedia SDK (IM SDK) docs</a>
+      — the camera, GStreamer and multimedia pipeline layer the room nodes capture through.</li>
+    <li><a href="https://dragonwingdocs.qualcomm.com/">Qualcomm Dragonwing docs</a>
+      — board bring-up, the Ubuntu images, and the Hexagon NPU / QNN runtime the models are
+      compiled and executed against.</li>
+  </ul>
+</div>
+
+<h2>The wire contract</h2>
+
+<p>
+  MQTT topics are the only interface in the system, and they are frozen: any change to a
+  topic or payload updates <code>contracts/mqtt.md</code> <em>and</em> the JSON fixture in
+  <code>contracts/fixtures/</code> in the same commit, or it didn't happen. Three separate
+  consumers read those same fixtures, so a drift breaks a test rather than a demo.
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Topic</th><th>Direction</th><th>QoS</th><th>Carries</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>qnet/&lt;room&gt;/event</code></td><td>node → agent</td><td>1</td><td>Something happened — a fall, with confidence and the N-of-M that fired</td></tr>
+    <tr><td><code>qnet/&lt;room&gt;/ask</code></td><td>node → agent</td><td>1</td><td>A question — an object query, or a first-responder brief request</td></tr>
+    <tr><td><code>qnet/&lt;room&gt;/say</code></td><td>agent → node</td><td>1</td><td>Speak this, with a priority: <code>safety</code> · <code>comfort</code> · <code>routine</code></td></tr>
+    <tr><td><code>qnet/&lt;room&gt;/heard</code></td><td>node → agent</td><td>1</td><td>The transcript, or <code>silence: true</code> when the listen window timed out</td></tr>
+    <tr><td><code>qnet/look</code></td><td>agent → <strong>all</strong></td><td>1</td><td>Look for X right now — a broadcast on one unqualified topic</td></tr>
+    <tr><td><code>qnet/&lt;room&gt;/looked</code></td><td>node → agent</td><td>1</td><td>What that room's VLM saw, as one sentence</td></tr>
+    <tr><td><code>qnet/&lt;room&gt;/status</code></td><td>node → all</td><td>0</td><td>Heartbeat every 5 s — how the dashboard learns which rooms exist</td></tr>
+    <tr><td><code>qnet/&lt;room&gt;/contact</code></td><td>agent → all</td><td>1</td><td>A trusted contact's Telegram reply, republished onto the fabric</td></tr>
+    <tr><td><code>qnet/session/&lt;id&gt;</code></td><td>agent → hub</td><td>1</td><td>The live session document, including its full log</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Why those QoS levels</h3>
+<p>
+  Everything that carries a decision or a person's words is QoS 1 — losing a fall event, a
+  spoken line, a transcript, or a search result changes what the system does or fails to say.
+  <code>status</code> is a repeating heartbeat, so QoS 0 is correct: the next one is along
+  shortly and a dropped beat costs nothing.
+</p>
+
+<h3>Room identity comes for free</h3>
+<p>
+  A question arriving on <code>qnet/kitchen/ask</code> gets its answer on
+  <code>qnet/kitchen/say</code>. That single fact removes an entire category of complexity:
+  no person tracking, no speaker localisation, no cross-room correlation. The topic
+  <em>is</em> the addressing.
+</p>
+
+<h2>The privacy boundary, drawn exactly</h2>
+
+<figure class="figure">
+<svg viewBox="0 0 720 260" role="img" aria-label="Diagram: raw frames and audio stay inside the room node; only semantic JSON crosses to the fabric; only a caregiver message leaves the house">
+
+  <rect x="8" y="18" width="290" height="224" rx="12" fill="var(--edge-bg)" stroke="var(--edge)" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text class="sub" x="24" y="40" style="fill:var(--edge)">INSIDE THE ROOM — never transmitted</text>
+
+  <rect x="28" y="56" width="112" height="42" rx="7" class="box"/>
+  <text class="lbl" x="84" y="82" text-anchor="middle">📷 frames</text>
+
+  <rect x="166" y="56" width="112" height="42" rx="7" class="box"/>
+  <text class="lbl" x="222" y="82" text-anchor="middle">🎙 audio</text>
+
+  <rect x="28" y="122" width="250" height="46" rx="7" class="box"/>
+  <text class="lbl" x="153" y="142" text-anchor="middle">on-device models</text>
+  <text class="sub" x="153" y="159" text-anchor="middle">YOLO11n · Qwen3-VL · Whisper</text>
+
+  <rect x="28" y="188" width="250" height="38" rx="7" fill="var(--surface)" stroke="var(--edge)" stroke-width="1.5"/>
+  <text class="lbl" x="153" y="212" text-anchor="middle">semantic JSON</text>
+
+  <path class="wire" d="M84 98 V 122" stroke-width="1.5"/>
+  <path class="wire" d="M222 98 V 122" stroke-width="1.5"/>
+  <path class="wire" d="M153 168 V 188" stroke-width="1.5"/>
+
+  <path d="M298 207 H 380" stroke="var(--edge)" stroke-width="2" fill="none" marker-end="url(#ar)"/>
+  <text class="edge-lbl" x="339" y="197" text-anchor="middle">text only</text>
+
+  <rect x="386" y="150" width="150" height="112" rx="10" fill="var(--accent-bg)" stroke="var(--accent)" stroke-width="1.5"/>
+  <text class="lbl" x="461" y="176" text-anchor="middle">MQTT fabric</text>
+  <text class="sub" x="461" y="196" text-anchor="middle">on the LAN</text>
+  <text class="sub" x="461" y="216" text-anchor="middle">{ "found": true,</text>
+  <text class="sub" x="461" y="232" text-anchor="middle">"answer": "on the</text>
+  <text class="sub" x="461" y="248" text-anchor="middle">counter" }</text>
+
+  <rect x="386" y="26" width="150" height="76" rx="10" fill="var(--brain-bg)" stroke="var(--brain)" stroke-width="1.5"/>
+  <text class="lbl" x="461" y="52" text-anchor="middle">IQ-9075</text>
+  <text class="sub" x="461" y="72" text-anchor="middle">agent + Gemma</text>
+  <text class="sub" x="461" y="90" text-anchor="middle">decides, words</text>
+  <path class="wire" d="M461 150 V 102" stroke-width="1.5"/>
+
+  <path d="M536 64 H 616" stroke="var(--safety)" stroke-width="2" fill="none" marker-end="url(#ar2)"/>
+  <text class="edge-lbl" x="576" y="54" text-anchor="middle" style="fill:var(--safety)">the only</text>
+  <text class="edge-lbl" x="576" y="82" text-anchor="middle" style="fill:var(--safety)">exit</text>
+
+  <rect x="622" y="34" width="90" height="60" rx="10" fill="var(--safety-bg)" stroke="var(--safety)" stroke-width="1.5"/>
+  <text class="lbl" x="667" y="58" text-anchor="middle">Telegram</text>
+  <text class="sub" x="667" y="76" text-anchor="middle">caregiver</text>
+
+  <defs>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0 0 L8 4 L0 8 z" fill="var(--edge)"/>
+    </marker>
+    <marker id="ar2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0 0 L8 4 L0 8 z" fill="var(--safety)"/>
+    </marker>
+  </defs>
+</svg>
+<figcaption>
+  The dashed boundary is enforced by where the models run, not by a policy or a config flag.
+  A message to a trusted contact is the single path out of the house — and it is text a
+  human wrote a template for.
+</figcaption>
+</figure>
+
+<h2>Two ways in</h2>
+
+<p>
+  The system has exactly two entry points, and their shapes are deliberately different.
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th></th><th>Event</th><th>Query</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>Topic</strong></td><td><code>qnet/&lt;room&gt;/event</code></td><td><code>qnet/&lt;room&gt;/ask</code></td></tr>
+    <tr><td><strong>Initiated by</strong></td><td>The system — a model saw something</td><td>The person — they said the wake phrase</td></tr>
+    <tr><td><strong>Who speaks first</strong></td><td>The house</td><td>The person</td></tr>
+    <tr><td><strong>Shape</strong></td><td>Phased skill with timers and automatic actions</td><td>Two or three turns, no timers</td></tr>
+    <tr><td><strong>Urgency</strong></td><td><span class="pill safety">safety</span> — takes over the dashboard</td><td><span class="pill routine">routine</span></td></tr>
+    <tr><td><strong>Example</strong></td><td><a href="fall-detection.html">Fall Detection &amp; Safety Monitoring</a></td><td><a href="object-finder.html">Smart Object Discovery</a></td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>Failure behaviour</h2>
+
+<p>Designing for a house means designing for the day something is unplugged.</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>What breaks</th><th>What happens</th></tr></thead>
+  <tbody>
+    <tr><td>The LLM is down or slow</td><td>Every phase has a canned opening line and the engine's own deterministic sentences. The escalation ladder is unaffected. <code>--no-llm</code> is a supported, tested mode.</td></tr>
+    <tr><td>A room node is offline</td><td>The agent knows how many rooms it expects from <code>house.yaml</code>, so it says <em>"I couldn't reach the bedroom"</em> rather than silently reporting not-found.</td></tr>
+    <tr><td>The hub (laptop) is closed</td><td>Nothing changes. It is a subscriber. The escalation, the Telegram, and the emergency call all run without it.</td></tr>
+    <tr><td>Telegram is unconfigured</td><td>Notifications fall back to the console and a log file. Everything else works.</td></tr>
+    <tr><td>The NPU call fails</td><td>Retried three times with backoff — a measured, real failure mode when the accelerator is shared between containers.</td></tr>
+    <tr><td>A contact acknowledges then goes quiet</td><td>A 180-second backstop timer still places the emergency call. An acked incident is never a stranded one.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="next">
+  <a href="ai-stack.html">
+    <div class="next-label">Next</div>
+    <div class="next-title">AI &amp; Speech Stack →</div>
+    <div class="sub">IM SDK, the GenAI microservices, ASR/TTS, and GenieX in detail</div>
+  </a>
+  <a href="implementation.html">
+    <div class="next-label">Then</div>
+    <div class="next-title">Implementation →</div>
+    <div class="sub">The engine, the rails, and how a markdown file becomes behaviour</div>
+  </a>
+  <a href="fall-detection.html">
+    <div class="next-label">Use case 1</div>
+    <div class="next-title">Fall Detection &amp; Safety Monitoring →</div>
+    <div class="sub">Detect, ask, listen, escalate, call</div>
+  </a>
+</div>
+
+</main>
+
+<footer>
+  <div class="footer-inner">
+    QNet Home — architecture. Authoritative spec: <code>docs/DESIGN.md</code> §2–§4.
+    Frozen wire contract: <code>contracts/mqtt.md</code>.
+  </div>
+</footer>
+
+</body>
+</html>

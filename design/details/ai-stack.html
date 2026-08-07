@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QNet Home — AI &amp; Speech Stack</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="../index.html"><span class="dot"></span>QNet Home</a>
+    <div class="nav-links"><a href="../index.html" class="back">← 5-min version</a>
+      <a href="index.html">Overview</a>
+      <a href="architecture.html">Architecture</a>
+      <a href="ai-stack.html" aria-current="page">AI &amp; Speech Stack</a>
+      <a href="implementation.html">Implementation</a>
+      <a href="fall-detection.html">Fall Detection &amp; Safety Monitoring</a>
+      <a href="object-finder.html">Smart Object Discovery</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+
+<div class="hero">
+  <div class="eyebrow">Platform</div>
+  <h1>Everything inferences on-device.</h1>
+  <p class="lede">
+    Five models across three devices, all of them running on Qualcomm Hexagon NPUs. Nothing
+    is a cloud API call. The stack below is what makes the privacy claim structural rather
+    than aspirational — there is no remote endpoint to leak to, because there is no remote
+    endpoint.
+  </p>
+</div>
+
+<h2>The stack, layer by layer</h2>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Layer</th><th>What it is</th><th>Device</th><th>QNet uses it for</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>IM SDK</strong></td>
+      <td>Hardware-accelerated multimedia + AI framework built on GStreamer</td>
+      <td><span class="pill edge">Ventuno Q</span></td>
+      <td>Camera capture and the frame path feeding fall detection and the VLM</td>
+    </tr>
+    <tr>
+      <td><strong>GenAI microservices</strong><br><span class="sub">Audio Analytics container</span></td>
+      <td>ASR + translation + TTS bundled behind one REST/WebSocket API, all on NPU</td>
+      <td><span class="pill edge">Ventuno Q</span></td>
+      <td>The room's ears and voice — Whisper ASR and TTS synthesis</td>
+    </tr>
+    <tr>
+      <td><strong>LLM-VLM microservice</strong></td>
+      <td>On-device vision-language serving</td>
+      <td><span class="pill edge">Ventuno Q</span></td>
+      <td>Qwen3-VL-4B answering "do you see X, and where?"</td>
+    </tr>
+    <tr>
+      <td><strong>GenieX</strong></td>
+      <td>Qualcomm's LLM runtime, OpenAI-compatible server, llama.cpp Hexagon backend</td>
+      <td><span class="pill brain">IQ-9075</span></td>
+      <td>Gemma 4 E2B — reply classification and sentence wording</td>
+    </tr>
+    <tr>
+      <td><strong>QNN / QAIRT</strong></td>
+      <td>The Hexagon NPU runtime everything ultimately executes on</td>
+      <td>both edge tiers</td>
+      <td>YOLO11n context binaries, Whisper encoder/decoder, LLM-VLM microservice graphs</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h2>IM SDK — the multimedia and vision path</h2>
+
+<p>
+  The <a href="https://imsdkdocs.qualcomm.com/">Qualcomm Intelligent Multimedia SDK</a> is a
+  hardware-accelerated multimedia and AI framework built on GStreamer. Its job is to give an
+  application access to the full processing capacity of the SoC — the neural processing
+  accelerators, the video encode/decode blocks, the camera ISP, the GPU, the display, and the
+  audio DSP — behind a plugin-based architecture that abstracts the hardware away.
+</p>
+
+<p>
+  That abstraction is what lets a room node treat "a camera frame" as a pipeline element
+  rather than a driver problem. QNet's fall detector and VLM both consume frames from this
+  path, and the node exports the latest frame to shared memory so the two consumers never
+  contend for the camera device.
+</p>
+
+<div class="note warn">
+  <p><strong>A real deployment gotcha, recorded.</strong> The vendor EVK image ships with a
+  pre-existing broken apt dependency set around the <code>qimsdk-cpp</code> and
+  <code>python-gstreamer1.0-qcom</code> packages — they require a newer
+  <code>libgstreamer-qcom1.0-0</code> than the configured repos carry. Every plain
+  <code>apt-get install</code> aborts as a result.</p>
+  <p><strong>Do not run <code>apt --fix-broken install</code>.</strong> Since the newer
+  package isn't available, apt "fixes" it by <em>removing</em> the IM SDK / GStreamer stack —
+  which is exactly what the room node's vision path depends on. The workaround used
+  throughout this project: <code>apt-get download &lt;pkg&gt; &amp;&amp; sudo dpkg -i
+  &lt;pkg&gt;.deb</code>, which installs cleanly without touching the broken set.</p>
+</div>
+
+<h2>GenAI microservices — the Audio Analytics container</h2>
+
+<p>
+  Qualcomm's Audio Analytics container bundles three on-device services — automatic speech
+  recognition, text-to-text translation, and text-to-speech synthesis — into one deployment,
+  with every model running on the NPU so the CPU stays free for application work. It runs via
+  Docker Compose on the IQ-9075 and IQ-8275 EVKs, with models mounted as read-only volumes.
+</p>
+
+<div class="grid">
+  <div class="card">
+    <h3>Models it serves</h3>
+    <ul>
+      <li><strong>ASR</strong> — Whisper Small (and a quantized variant), English / Spanish / Chinese at 16 kHz</li>
+      <li><strong>Translation</strong> — OpusMT bidirectional, EN↔ES and EN↔ZH</li>
+      <li><strong>TTS</strong> — MeloTTS (EN/ES/ZH, 44.1 kHz) and PiperTTS (EN/DE/IT, 22.05 kHz)</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>API surface</h3>
+    <p>REST and WebSocket on port <code>8085</code>, with a Swagger UI at
+    <code>http://&lt;device-ip&gt;:8085/docs</code>:</p>
+    <ul>
+      <li><code>/audio-analytics/v1/api/health</code></li>
+      <li><code>/transcriptions/create</code> — batch <em>and</em> streaming</li>
+      <li><code>/tts/synthesize</code></li>
+      <li><code>/translations/translate</code></li>
+    </ul>
+    <p>The WebSocket path is what makes real-time transcription possible rather than
+    file-at-a-time batch processing.</p>
+  </div>
+</div>
+
+<p>
+  QNet reaches this runner through the Arduino App Bricks <code>asr</code> and <code>tts</code>
+  bricks rather than calling the HTTP API directly — the App Lab application owns the
+  containers, the model provisioning, and the audio devices as one unit. The important
+  property is the same either way: <strong>the audio never leaves the board.</strong>
+</p>
+
+<h2>ASR — how the room listens</h2>
+
+<p>
+  The deployed nodes run <strong>float Whisper-small</strong>, with the audio-analytics runner
+  resolving the name from its model registry and executing the QNN encoder and decoder on the
+  Hexagon HTP. The board's built-in <code>whisper-small-quantized</code> works out of the box
+  and remains registered as a rollback — switching is a config flip and a restart, not a
+  re-download.
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Situation</th><th>Call used</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Idle — waiting for "Hey Home"</td>
+      <td><code>transcribe_until_cancelled()</code></td>
+      <td>One stream stays open and yields repeated partial/final events, so there is no blind gap between utterances</td>
+    </tr>
+    <tr>
+      <td>Inside a live safety session</td>
+      <td><code>transcribe_sentence(timeout=…)</code></td>
+      <td>Returns on the first finalized utterance or the hard timeout — the agent is waiting on an answer, not monitoring</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Endpointing</h3>
+<p>
+  The ASR client creates every session with a VAD parameter — the verified default is
+  <strong>700 ms</strong>. The runner emits <code>speech_start</code>, <code>speech_end</code>,
+  partial-text and full-text events, which gives sentence endpointing without a second VAD
+  model or a second owner of the microphone.
+</p>
+
+<h3>Silence is a result, not an error</h3>
+<p>
+  When a session produces no text at all, the collector returns an empty string and QNet maps
+  it onto the wire contract as:
+</p>
+<pre><code>{"text": "", "silence": true}</code></pre>
+<p>
+  That distinction matters to the escalation ladder — silence is <em>meaningful</em>, and it
+  advances the fall skill. Genuine failures (service unavailable, audio device wedged, session
+  busy) are errors reported through node status, never quietly converted into silence.
+</p>
+
+<h3>Cancellation, and why every listen is tagged</h3>
+<p>
+  <code>asr.cancel()</code> does not guarantee an empty result — the collector deliberately
+  falls back to the most recent partial transcript when no final one arrived. So the voice
+  controller <strong>tags each listen generation</strong> and discards every result from a
+  generation that was cancelled to make room for speech. Inferring cancellation from an
+  exception alone would be wrong.
+</p>
+<p>
+  While idle, the node retains at most 10 seconds of finalized text plus the latest partial —
+  enough to preserve a short "Hey Home" that Whisper sometimes omits from the final event. The
+  buffer is cleared before every TTS playback, so the speaker's own output can never be
+  stitched onto a later user request.
+</p>
+
+<h2>TTS — how the room speaks</h2>
+
+<p>
+  <code>tts.speak(text)</code> is synchronous in the installed implementation: it holds a
+  session lock, streams synthesis results, and writes all PCM chunks to the ALSA speaker
+  before returning. Concurrent calls on the same object raise a busy error.
+</p>
+
+<p>
+  The library does not explicitly drain the final hardware playback buffer after its last ALSA
+  write, so QNet holds a configurable <strong>post-TTS guard, 500 ms by default</strong>,
+  before reopening the microphone. Without it, the tail of the house's own sentence can be
+  transcribed as the person's reply.
+</p>
+
+<h3>The half-duplex invariant</h3>
+
+<figure class="figure">
+<svg viewBox="0 0 700 168" role="img" aria-label="State machine: listening, cancel listen when a say arrives, discard result, speaking, wait for speak to return, post-TTS guard, back to listening">
+
+  <rect x="8" y="52" width="120" height="52" rx="9" fill="var(--routine-bg)" stroke="var(--routine)" stroke-width="1.5"/>
+  <text class="lbl" x="68" y="76" text-anchor="middle">LISTENING</text>
+  <text class="sub" x="68" y="93" text-anchor="middle">mic open</text>
+
+  <rect x="182" y="52" width="132" height="52" rx="9" class="box"/>
+  <text class="lbl" x="248" y="72" text-anchor="middle">cancel listen</text>
+  <text class="sub" x="248" y="89" text-anchor="middle">discard result</text>
+
+  <rect x="368" y="52" width="120" height="52" rx="9" fill="var(--safety-bg)" stroke="var(--safety)" stroke-width="1.5"/>
+  <text class="lbl" x="428" y="76" text-anchor="middle">SPEAKING</text>
+  <text class="sub" x="428" y="93" text-anchor="middle">speaker owned</text>
+
+  <rect x="542" y="52" width="132" height="52" rx="9" class="box"/>
+  <text class="lbl" x="608" y="72" text-anchor="middle">POST-TTS GUARD</text>
+  <text class="sub" x="608" y="89" text-anchor="middle">500 ms default</text>
+
+  <path class="wire" d="M128 78 H 182" stroke-width="1.5" marker-end="url(#a5)"/>
+  <text class="edge-lbl" x="155" y="68" text-anchor="middle">say</text>
+  <path class="wire" d="M314 78 H 368" stroke-width="1.5" marker-end="url(#a5)"/>
+  <path class="wire" d="M488 78 H 542" stroke-width="1.5" marker-end="url(#a5)"/>
+  <text class="edge-lbl" x="515" y="68" text-anchor="middle">returns</text>
+
+  <path class="wire" d="M608 104 V 140 H 68 V 104" stroke-width="1.5" marker-end="url(#a5)"/>
+  <text class="edge-lbl" x="338" y="156" text-anchor="middle">reopen the microphone</text>
+
+  <defs>
+    <marker id="a5" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0 0 L8 4 L0 8 z" fill="var(--line-2)"/>
+    </marker>
+  </defs>
+</svg>
+<figcaption>
+  One audio owner, one direction at a time. The MQTT callback may enqueue speech and request
+  a listen cancellation, but only the audio-control loop may start ASR or TTS — and no code
+  may open a second microphone or speaker handle. Safety-priority speech is processed before
+  comfort-priority speech.
+</figcaption>
+</figure>
+
+<p>
+  This is why the hardware list says <em>no echo cancellation needed</em>. The node is
+  half-duplex by design, so the speaker and the microphone are never live at the same instant
+  and there is no echo to cancel. The cost is honest and documented: <strong>the node is deaf
+  while it is speaking</strong>, and barge-in is impossible. Measured deaf windows ran 2.3–10.1 s
+  per line, and up to 15.2 s continuous when a safety line and a comfort line chained
+  back-to-back.
+</p>
+
+<h2>GenieX — the LLM runtime on the IQ-9075</h2>
+
+<p>
+  GenieX serves <strong>Gemma 4 E2B-it (Q4_0 GGUF, 4.0 GiB on disk)</strong> as an
+  OpenAI-compatible endpoint on <code>http://127.0.0.1:18181/v1</code> — localhost-only, since
+  the agent runs on the same board. It is installed natively and managed by systemd, so it
+  comes back after a reboot and after a crash.
+</p>
+
+<div class="kv">
+  <dt>GenieX CLI</dt><dd>v0.3.18</dd>
+  <dt>QAIRT runtime</dt><dd>v2.45.0.260326</dd>
+  <dt>backend</dt><dd>llama.cpp Hexagon — <code>libggml-htp-v73.so</code> loaded onto the <code>cdsp</code> FastRPC domain</dd>
+  <dt>compute</dt><dd>hybrid (NPU + CPU); the NPU path works with no CPU fallback needed</dd>
+</div>
+
+<div class="note measure">
+  <p><strong>Measured on QCS9075.</strong> Decode throughput <strong>~15.7–16.2 tok/s</strong>
+  over six ~200-token generations. Time to first token, model warm: <strong>~0.18 s</strong>.
+  First request after service start (model load included): ~12 s. Model RAM footprint ~4 GB of
+  34 GB available — no pressure.</p>
+  <p>The design budgeted 1–3 s per agent turn. At 16 tok/s a one-sentence spoken line of
+  ~25 tokens is about <strong>1.7 s</strong> — inside budget. Confirmed on the NPU, not the
+  CPU: the service log shows the Hexagon backend loading onto FastRPC.</p>
+</div>
+
+<h3>Three findings that shaped the agent</h3>
+
+<p>
+  Building against a runtime at v0.3.18 meant discovering its edges. All three of these are
+  the reason the engine/model split described in
+  <a href="implementation.html">Implementation</a> is drawn where it is.
+</p>
+
+<h4>1. Thinking is on by default, under non-OpenAI field names</h4>
+<p>
+  Responses came back containing Gemma 4's raw reasoning inline, and the shortest prompts
+  ("hi") thought the <em>longest</em> — sometimes never leaving the thought channel. The
+  controls exist, but not under the names an OpenAI client would send, and unknown fields are
+  silently accepted:
+</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>What you want</th><th>Silently ignored</th><th>Actually works</th></tr></thead>
+  <tbody>
+    <tr><td>No thinking</td><td><code>think: false</code></td><td><code>enable_think: false</code></td></tr>
+    <tr><td>Token cap</td><td><code>max_tokens</code></td><td><code>max_completion_tokens</code></td></tr>
+  </tbody>
+</table>
+</div>
+
+<h4>2. Native tool-calling does not work on this version</h4>
+<p>
+  Given a tool list and a prompt demanding tool use, the model <em>correctly decides</em> to
+  call the tool and emits Gemma 4's native syntax — but the server returns it as plain
+  content and <code>tool_calls</code> stays null. <code>tool_choice: "required"</code> behaves
+  identically to <code>"auto"</code>.
+</p>
+<p>
+  <strong>Design consequence:</strong> nothing in QNet may depend on the model emitting a tool
+  call. The object search fires on phase entry as an engine action instead — the phase's
+  <code>tools:</code> allowlist is still declared and still enforced, but the broadcast does
+  not wait on the model to request it.
+</p>
+
+<h4>3. Structured output crashes the server</h4>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Approach</th><th>Result</th></tr></thead>
+  <tbody>
+    <tr><td>GBNF <code>grammar</code> field</td><td>Accepted and correctly enforced — but the <em>next</em> generation crashes the server</td></tr>
+    <tr><td><code>response_format: json_schema</code></td><td>Crashes instantly</td></tr>
+    <tr><td><code>response_format: json_object</code></td><td>Accepted, not enforced</td></tr>
+    <tr><td><code>enable_json: true</code></td><td>Crashed in testing; treat as unsafe</td></tr>
+  </tbody>
+</table>
+</div>
+<p>
+  So the structured-output guarantee is implemented as <strong>prompt + strip + validate +
+  retry</strong> in the LLM client — validate the answer against the expected enum, retry once
+  on mismatch — and the engine's phase allowlist refuses anything invalid regardless. Grammar
+  is the right mechanism and demonstrably constrains correctly; it gets re-tested when a fixed
+  release ships. systemd restarts the server in ~10 s either way.
+</p>
+
+<div class="note">
+  <p><strong>A fourth, worth knowing if you reproduce this.</strong> GenieX detects Gemma 4
+  E2B as a VLM (it ships a vision projector), and v0.3.18 has a VLM-path tokenization bug that
+  silently corrupts <em>text-only</em> prompts to VLM-typed models — the model generates
+  fluently while ignoring the prompt entirely, with <code>prompt_tokens: 1</code> on every
+  response. The workaround is to force the plain-LLM code path in the model's cache metadata.
+  QNet loses nothing by doing so: the brain only ever sends text, because the VLM work happens
+  on the room nodes.</p>
+</div>
+
+<h2>The VLM on the node</h2>
+
+<p>
+  <strong>Qwen3-VL-4B (w4a16)</strong> runs on the Qualcomm LLM-VLM microservice on each
+  Ventuno Q, answering the smart-object-discovery broadcast. Frames are downscaled to roughly 640 px
+  before the model sees them — never native camera resolution. Downscaling is nearly free and
+  is the single biggest lever on query latency.
+</p>
+
+<p>
+  The node is already running a camera pipeline for fall detection, so a look takes the latest
+  frame <em>already in memory</em> — no second capture path, no rolling buffer. Measured
+  round trip, board to broker to board including the frame grab and the VLM call:
+  <strong>4.13 s median</strong>, with the VLM call itself 3.3–4.5 s of it.
+</p>
+
+<h2>Sharing one NPU</h2>
+
+<div class="note warn">
+  <p>On a room node, fall detection, the VLM, and Whisper all want the same accelerator. This
+  is not free, and the project measured what it costs:</p>
+  <ul>
+    <li>The inference CLI <strong>intermittently fails</strong> (and once produced a ~1 minute
+    burst of FastRPC transport errors) while the VLM and voice containers are active — each
+    invocation opens a fresh FastRPC session. The identical call succeeds on retry; the
+    detector retries ×3 with 0.2 s backoff and rode through it.</li>
+    <li>Bringing the voice node up cost <strong>+1443 MiB</strong> of RAM, leaving 3761 MiB
+    headroom — comfortably above the gate at which the quantized Whisper rollback would be
+    needed.</li>
+    <li>Process-spawn overhead dominates single-frame inference: <strong>34.8 ms</strong> of
+    actual NPU execute inside a <strong>307.7 ms</strong> call. Batching eight frames
+    amortises it to 56.9 ms/frame — a 4.9× throughput gain, at the cost of up to half a second
+    of added event latency. Single-frame stays the default for the live camera, because
+    cadence matters more than throughput for a safety trigger.</li>
+  </ul>
+</div>
+
+<h2>References</h2>
+<ul>
+  <li><a href="https://imsdkdocs.qualcomm.com/">Qualcomm Intelligent Multimedia SDK documentation</a></li>
+  <li><a href="https://dragonwingdocs.qualcomm.com/">Qualcomm Dragonwing documentation</a></li>
+  <li><a href="https://dragonwingdocs.qualcomm.com/Ubuntu/ai-workflows/audio-analytics-overview.md">Audio Analytics container overview</a> — the ASR/TTS/translation microservices</li>
+  <li><a href="https://dragonwingdocs.qualcomm.com/Ubuntu/ai-workflows/whisper.md">Whisper speech model on Dragonwing</a></li>
+  <li><a href="https://dragonwingdocs.qualcomm.com/Ubuntu/ai-workflows/llm-vlm-qcom-setup.md">LLM/VLM container setup</a></li>
+  <li><a href="https://dragonwingdocs.qualcomm.com/Key-Documents/AI-Developer-Workflow/topic/use-genai-model-with-genie.md">Genie inference extensions</a></li>
+  <li>In this repo: <code>setup/iq9-gemma-geniex/README.md</code> ·
+    <code>setup/ventuno-voice/arduino-speech.md</code> ·
+    <code>setup/ventuno-vlm/README.md</code> ·
+    <code>contracts/speech-api.md</code></li>
+</ul>
+
+<div class="next">
+  <a href="implementation.html">
+    <div class="next-label">Next</div>
+    <div class="next-title">Implementation →</div>
+    <div class="sub">What the engine guarantees regardless of any of this</div>
+  </a>
+  <a href="fall-detection.html">
+    <div class="next-label">Use case 1</div>
+    <div class="next-title">Fall Detection &amp; Safety Monitoring →</div>
+    <div class="sub">The stack above, doing something that matters</div>
+  </a>
+</div>
+
+</main>
+
+<footer>
+  <div class="footer-inner">
+    QNet Home — AI &amp; speech stack. Platform docs:
+    <a href="https://imsdkdocs.qualcomm.com/">imsdkdocs.qualcomm.com</a> ·
+    <a href="https://dragonwingdocs.qualcomm.com/">dragonwingdocs.qualcomm.com</a>.
+    Measured numbers: <code>measurements.md</code>.
+  </div>
+</footer>
+
+</body>
+</html>

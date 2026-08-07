@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QNet Home — Fall Detection &amp; Safety Monitoring</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="index.html"><span class="dot"></span>QNet Home</a>
+    <div class="nav-links">
+      <a href="index.html">Overview</a>
+      <a href="fall.html" aria-current="page">Fall Detection &amp; Safety Monitoring</a>
+      <a href="find.html">Smart Object Discovery</a>
+      <a href="details/index.html" class="back">Full docs →</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+
+<div class="hero">
+  <div class="eyebrow"><span class="timebadge">⏱ 1 min 30</span> · <span class="pill safety">use case 1</span></div>
+  <h1>Somebody is on the floor. Now what?</h1>
+  <p class="talk-lede">
+    A fall isn't the emergency. Being on the floor for three hours because nobody knew is the
+    emergency.
+  </p>
+</div>
+
+<h2>1 · The flow</h2>
+
+<figure class="figure">
+<svg viewBox="0 0 720 282" role="img" aria-label="Escalation timeline: at zero seconds the room speaks, at thirty seconds contacts are messaged, at sixty seconds emergency services are called, with a contact-reply branch that holds the call">
+
+  <line x1="40" y1="64" x2="690" y2="64" stroke="var(--line-2)" stroke-width="2"/>
+
+  <circle cx="110" cy="64" r="9" fill="var(--safety)"/>
+  <text class="sub" x="110" y="36" text-anchor="middle">T+0s</text>
+  <circle cx="355" cy="64" r="9" fill="var(--safety)"/>
+  <text class="sub" x="355" y="36" text-anchor="middle">T+30s</text>
+  <circle cx="600" cy="64" r="9" fill="var(--safety)"/>
+  <text class="sub" x="600" y="36" text-anchor="middle">T+60s</text>
+
+  <text class="edge-lbl" x="232" y="52" text-anchor="middle">silence · "no" · pain</text>
+  <text class="edge-lbl" x="478" y="52" text-anchor="middle">still no reply</text>
+
+  <rect x="15" y="84" width="190" height="86" rx="8" fill="var(--safety-bg)" stroke="var(--safety)" stroke-width="1.5"/>
+  <text class="lbl" x="110" y="108" text-anchor="middle">the room speaks</text>
+  <text class="sub" x="110" y="128" text-anchor="middle">"I saw you fall.</text>
+  <text class="sub" x="110" y="144" text-anchor="middle">Are you okay?"</text>
+  <text class="sub" x="110" y="162" text-anchor="middle" style="fill:var(--ink-2)">canned · no model call</text>
+
+  <rect x="260" y="84" width="190" height="86" rx="8" fill="var(--safety-bg)" stroke="var(--safety)" stroke-width="1.5"/>
+  <text class="lbl" x="355" y="108" text-anchor="middle">contacts messaged</text>
+  <text class="sub" x="355" y="128" text-anchor="middle">"Reply OK if you can</text>
+  <text class="sub" x="355" y="144" text-anchor="middle">check on Tony…"</text>
+  <text class="sub" x="355" y="162" text-anchor="middle" style="fill:var(--ink-2)">automatic on phase entry</text>
+
+  <rect x="505" y="84" width="190" height="86" rx="8" fill="var(--safety-bg)" stroke="var(--safety)" stroke-width="2"/>
+  <text class="lbl" x="600" y="108" text-anchor="middle">emergency call</text>
+  <text class="sub" x="600" y="128" text-anchor="middle">"I'm calling for you</text>
+  <text class="sub" x="600" y="144" text-anchor="middle">right now."</text>
+  <text class="sub" x="600" y="162" text-anchor="middle" style="fill:var(--ink-2)">simulated in the demo</text>
+
+  <path class="wire" d="M205 127 H 256" stroke-width="1.5" stroke="var(--safety)" marker-end="url(#f1)"/>
+  <path class="wire" d="M450 127 H 501" stroke-width="1.5" stroke="var(--safety)" marker-end="url(#f1)"/>
+  <path class="wire" d="M355 170 V 202" stroke-width="1.5" stroke="var(--routine)" marker-end="url(#f2)"/>
+
+  <rect x="15" y="206" width="680" height="66" rx="8" fill="var(--routine-bg)" stroke="var(--routine)" stroke-width="1.5"/>
+  <text class="lbl" x="355" y="230" text-anchor="middle" style="fill:var(--routine)">if a contact replies "OK" → the call is held</text>
+  <text class="sub" x="355" y="250" text-anchor="middle">"Sarah is coming to check on you."</text>
+  <text class="sub" x="355" y="266" text-anchor="middle">…but a 180 s backstop still calls if nobody resolves it</text>
+
+  <defs>
+    <marker id="f1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="var(--safety)"/></marker>
+    <marker id="f2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="var(--routine)"/></marker>
+  </defs>
+</svg>
+<figcaption>
+  Every step here is engine-owned. The timers fire on schedule, the Telegram sends itself, the
+  call places itself. <strong>The numbers in the message are the numbers in the timer</strong> —
+  it promises 30 seconds because the timer is 30 seconds. A contact can also reply
+  <em>"call 911"</em> at any point to skip straight to the end.
+</figcaption>
+</figure>
+
+<h2>2 · The trigger</h2>
+
+<figure class="figure">
+<svg viewBox="0 0 720 194" role="img" aria-label="Detection gate: a rolling window of eight frames must show fallen in five of them above confidence 0.6 before an event is published">
+
+  <text class="sub" x="10" y="22">ROLLING WINDOW — LAST 8 FRAMES, ON THE HEXAGON NPU</text>
+
+  <rect x="10"  y="34" width="52" height="52" rx="6" fill="var(--surface-2)" stroke="var(--line-2)"/>
+  <text class="sub" x="36"  y="65" text-anchor="middle">—</text>
+  <rect x="72"  y="34" width="52" height="52" rx="6" fill="var(--safety-bg)" stroke="var(--safety)" stroke-width="1.5"/>
+  <text class="sub" x="98"  y="59" text-anchor="middle" style="fill:var(--safety)">fallen</text>
+  <text class="sub" x="98"  y="75" text-anchor="middle" style="fill:var(--safety)">.91</text>
+  <rect x="134" y="34" width="52" height="52" rx="6" fill="var(--safety-bg)" stroke="var(--safety)" stroke-width="1.5"/>
+  <text class="sub" x="160" y="59" text-anchor="middle" style="fill:var(--safety)">fallen</text>
+  <text class="sub" x="160" y="75" text-anchor="middle" style="fill:var(--safety)">.87</text>
+  <rect x="196" y="34" width="52" height="52" rx="6" fill="var(--surface-2)" stroke="var(--line-2)"/>
+  <text class="sub" x="222" y="65" text-anchor="middle">blur</text>
+  <rect x="258" y="34" width="52" height="52" rx="6" fill="var(--safety-bg)" stroke="var(--safety)" stroke-width="1.5"/>
+  <text class="sub" x="284" y="59" text-anchor="middle" style="fill:var(--safety)">fallen</text>
+  <text class="sub" x="284" y="75" text-anchor="middle" style="fill:var(--safety)">.93</text>
+  <rect x="320" y="34" width="52" height="52" rx="6" fill="var(--safety-bg)" stroke="var(--safety)" stroke-width="1.5"/>
+  <text class="sub" x="346" y="59" text-anchor="middle" style="fill:var(--safety)">fallen</text>
+  <text class="sub" x="346" y="75" text-anchor="middle" style="fill:var(--safety)">.88</text>
+  <rect x="382" y="34" width="52" height="52" rx="6" fill="var(--surface-2)" stroke="var(--line-2)"/>
+  <text class="sub" x="408" y="65" text-anchor="middle">—</text>
+  <rect x="444" y="34" width="52" height="52" rx="6" fill="var(--safety-bg)" stroke="var(--safety)" stroke-width="1.5"/>
+  <text class="sub" x="470" y="59" text-anchor="middle" style="fill:var(--safety)">fallen</text>
+  <text class="sub" x="470" y="75" text-anchor="middle" style="fill:var(--safety)">.90</text>
+
+  <path class="wire" d="M500 60 H 546" stroke-width="2" stroke="var(--safety)" marker-end="url(#f1)"/>
+
+  <rect x="552" y="30" width="160" height="60" rx="8" fill="var(--safety-bg)" stroke="var(--safety)" stroke-width="2"/>
+  <text class="lbl" x="632" y="54" text-anchor="middle" style="fill:var(--safety)">5 of 8 → FIRES</text>
+  <text class="sub" x="632" y="74" text-anchor="middle">then holds off</text>
+
+  <rect x="10" y="110" width="700" height="72" rx="8" fill="var(--surface-2)" stroke="var(--line-2)" stroke-dasharray="5 4"/>
+  <text class="sub" x="26" y="132">CONFIDENCE FLOOR 0.6 — PROBED LIVE, NOT GUESSED</text>
+  <text class="sub" x="26" y="152" style="fill:var(--ink-2)">real falls read 0.86–0.94   ·   a blank wall at floor 0.35 read up to 0.52 — pure noise</text>
+  <text class="sub" x="26" y="170" style="fill:var(--ink-2)">so the floor stays at 0.6, and photo-of-a-fall replay is not a usable trigger</text>
+
+  <defs>
+    <marker id="f1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="var(--safety)"/></marker>
+  </defs>
+</svg>
+<figcaption>
+  A single frame means nothing — motion blur, a partial view, someone crouching. The class has
+  to hold across the window. One fall produces one event.
+</figcaption>
+</figure>
+
+<h2>3 · Model performance</h2>
+
+<h3>Reference numbers — Qualcomm AI Hub</h3>
+
+<p>
+  The detector is a fine-tune of <strong>YOLO11-N</strong> (640×640, 2.64 M parameters). AI Hub
+  publishes reference latency for the stock <code>YOLOv11-Detection</code> on the
+  <strong>QCS8275</strong> — the Ventuno Q class of part, and the only tier that runs this
+  model, since fall detection happens on the room node and never on the hub:
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Chipset</th><th>Runtime</th><th>Precision</th><th>Inference</th><th>Peak memory</th></tr></thead>
+  <tbody>
+    <tr><td><span class="pill edge">QCS8275</span> Ventuno Q class</td><td>QNN</td><td>float</td><td><strong>12.92 ms</strong></td><td>0–184 MB</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p class="punch">
+  That is the like-for-like reference: same runtime, same precision, same class of part as what
+  we deploy — a FP32 QNN context binary, no calibration pass needed. Quantising to INT8 is the
+  named next step, and has not been run on-device yet.
+</p>
+
+<p>
+  <strong>There is no published CPU figure to compare against.</strong> Every one of AI Hub's
+  ~90 benchmark rows for this model — across three runtimes and four precisions — targets the
+  NPU. So the CPU column below is our own measurement on the board, not a vendor number.
+</p>
+
+<h3>Measured on our board — CPU vs NPU</h3>
+
+<p>
+  Same FP32 model, same board (<strong>QCS8300, Hexagon HTP v75</strong>), two compute units.
+  ONNX Runtime on the CPU against <code>qnn-net-run</code> on the NPU, N=20, with whole-board
+  power sampled from the INA232 on the 12 V rail:
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Metric</th><th>CPU — ONNX Runtime</th><th>NPU — Hexagon HTP v75</th><th>NPU advantage</th></tr></thead>
+  <tbody>
+    <tr><td>Latency, end-to-end</td><td>194.7 ms</td><td><strong>46.4 ms</strong></td><td><strong>4.2× faster</strong></td></tr>
+    <tr><td>Latency, pure compute</td><td>—</td><td><strong>32.5 ms</strong></td><td>6.0× vs CPU wall-clock</td></tr>
+    <tr><td>Host CPU utilisation</td><td>604% — ~6 of 8 cores</td><td>36% — orchestration only</td><td>frees the CPU entirely</td></tr>
+    <tr><td>Peak host RAM</td><td>134 MB</td><td>19.2 MB</td><td><strong>7× less</strong></td></tr>
+    <tr><td>Board power above idle</td><td>+3.31 W</td><td>+1.79 W</td><td>lower marginal draw</td></tr>
+    <tr><td>Energy per inference (marginal)</td><td>644 mJ</td><td><strong>83 mJ</strong></td><td><strong>7.8× more efficient</strong></td></tr>
+    <tr><td>Inferences per joule</td><td>1.55</td><td>12.04</td><td>—</td></tr>
+    <tr><td>Unsupported ops</td><td>0</td><td>0 on HTP v75</td><td>—</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note measure">
+  <p><strong>Why this matters for a room node, not just a benchmark.</strong> The CPU path
+  saturates six of eight cores for the duration of every inference — on a board that is also
+  running the VLM, Whisper, TTS and a camera pipeline, that is the difference between a system
+  that works and one that thrashes. The NPU path leaves the CPU free, which is what makes four
+  models coexist on one Ventuno Q.</p>
+</div>
+
+<div class="note warn">
+  <p><strong>Read honestly.</strong> N=20 with no thermal soak — enough to establish "the NPU
+  wins and roughly by how much," not a paper. The power sensor reads the <em>whole board's</em>
+  12 V rail, so fan, Wi-Fi and background daemons are in every figure; it is the right number
+  for "what does this cost the room node," not a silicon-level comparison. The NPU power average
+  rests on only 11 samples because the run finished in 1.27 s. And both paths ran FP32 — this
+  isolates <em>which compute unit</em>, not <em>what precision</em>.</p>
+  <p>Our 32.5 ms also sits above AI Hub's 12.92 ms reference: a different part (QCS8300 vs
+  QCS8275), a fine-tuned checkpoint rather than the stock one, and unquantised weights.</p>
+</div>
+
+<h3>The conversation loop — LLM and TTS</h3>
+
+<p>
+  Detection is one model; the conversation is three more. Neither AI Hub nor any vendor
+  publishes latency for a generative or speech-synthesis model in a form comparable to this
+  deployment, so every number below is ours, measured on the boards.
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Stage</th><th>Model · device</th><th>Measured</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Hear</strong></td>
+      <td>Whisper-small · <span class="pill edge">Ventuno Q</span> HTP</td>
+      <td>700 ms VAD endpointing · silence returns <code>{"silence": true}</code></td>
+    </tr>
+    <tr>
+      <td><strong>Classify</strong></td>
+      <td>Gemma 4 E2B Q4_0 · <span class="pill brain">IQ-9075</span> via GenieX</td>
+      <td><strong>424–494 ms</strong> warm · <strong>5 545 ms</strong> cold on the first call of a session</td>
+    </tr>
+    <tr>
+      <td><strong>Word a line</strong></td>
+      <td>same</td>
+      <td>~1.8 s a reply · ~1.5 s a comfort update · <strong>15.7–16.2 tok/s</strong> decode, 0.18 s TTFT warm</td>
+    </tr>
+    <tr>
+      <td><strong>Speak</strong></td>
+      <td>Piper TTS · <span class="pill edge">Ventuno Q</span></td>
+      <td><strong>1.8–9.6 s per line</strong> (~9 chars/s) — 32 chars 1.81 s, 55 chars 3.12 s, 83 chars 9.57 s</td>
+    </tr>
+    <tr>
+      <td><strong>Full turn</strong></td>
+      <td>heard → say, end to end</td>
+      <td>median 2.37 s → <strong>1.61 s</strong>, max 5.58 s → 1.64 s after the fix round</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note warn">
+  <p><strong>TTS is the bottleneck, and it costs more than time.</strong> The node is
+  half-duplex by design — no echo cancellation needed, but it is <em>deaf while it speaks</em>.
+  A long safety line plus a comfort line back to back measured a <strong>15.2 s continuous deaf
+  stretch</strong>, and one TTS runner hang left a node deaf and mute for ~30 s from second zero
+  of a session. Barge-in is impossible by construction.</p>
+  <p>The cold-start classify was the other big win: a warm-up ping at session open removed
+  5.5 s from the first reply, taking it to 0.48 s.</p>
+</div>
+
+<h2>4 · What crosses the wire</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Topic</th><th>Direction</th><th>Payload</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>qnet/&lt;room&gt;/event</code><br><span class="sub">QoS 1</span></td><td>node → agent</td>
+      <td><code>{"id": "01JQ…", "room": "kitchen", "kind": "fall.detected", "conf": 0.87, "meta": {"cls": "Fallen", "frames": "5/8"}}</code></td>
+    </tr>
+    <tr>
+      <td><code>qnet/&lt;room&gt;/say</code></td><td>agent → node</td>
+      <td><code>{"text": "I saw you fall. Are you okay?", "prio": "safety"}</code></td>
+    </tr>
+    <tr>
+      <td><code>qnet/&lt;room&gt;/heard</code></td><td>node → agent</td>
+      <td><code>{"text": "i'm fine", "silence": false}</code> — or <code>{"text": "", "silence": true}</code></td>
+    </tr>
+    <tr>
+      <td><code>qnet/&lt;room&gt;/contact</code></td><td>agent → all</td>
+      <td><code>{"from": "Sarah", "text": "ok on my way", "ts": 1785790181.2}</code> — by configured name, never a chat id</td>
+    </tr>
+    <tr>
+      <td><code>qnet/session/&lt;id&gt;</code></td><td>agent → hub</td>
+      <td>The live session document and its full log — one stream, two destinations (also appended to <code>data/sessions/*.jsonl</code>)</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p class="punch">
+  Never a frame, never a clip, never an audio buffer. Everything carrying a decision or a
+  person's words is QoS 1; only the 5-second health heartbeat is QoS 0, because the next one is
+  along shortly.
+</p>
+
+
+<h2>5 · Step by step, what actually happens</h2>
+
+<ul class="ladder">
+  <li class="hot">
+    <div class="step-t">STEP 1 · qnet/node/vision.py → qnet/&lt;room&gt;/event · QoS 1</div>
+    <div class="step-h">The NPU sees a fall and publishes an event</div>
+    <p class="step-b">
+      YOLO11n scores every frame. Five of the last eight come back <code>fallen</code> above
+      0.6, so the node publishes <code>fall.detected</code> to the broker — and then holds off,
+      so one fall is one event. No frame moves.
+    </p>
+  </li>
+  <li class="hot">
+    <div class="step-t">STEP 2 · qnet/agent/engine.py · phases.py loads skills/fall.md</div>
+    <div class="step-h">The agent opens a session and loads the skill</div>
+    <p class="step-b">
+      The engine matches the event's <code>kind</code> to <code>skills/fall.md</code>, opens a
+      session for that room, enters the first phase — <code>check</code> — and <strong>starts
+      its 30-second timer immediately</strong>. From here the clock runs whatever anyone says.
+    </p>
+  </li>
+  <li class="warm">
+    <div class="step-t">STEP 3 · qnet/&lt;room&gt;/say · {"prio": "safety"}</div>
+    <div class="step-h">The room speaks, with no model call</div>
+    <p class="step-b">
+      The phase's <code>opening</code> is canned text in the skill file — <em>"I saw you fall.
+      Take a breath — are you okay?"</em> — so it is spoken instantly and still works with the
+      LLM cold, slow, or switched off. Then TTS finishes and the microphone reopens.
+    </p>
+  </li>
+  <li class="warm">
+    <div class="step-t">STEP 4 · Whisper-small on HTP → qnet/&lt;room&gt;/heard</div>
+    <div class="step-h">Whisper transcribes on the node</div>
+    <p class="step-b">
+      Audio never leaves the board. What comes back on the wire is either a transcript or
+      <code>{"silence": true}</code> when the window timed out. Silence is a <em>result</em>,
+      not an error — and it advances the ladder.
+    </p>
+  </li>
+  <li class="warm">
+    <div class="step-t">STEP 5 · qnet/agent/llm.py → Gemma · 424–494 ms warm</div>
+    <div class="step-h">Gemma picks from the exits this phase already allows</div>
+    <p class="step-b">
+      Only <code>ok</code> or <code>escalate</code> are on the table — the model cannot invent
+      a third option, and the engine checks its answer before acting. A garbled transcript is
+      classified <code>unclear</code>, and the rails speak a canned <em>"Sorry, I didn't quite
+      catch that."</em>
+    </p>
+  </li>
+  <li class="warm">
+    <div class="step-t">STEP 6 · PAIN_QUESTION — canned, on the rails</div>
+    <div class="step-h">"I'm fine" is never enough on its own</div>
+    <p class="step-b">
+      Before any session closes, one more canned line: <em>"Any pain? Did you hit your head?"</em>
+      People minimise — especially to a machine — and a head strike is exactly the injury that
+      gets talked away. Only a clear denial closes it.
+    </p>
+  </li>
+  <li class="hot">
+    <div class="step-t">STEP 7 · T+30s · phase escalate · on_enter → notify_contacts</div>
+    <div class="step-h">Contacts are messaged automatically</div>
+    <p class="step-b">
+      Silence, "no", or any report of pain moves here — and the timer moves here on its own.
+      The phase declares <code>on_enter: [notify_contacts]</code>, so the Telegram fires the
+      instant the phase starts, with no agent turn involved. The room says what it did:
+      <em>"I've messaged Sarah."</em>
+    </p>
+  </li>
+  <li>
+    <div class="step-t">STEP 8 · telegram_poller.py → qnet/&lt;room&gt;/contact</div>
+    <div class="step-h">Matched on the rails, never by the model</div>
+    <p class="step-b">
+      "OK" / "on my way" from a configured contact jumps the session to
+      <code>contact_engaged</code> and holds the call. <strong>A 180-second backstop starts
+      anyway</strong> — an acknowledged incident that goes quiet must never become a stranded
+      one. "Call 911" jumps straight to the end.
+    </p>
+  </li>
+  <li class="hot">
+    <div class="step-t">STEP 9 · T+60s · phase call_help · on_enter → call_emergency</div>
+    <div class="step-h">Emergency services</div>
+    <p class="step-b">
+      <code>on_enter: [call_emergency, notify_contacts]</code> — the call is placed and the
+      contact is told, both automatically. Throughout, the comfort loop keeps speaking true
+      status on a schedule so nobody is left in silence.
+    </p>
+  </li>
+  <li>
+    <div class="step-t">AT ANY POINT · CANCEL_RE — engine interrupt</div>
+    <div class="step-h">Cancel is one word away</div>
+    <p class="step-b">
+      "False alarm" spoken, the dashboard banner clicked, or typed — matched as an engine
+      interrupt <em>before</em> the model ever sees the transcript. Contacts get told:
+      <em>"✅ False alarm — no action needed."</em>
+    </p>
+  </li>
+</ul>
+
+<h2>6 · The skills behind it</h2>
+
+<p>
+  None of the above is engine code. The phases, the timers, the spoken openings and the
+  escalation wording all live in markdown files that are validated when the agent boots.
+</p>
+
+<figure class="figure">
+<svg viewBox="0 0 760 296" role="img" aria-label="Phase machine from skills/fall.md: check exits to ok or escalate; escalate exits to call_help or, via the engine rails, to contact_engaged, which backstops to call_help">
+
+  <rect x="14" y="14" width="170" height="46" rx="8" fill="var(--routine-bg)" stroke="var(--routine)" stroke-width="1.5"/>
+  <text class="lbl" x="99" y="36" text-anchor="middle" style="fill:var(--routine)">ok</text>
+  <text class="sub" x="99" y="52" text-anchor="middle">session closed</text>
+
+  <rect x="14" y="100" width="170" height="68" rx="8" fill="var(--surface)" stroke="var(--safety)" stroke-width="1.5"/>
+  <text class="lbl" x="99" y="126" text-anchor="middle">check</text>
+  <text class="sub" x="99" y="145" text-anchor="middle">opening spoken</text>
+  <text class="sub" x="99" y="161" text-anchor="middle">timer 30 s</text>
+
+  <rect x="250" y="100" width="200" height="68" rx="8" fill="var(--surface)" stroke="var(--safety)" stroke-width="1.5"/>
+  <text class="lbl" x="350" y="126" text-anchor="middle">escalate</text>
+  <text class="sub" x="350" y="145" text-anchor="middle">on_enter: notify_contacts</text>
+  <text class="sub" x="350" y="161" text-anchor="middle">timer 30 s</text>
+
+  <rect x="250" y="208" width="200" height="68" rx="8" fill="var(--routine-bg)" stroke="var(--routine)" stroke-width="1.5"/>
+  <text class="lbl" x="350" y="234" text-anchor="middle">contact_engaged</text>
+  <text class="sub" x="350" y="253" text-anchor="middle">on_enter: notify_contacts</text>
+  <text class="sub" x="350" y="269" text-anchor="middle">timer 180 s backstop</text>
+
+  <rect x="546" y="100" width="200" height="68" rx="8" fill="var(--safety-bg)" stroke="var(--safety)" stroke-width="2"/>
+  <text class="lbl" x="646" y="126" text-anchor="middle" style="fill:var(--safety)">call_help</text>
+  <text class="sub" x="646" y="145" text-anchor="middle">on_enter: call_emergency</text>
+  <text class="sub" x="646" y="161" text-anchor="middle">+ notify_contacts</text>
+
+  <path class="wire" d="M99 100 V 64" stroke-width="1.5" stroke="var(--routine)" marker-end="url(#p1)"/>
+  <text class="edge-lbl" x="108" y="86" style="fill:var(--routine)">fine + no pain</text>
+
+  <path class="wire" d="M184 127 H 246" stroke-width="1.5" stroke="var(--safety)" marker-end="url(#p2)"/>
+  <text class="edge-lbl" x="215" y="120" text-anchor="middle">30 s</text>
+  <text class="edge-lbl" x="215" y="147" text-anchor="middle">no · pain</text>
+
+  <path class="wire" d="M450 127 H 542" stroke-width="1.5" stroke="var(--safety)" marker-end="url(#p2)"/>
+  <text class="edge-lbl" x="496" y="120" text-anchor="middle">30 s</text>
+  <text class="edge-lbl" x="496" y="147" text-anchor="middle">no reply</text>
+
+  <path class="wire" d="M350 168 V 204" stroke-width="1.5" stroke="var(--routine)" marker-end="url(#p1)"/>
+  <text class="edge-lbl" x="342" y="191" text-anchor="end" style="fill:var(--routine)">contact says OK — engine rails only</text>
+
+  <path class="wire" d="M450 242 H 500 V 152 H 542" stroke-width="1.5" stroke="var(--safety)" marker-end="url(#p2)"/>
+  <text class="edge-lbl" x="510" y="236">180 s backstop</text>
+
+  <text class="sub" x="14" y="292" style="fill:var(--ink-3)">cancel · "false alarm" → cancelled, from any phase — an engine interrupt, matched before the model sees it</text>
+
+  <defs>
+    <marker id="p1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="var(--routine)"/></marker>
+    <marker id="p2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="var(--safety)"/></marker>
+  </defs>
+</svg>
+<figcaption>
+  Every box, arrow and number here is a line of <code>skills/fall.md</code>. Note
+  <code>contact_engaged</code> is reachable <em>only</em> by the engine — it is deliberately
+  not one of <code>escalate</code>'s exits, so the model can never route into it.
+</figcaption>
+</figure>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Skill file</th><th>What it contributes to this scenario</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>skills/fall.md</code><br><span class="pill safety">urgency: safety</span></td>
+      <td>The four phases above — every canned opening line, both timers, the exit conditions in
+      plain language, the <code>on_enter</code> actions, and the four Telegram templates.
+      <code>urgency: safety</code> is what makes an incident take over the dashboard.</td>
+    </tr>
+    <tr>
+      <td><code>skills/first-aid.md</code></td>
+      <td>Sourced guidance sentences — IFRC 2020 First Aid Guidelines, AHA 2020 Highlights, a
+      California DSS/IHSS fall-response guide. When the person's own words name a problem the
+      file knows, the engine speaks <strong>that topic's sentence verbatim</strong>. The model
+      never words medical advice.</td>
+    </tr>
+    <tr>
+      <td><code>skills/responder-brief.md</code><br><span class="pill hub">mode: interrupt</span></td>
+      <td>No phases and no timers. A first responder says <em>"I'm the first responder — what
+      happened?"</em> and gets a spoken handover from the session log: condition first, then what
+      was done, then where things stand. It's an interrupt, not a session, so it can never be
+      blocked by the live incident.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p class="punch">
+  Adding a fifth phase, changing 30 seconds to 20, or rewording the escalation message is a
+  text edit — no engine code, and a typo fails when the agent boots rather than at 3am.
+</p>
+
+<div class="next">
+  <a href="find.html">
+    <div class="next-label">Next · 1 min</div>
+    <div class="next-title">Smart Object Discovery →</div>
+    <div class="sub">The same fabric, running something calm</div>
+  </a>
+  <a href="details/fall-detection.html">
+    <div class="next-label">If asked</div>
+    <div class="next-title">Deeper on fall &amp; safety monitoring →</div>
+    <div class="sub">Threshold evidence, the responder brief, every UX finding</div>
+  </a>
+</div>
+
+</main>
+
+<footer>
+  <div class="footer-inner">
+    QNet Home — Fall Detection &amp; Safety Monitoring. Skill file: <code>skills/fall.md</code>.
+  </div>
+</footer>
+
+</body>
+</html>

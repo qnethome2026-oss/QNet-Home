@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QNet Home — Implementation</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="../index.html"><span class="dot"></span>QNet Home</a>
+    <div class="nav-links"><a href="../index.html" class="back">← 5-min version</a>
+      <a href="index.html">Overview</a>
+      <a href="architecture.html">Architecture</a>
+      <a href="ai-stack.html">AI &amp; Speech Stack</a>
+      <a href="implementation.html" aria-current="page">Implementation</a>
+      <a href="fall-detection.html">Fall Detection &amp; Safety Monitoring</a>
+      <a href="object-finder.html">Smart Object Discovery</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+
+<div class="hero">
+  <div class="eyebrow">Implementation</div>
+  <h1>The agent decides. The engine guarantees.</h1>
+  <p class="lede">
+    This is the load-bearing idea of the whole system. A 2-billion-parameter model running on
+    an NPU is good enough to classify a reply and word a sentence. It is not good enough to
+    be the thing standing between a person on the floor and an ambulance. So it isn't.
+  </p>
+</div>
+
+<h2>The split, precisely</h2>
+
+<div class="grid">
+  <div class="card">
+    <h3>What the model may do</h3>
+    <ul>
+      <li>Classify a person's reply into <strong>one of the options the current phase already allows</strong></li>
+      <li>Word a comfort-loop update from facts the engine hands it</li>
+      <li>Word the first-responder brief from a session log it is given</li>
+      <li>Flag a garbled transcript as <code>unclear</code></li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>What only the engine may do</h3>
+    <ul>
+      <li>Fire a timer, and act when it expires</li>
+      <li>Send a trusted-contact notification</li>
+      <li>Place the emergency call</li>
+      <li>Match a cancel phrase, or a contact's <code>OK</code> reply</li>
+      <li>Decide which phase the session is in</li>
+      <li>Word any answer whose content is itself the safety claim</li>
+    </ul>
+  </div>
+</div>
+
+<div class="note measure">
+  <p><strong>This is testable, and tested.</strong> <code>--no-llm</code> is byte-for-byte the
+  same code path the system always had — no client is constructed, so not one branch differs.
+  The full escalation ladder runs correctly with no language model present at all. The model
+  is an enhancement to the conversation, never a dependency of the response.</p>
+</div>
+
+<h3>A case where this mattered</h3>
+<p>
+  During live testing, an object search came back with <em>no room answered</em>. Gemma worded
+  the result as: <em>"The item is in the living room. The living room camera reported that the
+  item is there."</em> A fabricated location, spoken aloud, with a fabricated citation.
+</p>
+<p>
+  The fix was not a better prompt. The fix was recognising that the search answer <em>is</em>
+  that skill's safety content, and moving it permanently onto the rails. Those sentences are
+  now deterministic and the model is not consulted. Prompt engineering cannot make a
+  guarantee; code can.
+</p>
+
+<h2>Skills are data</h2>
+
+<p>
+  A capability is one markdown file. Frontmatter declares what it is, a single fenced YAML
+  block declares the phases, and prose after <code>## Guidance</code> is handed to the model
+  as-is. Everything between them is commentary for the human editing the file — the loader
+  ignores it.
+</p>
+
+<pre><code>---
+name: fall-response
+trigger: fall.detected
+urgency: safety            # safety takes over the dashboard; routine does not
+source: IFRC 2020 First Aid Guidelines; AHA 2020 Highlights
+emergency_number: "911"
+---
+
+## Phases
+```yaml
+- id: check
+  opening: "I saw you fall. Take a breath — are you okay?"   # canned, spoken instantly
+  goal: "Find out whether they are hurt or need help."
+  tools: []
+  exits:
+    ok:       "they clearly say they are fine and deny pain or hitting their head"
+    escalate: "they say no, ask for help, report pain, or do not respond"
+  timer: { after_s: 30, goto: escalate }
+```</code></pre>
+
+<div class="kv">
+  <dt>opening</dt><dd>Spoken the instant the phase starts. Canned — no model call, so it is reachable even with the LLM down.</dd>
+  <dt>goal</dt><dd>What the model is trying to achieve this phase. Prose, not code.</dd>
+  <dt>tools</dt><dd>The allowlist. A tool call outside it is refused and logged as a <code>refusal</code> line.</dd>
+  <dt>on_enter</dt><dd>Actions that fire automatically the instant the phase starts — no agent turn involved.</dd>
+  <dt>exits</dt><dd>Named ways to leave, each with the condition in plain language.</dd>
+  <dt>timer</dt><dd><code>{after_s, goto}</code>. A missing timer means no timer — that one line is the difference between a fall skill and a query skill.</dd>
+</div>
+
+<h3><code>on_enter</code> is stronger than "the model should remember to"</h3>
+<p>
+  An earlier design had a <code>must</code> field meaning "guaranteed before exit, enforced by
+  the timer as a fallback." Reliable — but still routed through the agent's turn.
+  <code>on_enter</code> removes the agent from the path entirely: the action fires when the
+  phase starts. For notifying a caregiver and placing an emergency call, "instant and
+  automatic" is worth being more explicit than "guaranteed eventually."
+</p>
+
+<h2>Validation is load-time and loud</h2>
+
+<p>
+  A skill file is data, but it is data that decides whether a caregiver gets called. So a typo
+  must fail when the agent starts — not silently do the wrong thing at 3am, mid-incident.
+</p>
+
+<p>At load, the engine rejects the file unless:</p>
+<ul>
+  <li>every <code>timer</code> is <code>{after_s: &lt;positive number&gt;, goto: &lt;an existing phase&gt;}</code></li>
+  <li>every exit name either matches a phase id (a jump) or is a declared terminal state</li>
+  <li>every <code>on_enter</code> action exists in the tool registry</li>
+  <li>every name in a phase's <code>tools:</code> allowlist exists in that same registry</li>
+</ul>
+
+<div class="note warn">
+  <p><strong>The subtle one.</strong> The runtime rule for exits is elegantly simple: <em>an
+  exit whose name matches a phase id jumps to that phase; any other name ends the session with
+  that label as its final state.</em> That rule alone makes every name legal — which would
+  turn the typo <code>escalat:</code> into a <strong>silent session close instead of an
+  escalation</strong>. The single most dangerous failure this codebase can produce.</p>
+  <p>So the loader also keeps a vocabulary of known terminal states. A name that is neither a
+  phase nor a known terminal state is a load error. The runtime rule is unchanged; the typo
+  now fails at boot.</p>
+</div>
+
+<h2>The session loop</h2>
+
+<figure class="figure">
+<svg viewBox="0 0 700 330" role="img" aria-label="Flow: trigger opens a session, phase opening is spoken, then a loop of listen, classify, engine-check until an exit or timer fires">
+
+  <rect x="240" y="12" width="220" height="40" rx="8" fill="var(--safety-bg)" stroke="var(--safety)" stroke-width="1.5"/>
+  <text class="lbl" x="350" y="37" text-anchor="middle">trigger — event or ask</text>
+
+  <rect x="240" y="72" width="220" height="40" rx="8" class="box"/>
+  <text class="lbl" x="350" y="97" text-anchor="middle">open session · load skill</text>
+
+  <rect x="240" y="132" width="220" height="46" rx="8" class="box"/>
+  <text class="lbl" x="350" y="152" text-anchor="middle">enter phase</text>
+  <text class="sub" x="350" y="169" text-anchor="middle">on_enter fires · opening spoken</text>
+
+  <rect x="240" y="198" width="220" height="46" rx="8" class="box"/>
+  <text class="lbl" x="350" y="218" text-anchor="middle">listen → classify</text>
+  <text class="sub" x="350" y="235" text-anchor="middle">model picks from allowed exits</text>
+
+  <rect x="240" y="264" width="220" height="46" rx="8" fill="var(--accent-bg)" stroke="var(--accent)" stroke-width="1.5"/>
+  <text class="lbl" x="350" y="284" text-anchor="middle">engine checks the choice</text>
+  <text class="sub" x="350" y="301" text-anchor="middle">allowed? act · else refuse + log</text>
+
+  <path class="wire" d="M350 52 V 72" stroke-width="1.5" marker-end="url(#a3)"/>
+  <path class="wire" d="M350 112 V 132" stroke-width="1.5" marker-end="url(#a3)"/>
+  <path class="wire" d="M350 178 V 198" stroke-width="1.5" marker-end="url(#a3)"/>
+  <path class="wire" d="M350 244 V 264" stroke-width="1.5" marker-end="url(#a3)"/>
+
+  <!-- loop back -->
+  <path class="wire" d="M240 287 H 180 V 155 H 240" stroke-width="1.5" marker-end="url(#a3)"/>
+  <text class="edge-lbl" x="172" y="222" text-anchor="end">phase jump</text>
+
+  <!-- timer rail -->
+  <rect x="500" y="132" width="176" height="112" rx="8" fill="var(--safety-bg)" stroke="var(--safety)" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text class="lbl" x="588" y="158" text-anchor="middle" style="fill:var(--safety)">engine rails</text>
+  <text class="sub" x="588" y="180" text-anchor="middle">timer expires → goto</text>
+  <text class="sub" x="588" y="198" text-anchor="middle">cancel phrase → close</text>
+  <text class="sub" x="588" y="216" text-anchor="middle">contact OK → jump</text>
+  <text class="sub" x="588" y="234" text-anchor="middle">comfort loop → speak</text>
+  <path class="wire" d="M500 188 H 460" stroke-width="1.5" stroke="var(--safety)" marker-end="url(#a4)"/>
+
+  <!-- exit -->
+  <rect x="20" y="264" width="140" height="46" rx="8" class="box"/>
+  <text class="lbl" x="90" y="284" text-anchor="middle">terminal exit</text>
+  <text class="sub" x="90" y="301" text-anchor="middle">closed · cancelled</text>
+  <path class="wire" d="M240 287 H 160" stroke-width="1.5" marker-end="url(#a3)"/>
+
+  <defs>
+    <marker id="a3" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0 0 L8 4 L0 8 z" fill="var(--line-2)"/>
+    </marker>
+    <marker id="a4" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0 0 L8 4 L0 8 z" fill="var(--safety)"/>
+    </marker>
+  </defs>
+</svg>
+<figcaption>
+  The rails on the right run in parallel with the conversation and do not wait for it. A
+  timer fires whether or not the model has answered; a cancel phrase is matched
+  <em>before</em> the model ever sees the transcript.
+</figcaption>
+</figure>
+
+<h2>The interrupt that isn't a session</h2>
+
+<p>
+  A first responder walking into the room says <em>"I'm the first responder — what
+  happened?"</em> and gets a spoken handover: condition first, then what was done, then where
+  things stand.
+</p>
+
+<p>
+  This is deliberately <strong>not</strong> a session. It is an engine-level interrupt: pause
+  the comfort loop, read the room's latest fall log, one model call to word the timeline,
+  speak it, resume. Because it never enters the session table, the one-session-per-room rule
+  cannot block it — a responder can always ask, even mid-escalation. The responder phrase is
+  checked before the wake phrase, in any state.
+</p>
+
+<h2>Every session writes itself down</h2>
+
+<p>
+  One stream, two destinations — not two mechanisms. Every log line is appended to
+  <code>data/sessions/&lt;room&gt;__&lt;skill&gt;__&lt;started_at&gt;.jsonl</code> <em>and</em>
+  published to <code>qnet/session/&lt;id&gt;</code> the instant it happens.
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Log event</th><th>Records</th></tr></thead>
+  <tbody>
+    <tr><td><code>detected</code></td><td>The triggering event kind and its confidence</td></tr>
+    <tr><td><code>say</code></td><td>Every line the house spoke</td></tr>
+    <tr><td><code>heard</code></td><td>Every transcript, including timed-out silences</td></tr>
+    <tr><td><code>phase</code></td><td>Each transition, from → to</td></tr>
+    <tr><td><code>tool</code></td><td>Each tool call and its result</td></tr>
+    <tr><td><code>refusal</code></td><td>A tool the model asked for outside the phase allowlist</td></tr>
+    <tr><td><code>contact</code></td><td>A trusted contact's reply, verbatim, by configured name</td></tr>
+    <tr><td><code>brief</code></td><td>A responder brief — exactly one line, only into a file that already existed</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>
+  The <code>refusal</code> line is worth dwelling on. When the model asks for a tool the phase
+  doesn't allow, the request is denied <em>and written down</em>. The record of what the model
+  wanted to do but wasn't permitted to is as valuable as the record of what happened.
+</p>
+
+<h2>Codebase</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Path</th><th>What lives there</th></tr></thead>
+  <tbody>
+    <tr><td><code>qnet/agent/engine.py</code></td><td>The loop and the rails — sessions, timers, phase walking, comfort loop, cancel matching, contact acks, the responder-brief interrupt</td></tr>
+    <tr><td><code>qnet/agent/phases.py</code></td><td>The skill loader — markdown in, validated rails out</td></tr>
+    <tr><td><code>qnet/agent/llm.py</code></td><td>The Gemma client. Every call has a deterministic fallback</td></tr>
+    <tr><td><code>qnet/agent/telegram_poller.py</code></td><td>Long-polls for contact replies; drops anything from an unconfigured chat id</td></tr>
+    <tr><td><code>qnet/node/vision.py</code></td><td>Fall detection on the NPU — capture, preprocess, infer, N-of-M gate</td></tr>
+    <tr><td><code>qnet/node/look.py</code></td><td>The room's VLM answering <code>qnet/look</code></td></tr>
+    <tr><td><code>qnet/node/stream.py</code></td><td>LAN-only camera preview for the hub dashboard</td></tr>
+    <tr><td><code>qnet/tools/</code></td><td><code>notify_contacts</code> · <code>call_emergency</code> · <code>look_in_rooms</code> · <code>get_session_summary</code></td></tr>
+    <tr><td><code>skills/</code></td><td><code>fall.md</code> · <code>find.md</code> · <code>responder-brief.md</code> · <code>first-aid.md</code></td></tr>
+    <tr><td><code>contracts/</code></td><td>The frozen wire contract plus one JSON fixture per message type</td></tr>
+    <tr><td><code>dev/</code></td><td>Laptop harness — broker, injector, room simulator, spy, replay, latency bench</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Tests</h3>
+<p>
+  <strong>207 hermetic tests</strong> — no broker, no hardware, no network — running in about
+  85 seconds on a laptop with nothing plugged in. A further 7 are marked <code>live</code> and
+  opt in to the real Gemma endpoint. The suite covers the skill loader's validation rules, the
+  contact-ack rails, the find flow, the responder brief, the vision gate logic, contract
+  conformance against the fixtures, and full scenario walks of the escalation ladder.
+</p>
+
+<h2>Measured, not asserted</h2>
+
+<p>
+  Every number below was measured on the named hardware with the method written down. Nothing
+  here is modelled or quoted from a datasheet.
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Measurement</th><th>Value</th><th>Where</th></tr></thead>
+  <tbody>
+    <tr><td>Fall pipeline, frame-at-a-time</td><td><strong>2.98 fps</strong> (336 ms/frame)</td><td><span class="pill edge">Ventuno Q</span></td></tr>
+    <tr><td>Fall pipeline, 8-frame batch</td><td><strong>14.55 fps</strong> (69 ms/frame) — 4.9× gain</td><td><span class="pill edge">Ventuno Q</span></td></tr>
+    <tr><td>Pure NPU execute vs. per-call overhead</td><td>34.8 ms execute · ~273 ms process spawn + context reload</td><td><span class="pill edge">Ventuno Q</span></td></tr>
+    <tr><td>Object search round trip (look → looked)</td><td><strong>4.13 s</strong> median of 5, warm model</td><td><span class="pill edge">Ventuno Q</span></td></tr>
+    <tr><td>Voice-node RAM cost</td><td>+1443 MiB, leaving 3761 MiB headroom</td><td><span class="pill edge">Ventuno Q</span></td></tr>
+    <tr><td>LLM classify, warm</td><td>424–494 ms</td><td><span class="pill brain">IQ-9075</span></td></tr>
+    <tr><td>LLM classify, cold (first of session)</td><td>5 545 ms — fixed with a warm-up ping at session open</td><td><span class="pill brain">IQ-9075</span></td></tr>
+    <tr><td>heard → say, end to end</td><td>median 2.37 s → <strong>1.61 s</strong> after the fix round</td><td>full path</td></tr>
+    <tr><td>Telegram notify</td><td>1.0–1.3 s</td><td><span class="pill brain">IQ-9075</span></td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>The failures are written down too</h3>
+<ul>
+  <li><strong>NPU contention is real.</strong> The inference CLI intermittently fails when a
+  second container is using the accelerator. Retried ×3 with backoff; it rides through.</li>
+  <li><strong>A dropped-speech investigation.</strong> Of roughly 7 listen windows opened in
+  one session, exactly 1 survived to publish a transcript — the engine was republishing the
+  session document on every log line, and each snapshot cancelled the node's in-flight listen.
+  Fix: ignore snapshots that don't flip the node's mode. Cancelled listens went from ~19 to 1;
+  transcripts published went from 1 to 3 plus a clean silence.</li>
+  <li><strong>A 30-second TTS hang</strong> made a node deaf and mute from second zero of a
+  session. Documented, with the watchdog deliberately deferred as higher-risk than the bug.</li>
+  <li><strong>Threshold honesty.</strong> A confidence floor of 0.35 fires on a blank wall.
+  It was restored to 0.6 and the evidence recorded — including that photo-of-a-fall replay
+  sits in the same confidence band as wall noise, so it is not a viable trigger.</li>
+</ul>
+
+<h2>Platform references</h2>
+<ul>
+  <li><a href="https://imsdkdocs.qualcomm.com/">Qualcomm Intelligent Multimedia SDK (IM SDK)</a>
+    — camera, GStreamer, and the multimedia pipeline the room nodes capture through.</li>
+  <li><a href="https://dragonwingdocs.qualcomm.com/">Qualcomm Dragonwing documentation</a>
+    — board bring-up, vendor Ubuntu images, and the Hexagon NPU / QNN runtime the models are
+    compiled and executed against.</li>
+</ul>
+
+<div class="next">
+  <a href="fall-detection.html">
+    <div class="next-label">Use case 1</div>
+    <div class="next-title">Fall Detection &amp; Safety Monitoring →</div>
+    <div class="sub">System-initiated, urgent, and timed</div>
+  </a>
+  <a href="object-finder.html">
+    <div class="next-label">Use case 2</div>
+    <div class="next-title">Smart Object Discovery →</div>
+    <div class="sub">Person-initiated, calm, and distributed</div>
+  </a>
+</div>
+
+</main>
+
+<footer>
+  <div class="footer-inner">
+    QNet Home — implementation. Engine: <code>qnet/agent/engine.py</code>.
+    Skill loader: <code>qnet/agent/phases.py</code>. Numbers: <code>measurements.md</code>.
+  </div>
+</footer>
+
+</body>
+</html>
