@@ -2957,7 +2957,7 @@ const $ = (id) => document.getElementById(id);
    setup (user request, 2026-08-06). Corp DHCP can move the board - if the chip
    says Reconnecting forever, fix the address in Settings (it persists). Local
    dev against dev/broker.py: enter ws://127.0.0.1:9001/mqtt there. */
-const DEFAULT_HUB = "ws://10.73.51.175:19001/mqtt";
+const DEFAULT_HUB = "ws://192.168.1.31:19001/mqtt";
 const STORE_KEY = "qnethome.hub";
 
 function loadHubUrl() {
@@ -3034,8 +3034,8 @@ let fullscreenAlerts = loadFullscreenPref();
    pre-filled so the room modal shows the LIVE preview with zero setup. A saved
    Settings value wins; clearing the field reverts to this default on reload
    (empty fields are not stored - collectCamUI). */
-const DEFAULT_CAM_URLS = { kitchen: "http://10.73.51.123:8090/kitchen.jpg",
-                           bedroom: "http://10.73.51.178:8090/bedroom.jpg" };
+const DEFAULT_CAM_URLS = { kitchen: "http://192.168.1.30:8090/kitchen.jpg",
+                           bedroom: "http://192.168.1.76:8090/bedroom.jpg" };
 let camUrls = Object.assign({}, DEFAULT_CAM_URLS, loadCamUrls());
 
 /* ---- state (same indexing as dashboard/admin.html; see the header) ---- */
