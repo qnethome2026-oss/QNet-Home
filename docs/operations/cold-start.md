@@ -15,6 +15,11 @@ boards and prints `ALL GREEN - the house is demo-ready`, or exactly which
 check failed and the command that fixes it. It starts nothing and changes
 nothing, so it is safe to run at any time — including mid-demo.
 
+Not green? `bash scripts/bring_up.sh <hub-ip> <kitchen-ip> <bedroom-ip>`
+(re)starts every service on every board in the right order, waits out the
+slow model loads, and re-runs the check. Both scripts take the three IPs as
+env vars/arguments — nothing depends on `~/.ssh/config` aliases.
+
 ## What comes back by itself (audited 2026-08-06 — every row verified on-device)
 
 | Device | Piece | How it returns |

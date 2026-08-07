@@ -18,6 +18,14 @@ From the repo on the laptop:
 bash scripts/health_check.sh
 ```
 
+Not green, or the boards were just powered on / reconfigured? One command
+(re)starts every service on every device, waits out the slow model loads,
+and re-runs this check — IPs are arguments (or edit the top of the script):
+
+```bash
+bash scripts/bring_up.sh <HUB-IP> <KITCHEN-IP> <BEDROOM-IP>
+```
+
 Expected final line: **`ALL GREEN - the house is demo-ready`**. Any red line
 names the failing service and the fix; the symptom-indexed deep dive is
 [`docs/operations/troubleshooting.md`](../../docs/operations/troubleshooting.md).
