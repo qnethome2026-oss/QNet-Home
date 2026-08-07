@@ -123,9 +123,11 @@ numbers, update `config/house.yaml`'s `mqtt:` block, restart mosquitto.
   `arduino-app-cli app list`, then the two containers
   (`docker ps` → `qnet-voice-node-main-1`,
   `qnet-voice-node-audio-analytics-runner-1`).
-- Wrong mic: this board's working config is mic `usb:2`, speaker `usb:1` —
-  both the Seri headset; `usb:1` capture is the camera's mic
-  (`verify/D3-voice-deploy.txt` §1 has the ALSA mapping).
+- Wrong mic: current working configs (2026-08-07) — kitchen mic `usb:2`
+  (JOUNIVO; the camera's mic is `usb:1`) + speaker `usb:1` (GEMBIRD);
+  bedroom mic/speaker `usb:1` (Seri headset). `usb:N` is a 1-based USB-device
+  index, not the ALSA card — full rule + fix chain in the
+  *deaf or mute after replugging USB audio* section below.
 - RAM pressure: flip `qnet-config.json` `asr_model` to
   `whisper-small-quantized` and restart the app — the rollback model is
   already registered on the board.
@@ -257,3 +259,34 @@ Contrast with the camera: `/dev/v4l/by-id/` paths are derived from the
 device, not the port — a camera can move ports with NO config change (just
 restart `qnet-vision`). Audio has no such stable path in our config; the
 `usb:N` check is mandatory after any audio replug.
+
+## ASR fail-loop after changing audio devices: the runner's VAD wedge (2026-08-07)
+
+Symptom: the app connects fine but `ASR failed` repeats every ~10 s with the
+exponential backoff cycling (`ASR backing off 0.25s/0.50s...`); the traceback
+ends `ASRUnavailableError: Inference service unreachable ... Read timed out`.
+The RUNNER container's log shows the smoking gun:
+`Failed to initialize VAD data with NNVAD_WRAPPER_ID_ENGINE_CONFIG (error 2)`
+plus `Socket error: connect ECONNREFUSED /tmp/audio-sockets/audio-analytics.sock`.
+
+Cause: the audio-analytics runner initialized against audio devices that then
+changed underneath it (replug / port move / config change). An
+`app restart` can REUSE the wedged runner container — the main container
+comes back but ASR keeps failing.
+
+Fix: full stop-then-start so BOTH containers are recreated:
+`arduino-app-cli app stop user:qnet-voice-node && arduino-app-cli app start user:qnet-voice-node`
+Verify: `docker logs qnet-voice-node-main-1` shows `idle ASR stream open` with
+zero further `ASR failed` lines over the next minute.
+
+## Board "dead" but actually a Wi-Fi dropout (2026-08-07)
+
+A board can vanish completely — no ping, no SSH, no MQTT heartbeats — for
+minutes and come back on its own. Before assuming power/reboot/USB-overdraw:
+when it returns, check `uptime` FIRST. Ours showed 2+ days: the board never
+rebooted; workshop AP roaming (visible as constant `wlp3s0: authenticate/
+associate` churn in dmesg) took the link down ~5 minutes. Consequences to
+check after any dropout: an `arduino-app-cli` operation that was in flight
+may have half-finished (our voice app's main container was left not running —
+one `app start` fixed it). Services that only talk to localhost (vision,
+VLM) ride through unharmed.

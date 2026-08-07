@@ -69,6 +69,17 @@ every config and unit below. ⚠️ Never use `/dev/video0`-style paths — USB
 re-enumeration silently swaps them (it broke a board once;
 [`troubleshooting.md`](../../docs/operations/troubleshooting.md)).
 
+Two facts about moving USB things later (both learned live; the complete
+I/O reference is [`docs/operations/io-devices.md`](../../docs/operations/io-devices.md)):
+
+- The by-id path follows the **device**, not the port — you can move the
+  camera to another port with zero config changes; just
+  `sudo systemctl restart qnet-vision` afterward. A flaky camera connection
+  escalates cheapest-first: different port → different cable → different
+  camera (the bare-capture test that decides is in troubleshooting).
+- Audio is the opposite: `usb:N` indices shift when devices are replugged —
+  re-check them (Step 7) after ANY audio replug.
+
 ## Step 5 — Fall detection (camera rooms only)
 
 The model is already compiled for this board's NPU and committed to the
@@ -104,6 +115,11 @@ The first query after a start can be slow or empty — retry once (model load
 ≈ 50 s).
 
 ## Step 7 — Voice (rooms that hear and speak)
+
+Any USB mic + speaker works — a headset, or separate desk devices through a
+USB hub (our kitchen runs a hub-attached mic + speaker; a bus-powered hub is
+fine). After plugging, give the board a few seconds to enumerate before
+running the commands below.
 
 1. From the laptop, deploy the app:
    ```bash

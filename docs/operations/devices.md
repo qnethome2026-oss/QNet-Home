@@ -38,7 +38,7 @@ The full-capability room: it senses falls, looks, streams, hears and speaks.
 | VLM container | Qualcomm `genai-llm-vlm-service` (Docker, `restart=unless-stopped`), Qwen VLM on the NPU, `:9001` |
 | `qnet-voice-node` | Arduino App Lab app (two containers): Whisper-small ASR on the NPU + Piper TTS, wake-gated. Package: [`apps/ventuno-q/qnet-voice-node/`](../../apps/ventuno-q/qnet-voice-node/); deploy evidence: `verify/D3-voice-deploy.txt` |
 | Camera | HHWei UVC — use the stable `/dev/v4l/by-id/usb-HHWei...` path, never `/dev/videoN` (re-enumeration incident, [troubleshooting](troubleshooting.md#camera-offline--preview-dead--vision-active-but-frozen)) |
-| Audio | Plantronics Seri headset both ways: mic `usb:2`, speaker `usb:1` (`usb:1` capture is the camera's mic — don't use it) |
+| Audio | Since 2026-08-07: JOUNIVO desk mic (`usb:2` — the camera's built-in mic counts as `usb:1`, don't use it) + GEMBIRD speaker (`usb:1`, the only USB speaker), both on a USB hub. `usb:N` is a 1-based USB-device index, NOT the ALSA card number; re-check after any replug ([troubleshooting](troubleshooting.md#voice-node-deaf-or-mute-after-replugging-usb-audio-2026-08-07)) |
 
 ## Ventuno Q — bedroom node (`ssh ventuno2`, 10.73.51.178)
 
@@ -53,6 +53,7 @@ the shm frame `stream.py` serves and publishes the 5 s heartbeat
 | `qnet-stream` | `:8090/bedroom.jpg`, from [`qnet-stream-bedroom.service`](../../infra/systemd/qnet-stream-bedroom.service) |
 | VLM container | Same Qualcomm container, Qwen3-VL-4B on `:9001` (model rsynced board-to-board — `verify/D2-bedroom-node.txt`) |
 | Camera | Logitech BRIO, by-id path in the unit file |
+| Audio | Since 2026-08-07: Plantronics Seri headset both ways, mic `usb:1` / speaker `usb:1` (moved here from the kitchen; the BRIO's mic is `usb:2` — don't use it) |
 | Parked, do not delete | Muni's containers: `genai-llm-vlm-service-muni-parked`, the stopped `qhome-voice-node-*` / `dictation-assistant` containers, `~/ArduinoApps`, and the arduino-app-cli daemon on `:8800` — all deliberately untouched |
 
 ## Laptop — Snapdragon X Elite (dev + dashboard)

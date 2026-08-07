@@ -66,6 +66,7 @@ Learned the hard way (2026-08-07, ~03:00), both now in troubleshooting:
 
 ## Related pages
 
+- [`docs/operations/io-devices.md`](../docs/operations/io-devices.md) — the full I/O reference: addressing model, inventory commands, move/replace procedures.
 - [`health_check.sh`](health_check.sh) — the read-only half; safe any time, even mid-demo.
 - [`docs/operations/cold-start.md`](../docs/operations/cold-start.md) — what auto-starts by itself after power-on (usually you need no script at all: plug in, wait ~3 min, run the health check).
 - [`docs/operations/rebuild.md`](../docs/operations/rebuild.md) — a board wiped or replaced, from blank image.
