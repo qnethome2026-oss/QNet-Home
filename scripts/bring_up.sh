@@ -76,6 +76,39 @@ echo ""
 echo "Waiting 45 s for the voice apps to reload their speech models..."
 sleep 45
 
+# ---- Diagnostics for the failure modes a service restart cannot fix --------
+# (each one observed live 2026-08-07; fixes in docs/operations/troubleshooting.md)
+echo ""
+echo "=== Diagnostics (things a restart can't fix) ==="
+
+check_board() {  # check_board <label> <target> <frame_basename or "">
+  local label=$1 target=$2 frame=$3
+  # 1. A foreign App Lab app holding the mic/speaker starves OUR voice app
+  #    into "failed" (one app owns the audio devices).
+  foreign=$(ssh -o ConnectTimeout=8 "$target" \
+    'docker ps --format "{{.Names}}" | grep -- "-voice-node-main-1" | grep -v "^qnet-voice-node"' 2>/dev/null)
+  [[ -n "$foreign" ]] && echo "  !! [$label] foreign voice app running: $foreign" \
+    && echo "     it owns the audio devices - park it: ssh $target 'arduino-app-cli app stop user:<that-app>'"
+  # 2. No camera device nodes = the camera needs a PHYSICAL replug (kernel
+  #    says 'No valid video chain found' - no software fixes that).
+  if [[ -n "$frame" ]]; then
+    if ! ssh -o ConnectTimeout=8 "$target" 'ls /dev/v4l/by-id/ 2>/dev/null | grep -q video-index0'; then
+      echo "  !! [$label] no camera device nodes (/dev/v4l/by-id empty)"
+      echo "     -> physically unplug/replug the USB camera, then: sudo systemctl restart qnet-vision (or qnet-look on an exporter room)"
+    # 3. Camera present but the exported frame is stale = the vision/look
+    #    process is wedged from before the camera came back - restart it.
+    elif ! ssh -o ConnectTimeout=8 "$target" "find /dev/shm/$frame -newermt '-30 seconds' 2>/dev/null | grep -q ."; then
+      echo "  !! [$label] camera present but /dev/shm/$frame is stale (>30 s)"
+      echo "     -> the capture process is wedged: sudo systemctl restart qnet-vision (kitchen) / qnet-look (bedroom)"
+    else
+      echo "  ok [$label] camera live, frames fresh"
+    fi
+  fi
+}
+
+check_board kitchen "arduino@$KITCHEN" "qnet_kitchen_frame.jpg"
+[[ -n "$BEDROOM" ]] && check_board bedroom "arduino@$BEDROOM" "qnet_bedroom_frame.jpg"
+
 echo ""
 echo "=== Verification (scripts/health_check.sh) ==="
 QNET_IQ9=$IQ9 QNET_KITCHEN=$KITCHEN QNET_BEDROOM=${BEDROOM:-} QNET_PORT=$PORT \

@@ -148,3 +148,71 @@ watch the heartbeat run listening→speaking→idle with zero new ConnectionErro
 Aggravating factor (fixed): the original 20 s comfort metronome sent a TTS
 request every cycle during long sessions — the 1/2/5-minute schedule cuts that
 load ~15×.
+
+## Camera vanished: `/dev/v4l/by-id/` empty (observed live 2026-08-07)
+
+Symptoms: vision (or a bedroom exporter look) opens nothing; a `/dev/videoN`
+source raises `could not open source`; only internal nodes (`/dev/video32/33`)
+exist. `lsusb` still lists the camera — on a suspiciously high device number
+(ours was #118: the connection had re-enumerated ~100+ times, i.e. a flaky
+cable/port).
+
+Diagnose: `sudo dmesg | tail` — **`Found UVC device` followed by
+`No valid video chain found` means the camera's USB descriptors are not
+parsing. No software fixes that.** Unplug the camera, wait 2 s, replug firmly
+(different port if it recurs), then `sudo systemctl restart qnet-vision`.
+
+Two software-side traps discovered on the way:
+
+- **`modprobe -r uvcvideo` says "in use" with no camera present**: a process
+  that opened the old device node still pins the module via its stale file
+  descriptor (our case: a look.py started against `/dev/video0` hours
+  earlier). Stop the qnet-vision/qnet-look services first, then the module
+  reloads cleanly.
+- **A process that STARTED while the camera was absent stays wedged after
+  the replug** — service `active`, banner logged, no frames, no heartbeats
+  forever. Always restart `qnet-vision` (and an exporter `qnet-look`) after
+  a camera replug, never assume they recover.
+
+`scripts/bring_up.sh`'s diagnostics section checks all of this automatically
+(camera nodes present, exported frame <30 s old) and prints the exact fix.
+
+## Our voice app "failed": a foreign App Lab app owns the audio (2026-08-07)
+
+Symptom: `arduino-app-cli app list` shows `qnet-voice-node` **failed** while
+another `*-voice-node` app is **running**. Only one app can own the USB
+mic/speaker — whichever starts first wins, and ours dies at device open.
+
+Fix: park the other app (stopped, not deleted — its files stay untouched):
+`arduino-app-cli app stop user:<other-app>` then
+`arduino-app-cli app restart user:qnet-voice-node` (~45 s model reload).
+Verify: `docker logs qnet-voice-node-main-1` shows `Connected to IQ9`.
+`bring_up.sh` warns when a foreign voice app is detected.
+
+## Dashboard "Camera unreachable" but `curl` to the bare URL works (2026-08-07)
+
+The browser cache-busts (`kitchen.jpg?t=...`); a stream.py from before the
+2026-08-06 `urlparse` fix 404s every query-string request. Means an outdated
+`qnet/node/stream.py` is running (e.g. a service pointed at a stale code
+tree). Redeploy the node code and restart `qnet-stream` on that board.
+
+## Teammate services replaced ours on a board (2026-08-07 postmortem)
+
+A teammate's deploy overwrote all seven systemd units on both boards
+(different code tree, `/dev/videoN` camera paths, a bedroom vision unit our
+design doesn't have) and her voice app took both rooms' audio devices. If
+symptoms look like several of the entries above AT ONCE, check unit
+provenance first: `grep -l qnet-home /etc/systemd/system/qnet-*.service`
+(our units run from `~/qnet-node`, not `~/qnet-home`). Recovery: back up
+their unit files (`cp ... ~/<unit>.qhome-backup`), reinstall ours from
+`infra/systemd/`, `daemon-reload`, restart — and park (never delete) their
+apps. Coordinate topics/compute with the teammate per README's shared-
+infrastructure asks (mosquitto ports, `qnet/session/+`, NPU contention).
+
+Addendum (same night): a camera can enumerate CLEANLY (good descriptors,
+by-id nodes present) and still fail to stream. The discriminating test, with
+qnet-vision stopped so the device is free:
+`timeout 12 gst-launch-1.0 v4l2src device=<by-id path> num-buffers=2 ! fakesink`
+If that fails on a free device, the camera/cable hardware is bad - swap it.
+A swapped camera has a DIFFERENT /dev/v4l/by-id path: update the unit's
+--source and config/house.yaml, daemon-reload, restart qnet-vision.
