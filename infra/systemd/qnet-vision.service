@@ -9,6 +9,9 @@
 [Unit]
 Description=QNet Home node vision - fall detection on the Hexagon NPU
 After=network-online.target
+# Mutually exclusive with the experimental IM SDK engine (both own the camera);
+# systemd stops one when the other starts. Flag: scripts/bring_up.sh --imsdk.
+Conflicts=qnet-vision-imsdk.service
 
 [Service]
 Type=simple

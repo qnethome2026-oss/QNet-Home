@@ -290,3 +290,33 @@ check after any dropout: an `arduino-app-cli` operation that was in flight
 may have half-finished (our voice app's main container was left not running —
 one `app start` fixed it). Services that only talk to localhost (vision,
 VLM) ride through unharmed.
+
+## No fall events / two vision engines fighting over the camera (2026-08-07)
+
+**Context.** Fall detection has an experimental second engine behind a flag —
+the IM SDK GStreamer front half, `qnet-vision-imsdk.service`
+([setup/ventuno-imsdk/README.md](../../setup/ventuno-imsdk/README.md)). Only
+one engine may run: both open the same camera, and the two units carry
+`Conflicts=` on each other, so **starting one stops the other by design** —
+that is the feature, not a crash.
+
+**Symptoms → fixes:**
+
+- *No `fall.detected` and no vision heartbeats at all:* neither engine is
+  running. `systemctl status qnet-vision qnet-vision-imsdk` on the kitchen
+  board; `bash scripts/bring_up.sh` restores mainline (and disables the
+  experiment) every time it runs without `--imsdk`.
+- *Heartbeats present but the `detector` field surprises you:*
+  `fall-yolo11n@hexagon-npu` = mainline; `fall-yolo11n@imsdk-gst` = the
+  experiment is live (someone ran `--imsdk`). Default bring-up swaps mainline
+  back.
+- *`qnet-vision` "stopped unexpectedly" in the journal exactly when the imsdk
+  unit started (or vice versa):* that's the `Conflicts=` swap working.
+- *The imsdk engine fires at slightly different confidences than mainline:*
+  expected — its preprocessing reads ~0.04 lower and its floor is 0.45 vs
+  mainline's 0.5 (measured compensation; gate fires are parity-checked). If
+  you change either floor, re-run the parity procedure in
+  [verify/T-imsdk-fall.txt](../../verify/T-imsdk-fall.txt).
+- *Clip replay under the imsdk engine dies instantly:* its file chain is
+  hardware H.264 — transcode the clip first (one-liner in the setup README's
+  Limitations).

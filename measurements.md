@@ -168,3 +168,29 @@ warm-up ping at session open. heard->say median 2.37 -> 1.61 s, max 5.58 ->
 ~19 -> 1 (the legitimate session-open flip); session heards published 1 -> 3
 plus a clean silence. Say-chaining and a TTS-hang watchdog deliberately
 deferred (risk > benefit pre-demo); full reasoning in verify/T-voice-bench.txt.
+
+## T8.1 — IM SDK front-half engine, clip parity + throughput (2026-08-07)
+
+Board: a Ventuno Q at a home LAN (no camera attached, local mosquitto as
+broker — the hub was off-network), model + venv as mainline. Engine:
+`qnet/node/vision_imsdk.py` — GStreamer/IM SDK capture→decode→letterbox
+(`qtimlvconverter`, uint8/NHWC, `image-disposition=centre`) piped to the
+unchanged `qnn-net-run` + decode + FallGate. Method + full transcript:
+`verify/T-imsdk-fall.txt`; clips rebuilt on-board from the UR Fall dataset
+(H.264, 320×240 RGB crop).
+
+| Measure [M] | mainline (cv2 preproc) | IM SDK engine | note |
+|---|---|---|---|
+| fall-01 gate fires | frames [4, 104] | frames [4, 104] | floors 0.5 vs 0.45 (below) |
+| adl-01 gate fires | 1 (frame 116) | 1 (frame 114) | the documented lying-down fire |
+| per-frame verdict agreement | — | 134/160 · 147/150 | disagreements all near-floor |
+| fallen-conf median (fall-01) | 0.8264 | 0.7837 | systematic −0.043: pad-0 vs pad-114, NV12 chroma, scaler |
+| throughput over MQTT, `--batch 8` | 14.55 fps (T4.2, batch 8) | 8.81 fps · NPU 87.1 ms/frame | different clip/site; NPU leg still `qnn-net-run`-bound |
+
+- The engine's default conf floor is **0.45** — the measured compensation for
+  the −0.03…−0.05 systematic preproc offset; with it, gate-fire parity is
+  exact on both clips. Change either floor → re-run the Stage 2 parity.
+- The float/NCHW converter path that would allow in-pipeline `qtimlqnn` is
+  broken on this board build (all-zero tensors; full matrix in
+  `setup/ventuno-imsdk/README.md`) — the uint8/NHWC path used here was
+  verified frame-unique and data-bearing (160/160 unique MD5s).

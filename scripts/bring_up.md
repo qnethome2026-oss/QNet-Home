@@ -14,7 +14,16 @@ bash scripts/bring_up.sh                                # IPs from the top of th
 bash scripts/bring_up.sh <HUB-IP> <KITCHEN-IP> <BEDROOM-IP>   # IPs as arguments
 QNET_BEDROOM= bash scripts/bring_up.sh                  # empty IP = skip that board
 bash scripts/bring_up.sh --dry-run                      # print the plan, touch nothing
+bash scripts/bring_up.sh --imsdk                        # EXPERIMENTAL fall engine (below)
 ```
+
+**`--imsdk`** swaps the kitchen fall detector to the flagged, experimental
+IM SDK engine (`qnet-vision-imsdk.service` — GStreamer capture/preproc, same
+NPU + MQTT contract); **every run without the flag swaps mainline back**, so
+the experiment can never linger. The two units carry `Conflicts=` on each
+other — systemd guarantees a single camera owner. The heartbeat's `detector`
+field always tells you which engine is live. Full story:
+[`setup/ventuno-imsdk/README.md`](../setup/ventuno-imsdk/README.md).
 
 The three IPs live in a marked block at the top of the script (they move on
 DHCP — override by argument or `QNET_IQ9`/`QNET_KITCHEN`/`QNET_BEDROOM` env

@@ -56,6 +56,7 @@ The runbooks below are the deep dives behind them.
 | [`../setup/README.md`](../setup/README.md) | Index of setup folders + the guides. |
 | [`../setup/iq9-gemma-geniex/README.md`](../setup/iq9-gemma-geniex/README.md) | Gemma 4 E2B under GenieX on the IQ-9075 (:18181) — install, the model-cache bug, `pkill -x` gotcha, measured tok/s. |
 | [`../setup/ventuno-voice/arduino-speech.md`](../setup/ventuno-voice/arduino-speech.md) | The Arduino speech runtime the voice node drives. |
+| [`../setup/ventuno-imsdk/README.md`](../setup/ventuno-imsdk/README.md) | 🧪 The flagged-off experimental IM SDK fall engine (`bring_up.sh --imsdk`): architecture, converter findings, enable/disable, the road to the full pipeline. |
 | [`../models/fall-detection/README.md`](../models/fall-detection/README.md) | Fall model conversion + NPU deployment: the AI Hub device-catalog workaround, per-board credentials table, measured inference times. |
 | [`../infra/`](../infra/) | `mosquitto.conf` (ports 11883/19001 + the switch-back procedure in its header) and the systemd units for every service — the unit headers double as install docs. |
 

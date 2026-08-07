@@ -11,6 +11,13 @@
 #     bash scripts/bring_up.sh 10.0.0.5 10.0.0.6 10.0.0.7   # iq9 kitchen bedroom
 #     QNET_BEDROOM= bash scripts/bring_up.sh         # skip a board (empty = skip)
 #     bash scripts/bring_up.sh --dry-run             # print what would run
+#     bash scripts/bring_up.sh --imsdk               # EXPERIMENTAL fall engine (T8.1)
+#
+# --imsdk swaps the kitchen fall detector to the flagged IM SDK engine
+# (qnet-vision-imsdk.service); WITHOUT the flag every run swaps mainline back,
+# so a forgotten experiment never survives a bring-up. The units carry
+# Conflicts= both ways - systemd stops one when the other starts.
+# Details: setup/ventuno-imsdk/README.md.
 #
 # sudo on the boards prompts for their passwords (interactive on purpose -
 # no passwords live in this repo). Expect ~2 minutes end to end: the voice
@@ -27,8 +34,15 @@ PORT=${QNET_PORT:-11883}
 # ---------------------------------------------------------------------------
 
 DRY=0
+IMSDK=0
 args=()
-for a in "$@"; do [[ "$a" == "--dry-run" ]] && DRY=1 || args+=("$a"); done
+for a in "$@"; do
+  case "$a" in
+    --dry-run) DRY=1 ;;
+    --imsdk)   IMSDK=1 ;;
+    *)         args+=("$a") ;;
+  esac
+done
 [[ ${#args[@]} -ge 1 ]] && IQ9=${args[0]}
 [[ ${#args[@]} -ge 2 ]] && KITCHEN=${args[1]}
 [[ ${#args[@]} -ge 3 ]] && BEDROOM=${args[2]}
@@ -59,7 +73,12 @@ fi
 
 echo ""
 echo "--- 2/3 Kitchen room node ---"
-run kitchen "arduino@$KITCHEN" "sudo systemctl restart qnet-vision qnet-look qnet-stream"
+if [[ $IMSDK == 1 ]]; then
+  echo "    (EXPERIMENTAL: fall detection on the IM SDK engine - T8.1)"
+  run kitchen "arduino@$KITCHEN" "sudo systemctl disable --now qnet-vision; sudo systemctl enable --now qnet-vision-imsdk; sudo systemctl restart qnet-look qnet-stream"
+else
+  run kitchen "arduino@$KITCHEN" "sudo systemctl disable --now qnet-vision-imsdk 2>/dev/null; sudo systemctl enable --now qnet-vision; sudo systemctl restart qnet-vision qnet-look qnet-stream"
+fi
 run kitchen "arduino@$KITCHEN" "docker start genai-llm-vlm-service 2>/dev/null; arduino-app-cli app restart user:qnet-voice-node"
 
 if [[ -n "$BEDROOM" ]]; then
