@@ -9,6 +9,7 @@ One page per purpose; the long-standing files keep their paths (code and
 | Doc | What it is |
 |---|---|
 | [`DESIGN.md`](DESIGN.md) | The spec: devices, the frozen MQTT contract, the agent's rails (§6), fall detection (§8), voice (§9), "where's my stuff" (§13). Section numbers are load-bearing — code comments cite "DESIGN §6". |
+| [`fall-workflow-explained.md`](fall-workflow-explained.md) | The narrative version: use case, why each model, why MQTT, the no-framework agent, the responder brief, measured end-to-end latency, and the two challenges that shaped it. Start here for a talk-track. |
 | [`IMPLEMENTATION.md`](IMPLEMENTATION.md) | The plan with live status: phases, gates (G1–G7), per-task verify blocks, standing rules. |
 | [`../contracts/mqtt.md`](../contracts/mqtt.md) | The frozen wire contract — topics, payloads, one fixture per message type. Ports are configuration, not contract. |
 | [`../contracts/speech-api.md`](../contracts/speech-api.md) | The speech interface record (closed T0.2) — what the voice node guarantees the agent. |
