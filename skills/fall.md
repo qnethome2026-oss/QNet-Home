@@ -3,14 +3,24 @@ name: fall-response
 trigger: fall.detected
 urgency: safety            # safety takes over the dashboard; routine does not
 source: IFRC 2020 First Aid Guidelines; AHA 2020 Highlights; "In Case of a Fall"
-        (California DSS / IHSS Training Academy, adapted from US National
-        Library of Medicine, 2013)
+        (California Dept. of Social Services / IHSS Training Academy, adapted
+        from "Falls," U.S. National Library of Medicine, October 2013)
+source_url: "https://www.cdss.ca.gov/agedblinddisabled/res/VPTC2/5%20Injury%20and%20Fall%20Prevention/In_Case_of_a_Fall.pdf"
+source_retrieved: 2026-08-07
+source_verified: true      # verified = the agency exists and the document says what
+                           # this file attributes to it (re-read 2026-08-07). It is
+                           # NOT a medical sign-off: the spoken wording remains
+                           # pending human medical review (DESIGN.md, Limits).
 emergency_number: "911"
 ---
 
 ## Phases
 ```yaml
 - id: check
+  # CDSS "In Case of a Fall": "Take several deep breaths to try to relax" and
+  # "Remain still on the floor or ground for a few moments ... to decide if
+  # there is an injury before getting up." Asking before any movement is the
+  # source's assess-first rule.
   opening: "I saw you fall. Take a breath — are you okay?"   # canned, spoken instantly
   goal: "Find out whether they are hurt or need help."
   tools: []
@@ -20,6 +30,12 @@ emergency_number: "911"
   timer: { after_s: 30, goto: escalate }
 
 - id: escalate
+  # CDSS: "If there is an injury or the person cannot get up on his own: Ask
+  # someone for help or call 911. If alone, try to get into a comfortable
+  # position and wait for help to arrive." "Don't strain to move" condenses
+  # "Remain still ... Getting up too quickly or in the wrong way could make an
+  # injury worse." (This resolves the wording flag in DESIGN.md's Limits: both
+  # halves now trace to the source; medical review still pending.)
   opening: "It's okay — I'm getting you help. Try to get comfortable, and
             don't strain to move."
   goal: "Keep them informed while help is on the way. Say what is actually
@@ -80,8 +96,11 @@ cancel, if notified      → "✅ False alarm — {resident.name} confirmed they
 
 **The escalation message is a question, and the reply is matched on the engine rails — never by the model.** "ok / okay / on it / got it / omw / on my way / i got this / handling" (case-insensitive, word-boundary) from a configured contact during `escalate` jumps the session to `contact_engaged`; "call 911 / call emergency (services)" from a contact at any point while the session is escalating jumps straight to `call_help`. The numbers the messages promise are the timers above: 30 s is `escalate`'s window, 3 minutes is `contact_engaged`'s backstop — change one, change the other.
 
+**Source fidelity notes (CDSS "In Case of a Fall", retrieved 2026-08-07).** The document *does* teach a safe get-up sequence for an uninjured person who can manage it alone (roll onto a side → push to seated → rest to let blood pressure adjust → hands and knees, crawl to a sturdy chair → hands on the seat, one foot flat → rise and turn to sit). This file deliberately does not speak it: a detected fall means injury has not been ruled out, and coaching a get-up over a speaker with no eyes on the person fails the source's own "decide if there is an injury before getting up" precondition. If a future revision adds it, it belongs as a new phase reached only from `check`'s explicit "I'm fine, I just need to get up" path — noted here, not added. Two honest gaps: the source never mentions keeping the person **warm** (only "comfortable"), so this file makes no warmth claim; and the source's closing advice — "Any fall should be reported to the doctor. Write down information about when, where, and how the fall occurred" — is served by the session log every fall already produces, not by anything spoken.
+
 ## Guidance
 One instruction at a time, by name, calm and slow. Never say "emergency" first.
 Do not tell them to get up. If they mention hip pain or hitting their head, escalate even if they said they were fine.
+If they say they cannot get up, treat that alone as a reason to escalate, injured or not — the source's rule is "injury *or* the person cannot get up on his own."
 Say what is actually happening — "Sarah has been messaged", "it's been two minutes" — never filler.
 Comfort/positioning guidance is said once, in the opening line — never repeated by the comfort loop. The loop's job is status, not instructions; repeating "get comfortable" every 20 seconds would read as nagging, not care.
