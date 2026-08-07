@@ -55,11 +55,13 @@ Learned the hard way (2026-08-07, ~03:00), both now in troubleshooting:
    different cable → different camera** (our "dead" camera was a bad
    port/cable path; a port move fixed it outright — verify with the bare
    capture test in troubleshooting before condemning hardware).
-2. **Audio: ALWAYS re-check `usb:N`.** ALSA card numbers renumber on
-   replug — our headset silently moved card 2 → 1 and the mic index then
-   pointed at the *camera's* microphone. Run `arecord -l` / `aplay -l`,
-   fix `qnet-config.json`, restart the voice app, and mirror the change to
-   `config/voice-nodes/` in the repo.
+2. **Audio: ALWAYS re-check `usb:N`.** The index is **1-based over USB
+   devices of that type, in card order — not the ALSA card number** — and
+   the order changes on replug: our mic index silently ended up on the
+   *camera's* microphone once, and an out-of-range index crashes the app's
+   main container outright. Run `arecord -l` / `aplay -l`, count the USB
+   entries, fix `qnet-config.json`, restart the voice app, and mirror the
+   change to `config/voice-nodes/` in the repo.
    → troubleshooting § *Voice node deaf or mute after replugging USB audio*
 
 ## Related pages

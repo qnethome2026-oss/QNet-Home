@@ -114,9 +114,12 @@ The first query after a start can be slow or empty — retry once (model load
    arecord -l    # microphone cards
    aplay -l      # speaker cards
    ```
-   The `usb:N` numbers below are the card numbers from these lists. ⚠️ If
-   your camera has a built-in mic, it appears too — pick the one you plugged
-   in for voice.
+   ⚠️ `usb:N` is **NOT the ALSA card number** — it is a **1-based index over
+   the USB devices of that type**, in card order (learned from the brick's
+   own error: `USB speaker index 3 out of range. Available: 1-1`). Count only
+   the USB entries in each list: one USB speaker → it is `usb:1`, whatever
+   its card number. For the microphone, a camera's built-in mic counts too —
+   if the camera is the first USB capture device, your real mic is `usb:2`.
 3. On the board, create `~/ArduinoApps/qnet-voice-node/qnet-config.json`
    (start from [`config/voice-nodes/`](../../config/voice-nodes/) — the
    kitchen and bedroom files are our real, working examples):

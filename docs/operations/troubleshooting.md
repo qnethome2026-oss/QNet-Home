@@ -238,10 +238,17 @@ so `"microphone_device": "usb:2"` silently captured from the CAMERA's
 built-in mic instead.
 
 Fix, on the board:
-1. `arecord -l` and `aplay -l` — note the headset's current card numbers.
-2. Edit `~/ArduinoApps/qnet-voice-node/qnet-config.json` so
-   `microphone_device`/`speaker_device` are `usb:<card>` per those lists
-   (mind camera mics appearing in `arecord -l` — pick the headset).
+1. `arecord -l` and `aplay -l` — see which USB audio devices exist and in
+   what card order.
+2. Edit `~/ArduinoApps/qnet-voice-node/qnet-config.json`. **`usb:N` is a
+   1-based index over the USB devices of that type, in card order — NOT the
+   ALSA card number** (the brick's own error spells it out:
+   `USB speaker index 3 out of range. Available: 1-1`). One USB speaker →
+   `usb:1` always. For the mic, count camera built-in mics too: camera
+   first in `arecord -l` means your real mic is `usb:2`. A wrong index
+   either points at the wrong mic (garbage transcripts) or **crashes the
+   main container at startup** (`SpeakerConfigError` in
+   `docker logs qnet-voice-node-main-1`, container `Exited (1)`).
 3. `arduino-app-cli app restart user:qnet-voice-node` (~45 s), then verify
    `Connected to IQ9` in the app log with no new ALSA errors.
 4. Mirror the change into `config/voice-nodes/<board>.json` in the repo.
