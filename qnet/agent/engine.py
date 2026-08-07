@@ -1753,22 +1753,35 @@ class Agent:
         """Respond to what the person actually said, mid-escalation (§6 spirit).
 
         The person's words are keyword-matched against ``skills/first-aid.md``
-        ON THE RAILS, before any model is consulted. A matched topic's sentence
-        joins the LLM facts as guidance-it-may-use and becomes the canned
-        ``REPLY_GUIDED`` fallback; no match means acknowledgment only - the
-        canned ``REPLY_FALLBACK``, and not one word of first-aid content
-        anywhere in the prompt, so "I'm fine" can never earn bleeding advice.
-        Either way ``--no-llm`` answers too, and the model can acknowledge but
-        never invent a new claim or medical advice beyond the matched sentence.
+        ON THE RAILS, before any model is consulted. **A matched topic is
+        spoken canned (``REPLY_GUIDED`` around the topic's sourced sentence) -
+        the model never words a first-aid turn.** It used to get the sentence
+        as a may-use fact, and dropped it: live 2026-08-07, "I think I'm
+        bleeding" (twice) earned model wordings with zero medical content -
+        the third observed case of the 2B model ignoring buried instructions
+        (garble rules, warm-up). The skill file's own rule decides the fix:
+        "the model only rewords a matched sentence, or never sees it at all" -
+        rewording measurably loses the sentence, so matched turns are rails
+        end to end. No match keeps the model path: acknowledgment only, not
+        one word of first-aid content anywhere in the prompt, so "I'm fine"
+        can never earn bleeding advice; its fallback is ``REPLY_FALLBACK``.
         """
         topic = self.first_aid.match(text) if self.first_aid is not None else None
-        fallback = REPLY_GUIDED.replace("{guidance}", topic.guidance) if topic else REPLY_FALLBACK
+        if topic is not None:
+            spoken = REPLY_GUIDED.replace("{guidance}", topic.guidance)
+            await self.append(
+                session,
+                {"event": "llm", "phase": session.phase, "kind": "reply",
+                 "topic": topic.id, "facts": [f'the person said: "{text}"'],
+                 "source": "rails-guided", "ms": 0},
+            )
+            await self.say(session, spoken, "comfort")
+            session.recent_comfort_texts.append(spoken)
+            return
         line = None
         if self.llm is not None:
             facts = [f'the person just said: "{text}" - acknowledge and answer only that, briefly']
             facts += self.comfort_facts(session)
-            if topic is not None:
-                facts.append(f"relevant guidance (use only if it directly answers them): {topic.guidance}")
             for prior in session.recent_comfort_texts:
                 facts.append(f'do not reuse this wording: "{prior}"')
             started = time.monotonic()
@@ -1781,13 +1794,13 @@ class Agent:
                     "event": "llm",
                     "phase": session.phase,
                     "kind": "reply",
-                    "topic": topic.id if topic else None,
+                    "topic": None,
                     "facts": facts,
                     "source": "gemma" if line else "fallback",
                     "ms": round((time.monotonic() - started) * 1000),
                 },
             )
-        spoken = line or fallback
+        spoken = line or REPLY_FALLBACK
         await self.say(session, spoken, "comfort")
         session.recent_comfort_texts.append(spoken)
 

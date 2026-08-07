@@ -211,11 +211,12 @@ class FactSpy:
         return None
 
 
-def test_reply_prompt_carries_guidance_only_when_matched(tmp_path) -> None:
-    """The rails choose what the model may see: a matched topic arrives as one
-    'relevant guidance' fact; an unmatched reply's prompt holds no first-aid
-    content at all; and the previous spoken line rides along as the
-    do-not-reuse instruction."""
+def test_matched_topic_is_rails_spoken_model_never_words_it(tmp_path) -> None:
+    """A matched first-aid topic bypasses the model entirely - the sourced
+    sentence is spoken canned (REPLY_GUIDED). Live 2026-08-07: given the
+    guidance as a may-use fact, the 2B model dropped it twice for "I think
+    I'm bleeding". An unmatched reply keeps the model path: no first-aid
+    content anywhere in its prompt, previous line as do-not-reuse."""
 
     async def scenario() -> None:
         spy = FactSpy()
@@ -224,11 +225,12 @@ def test_reply_prompt_carries_guidance_only_when_matched(tmp_path) -> None:
         await reach_call_help(agent, rec)
 
         before = len(bus.said())
+        calls_before = len(spy.calls)
         await heard(agent, "i'm cold")
         await until(lambda: len(bus.said()) > before, why="the cold reply")
-        kind, facts = spy.calls[-1]
-        assert kind == "reply"
-        assert any("relevant guidance" in f and "Cover yourself" in f for f in facts)
+        cold = agent.first_aid.match("i'm cold")
+        assert bus.said()[-1] == engine.REPLY_GUIDED.replace("{guidance}", cold.guidance)
+        assert len(spy.calls) == calls_before  # the model was never consulted
 
         await heard(agent, "im fine")
         await until(lambda: len(bus.said()) > before + 1, why="the fine reply")
@@ -236,7 +238,7 @@ def test_reply_prompt_carries_guidance_only_when_matched(tmp_path) -> None:
         assert kind == "reply"
         assert not any("guidance" in f for f in facts), facts
         assert not any(FIRST_AID_WORDS_RE.search(f) for f in facts if "do not reuse" not in f), facts
-        # The previous spoken line (the cold reply) is passed as an instruction.
+        # The previous spoken line (the canned cold reply) is the do-not-reuse instruction.
         assert any("do not reuse this wording" in f for f in facts)
         await stop(agent, session)
 
