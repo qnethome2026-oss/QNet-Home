@@ -44,46 +44,22 @@ Everything must share one LAN. You'll also create a free Telegram bot (2 minutes
 
 ## Setup
 
-The path is: prove the code on your laptop → bring up the hub → bring up each room → add secrets → verify the whole house. Each step links the runbook that does it; every runbook states what you're building, the commands, and a verify check so you know it worked before moving on. (Rebuilding later, or recovering a wiped board? The same chain is condensed per-device in [`docs/operations/rebuild.md`](docs/operations/rebuild.md).)
+Five guides, in order — each one is explicit, numbered, copy-paste-able, and says what you're building, the exact commands, and how to verify it worked before moving on:
 
-**Step 0 — try it with zero hardware (optional, 5 minutes).**
-Any machine with Python 3.12:
+| # | Guide | What you end up with |
+| --- | --- | --- |
+| 1 | [The laptop](setup/guides/01-laptop.md) | The repo installed, 200+ tests green — and optionally the **entire product running with zero hardware** (local broker + dashboard + room simulator) |
+| 2 | [The hub (IQ-9075)](setup/guides/02-hub-iq9075.md) | Gemma 4 E2B on the NPU (`:18181`), the MQTT broker (`11883`/`19001`), and the agent — the brain, listening |
+| 3 | [A room node (Ventuno Q)](setup/guides/03-room-node-ventuno.md) | A room that watches (fall detection), looks (its own VLM), streams a preview, and hears/speaks — repeat per room |
+| 4 | [Telegram](setup/guides/04-telegram.md) | Real phones in the loop: escalation questions out, "OK" / "call 911" replies steering the house |
+| 5 | [First run](setup/guides/05-first-run.md) | `health_check.sh` → **ALL GREEN**, then both capabilities exercised end to end |
 
-```bash
-python -m venv .venv
-.venv/Scripts/pip install -e ".[dev]"      # Linux/macOS: .venv/bin/pip
-.venv/Scripts/python -m pytest -q          # 200+ hermetic tests, no hardware, no network
-bash scripts/demo_fallback.sh              # the full fall ladder on a local broker, no model
-```
+Notes for the impatient:
 
-Then open [`dashboard/index.html`](dashboard/index.html) in a browser, run `python dev/broker.py`, point ⚙ Settings at `ws://127.0.0.1:9001/mqtt`, and drive the house from [`dev/sim.html`](dev/sim.html) or `python dev/inject.py fall --room kitchen`. You get the entire product loop — dashboard, escalation, Telegram-fallback log — with no boards at all.
-
-**Step 1 — laptop toolchain.**
-Same three commands as step 0 (venv, `pip install -e ".[dev]"`, `pytest -q`). The laptop is where deploys, the dashboard, and the test suite live.
-
-**Step 2 — the hub (IQ-9075).** Three services, in order:
-
-1. *The LLM.* Install GenieX and pull Gemma 4 E2B onto the NPU → [`setup/iq9-gemma-geniex/README.md`](setup/iq9-gemma-geniex/README.md). Outcome: an OpenAI-compatible endpoint on `:18181`, kept alive by [`infra/systemd/geniex-serve.service`](infra/systemd/geniex-serve.service).
-2. *The broker.* Install mosquitto with [`infra/mosquitto.conf`](infra/mosquitto.conf) (MQTT on `11883`, WebSocket on `19001`). Outcome: the event fabric every device talks on.
-3. *The engine.* Ship the repo, create a venv, install [`infra/systemd/qnet-agent.service`](infra/systemd/qnet-agent.service) → steps in [`docs/operations/rebuild.md`](docs/operations/rebuild.md) § IQ-9075. Outcome: the brain, listening on the bus.
-
-**Step 3 — each room node (Ventuno Q).** Per board, from [`docs/operations/rebuild.md`](docs/operations/rebuild.md) § Ventuno Q:
-
-1. *Vision.* Python venv + camera + the fall model. The model is a YOLO11n fine-tune from [`melihuzunoglu/human-fall-detection`](https://huggingface.co/melihuzunoglu/human-fall-detection), compiled to Hexagon NPU binaries via Qualcomm AI Hub — **the compiled `.bin` for both board types is committed** ([`models/fall-detection/`](models/fall-detection/)), so you don't need a conversion account; the full recipe is in [`models/fall-detection/README.md`](models/fall-detection/README.md) if you want to reproduce it.
-2. *VLM lookups.* Start the Qwen VLM container on `:9001` → [`setup/ventuno-vlm/README.md`](setup/ventuno-vlm/README.md).
-3. *Voice.* Deploy the App Lab voice app (`bash scripts/deploy_voice_node.sh <board-ip>`), install the Whisper artifact, write the per-room config → [`setup/ventuno-voice/arduino-speech.md`](setup/ventuno-voice/arduino-speech.md).
-4. *Autostart.* Install the board's systemd units from [`infra/systemd/`](infra/systemd/) — each unit's header comment is its own install doc.
-
-**Step 4 — secrets (Telegram).**
-Create a bot via **@BotFather**, have each trusted contact press Start on it once, then on the hub create `config/house.local.yaml` with the bot token, the contacts' chat ids, and `mqtt: {host: 127.0.0.1, port: 11883}`. This file is gitignored, board-specific, and never committed — [`config/house.yaml`](config/house.yaml) shows every field with a `TODO` placeholder. Without it, notifications fall back to the console and `data/outbox/telegram.log`, so you can defer this step.
-
-**Step 5 — verify the whole house.**
-
-```bash
-bash scripts/health_check.sh
-```
-
-One read-only command that checks every service on every board and prints **`ALL GREEN - the house is demo-ready`** — or the exact fix for whatever isn't. Boards power-cycle back to a working house with no keystrokes ([`docs/operations/cold-start.md`](docs/operations/cold-start.md)).
+- **No hardware? Start and stop at Guide 1** — `scripts/demo_fallback.sh` plus the dashboard against `dev/broker.py` runs the whole loop on one machine.
+- **The fall model is pre-compiled and committed** ([`models/fall-detection/`](models/fall-detection/)) — a YOLO11n fine-tune from [`melihuzunoglu/human-fall-detection`](https://huggingface.co/melihuzunoglu/human-fall-detection), compiled for both boards' Hexagon NPUs via Qualcomm AI Hub. You don't need a conversion account; the full recipe is in [`models/fall-detection/README.md`](models/fall-detection/README.md) if you want to reproduce it.
+- **Telegram is deferrable** — without it, notifications fall back to the console and a log file; everything else works.
+- **Rebuilding or recovering a wiped board?** The same chain, condensed per-device: [`docs/operations/rebuild.md`](docs/operations/rebuild.md). The deep runbooks behind the guides (full session transcripts, gotchas, measured numbers) live in [`setup/`](setup/README.md).
 
 ## What runs where
 

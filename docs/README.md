@@ -44,9 +44,14 @@ One page per purpose; the long-standing files keep their paths (code and
 
 ## Devices — bring-up runbooks
 
+**Setting up from scratch? Use the step-by-step guides first:**
+[`../setup/guides/`](../setup/guides/01-laptop.md) — laptop → hub → room
+nodes → Telegram → first run, every step numbered with its verify command.
+The runbooks below are the deep dives behind them.
+
 | Doc | What it is |
 |---|---|
-| [`../setup/README.md`](../setup/README.md) | Index of setup folders. |
+| [`../setup/README.md`](../setup/README.md) | Index of setup folders + the guides. |
 | [`../setup/iq9-gemma-geniex/README.md`](../setup/iq9-gemma-geniex/README.md) | Gemma 4 E2B under GenieX on the IQ-9075 (:18181) — install, the model-cache bug, `pkill -x` gotcha, measured tok/s. |
 | [`../setup/ventuno-voice/arduino-speech.md`](../setup/ventuno-voice/arduino-speech.md) | The Arduino speech runtime the voice node drives. |
 | [`../models/fall-detection/README.md`](../models/fall-detection/README.md) | Fall model conversion + NPU deployment: the AI Hub device-catalog workaround, per-board credentials table, measured inference times. |

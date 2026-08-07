@@ -56,11 +56,13 @@ Steps 1–4 apply to every room; 5 is kitchen-only; 6–7 are per-capability.
    into `/data/local/tmp/quad/models/` (create it and `chown arduino:arduino`
    — it does not exist by default). Verify with a single `qnn-net-run`.
 6. **VLM (every room that answers "where is my…")**: follow
-   [`setup/ventuno-vlm/README.md`](../../setup/ventuno-vlm/README.md) — compose
-   file + model directory (rsync board-to-board beats re-downloading), then
-   `docker compose up -d`. Verify `/v1/models` lists `qwen3_vl_4b_instruct`.
-   **Set `restart: unless-stopped`** or the room comes back blind after a
-   reboot.
+   [`setup/ventuno-vlm/README.md`](../../setup/ventuno-vlm/README.md) — the
+   compose file is committed at
+   [`setup/ventuno-vlm/docker-compose-qcs8300-ubuntu.yaml`](../../setup/ventuno-vlm/docker-compose-qcs8300-ubuntu.yaml)
+   (already carries `restart: unless-stopped`, so the room comes back sighted
+   after a reboot); model directory rsyncs board-to-board (beats
+   re-downloading), then `docker compose up -d`. Verify `/v1/models` lists
+   `qwen3_vl_4b_instruct`.
 7. **Voice (every room that hears/speaks)**: the board's built-in
    `whisper-small-quantized` ASR model works with no download — for the float
    `whisper-small` upgrade, register the Whisper QNN artifacts with
