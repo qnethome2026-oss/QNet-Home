@@ -66,6 +66,7 @@ The runbooks below are the deep dives behind them.
 |---|---|
 | Every measured number, with method | [`../measurements.md`](../measurements.md) |
 | CPU vs NPU fall detection on the Ventuno Q (latency, power, ~7.8× energy efficiency) | [`VENTUNO_Q_CPU_VS_NPU_FALL_DETECTION_BENCHMARK.md`](VENTUNO_Q_CPU_VS_NPU_FALL_DETECTION_BENCHMARK.md) |
+| Mainline vs IM SDK fall engine, same clip head-to-head (decision parity, tensor deltas, NPU determinism, throughput) | [`IMSDK_VS_MAINLINE_FALL_ENGINE_BENCHMARK.md`](IMSDK_VS_MAINLINE_FALL_ENGINE_BENCHMARK.md) |
 | Fall model source | [`melihuzunoglu/human-fall-detection`](https://huggingface.co/melihuzunoglu/human-fall-detection) (YOLO11n fine-tune, AGPL-3.0) |
 | Fall test footage provenance (UR Fall Detection Dataset) | [`../clips/README.md`](../clips/README.md) |
 | VLM container | `artifacts.codelinaro.org/iot-solutions-microservices/genai-llm-vlm-service` ([`../setup/ventuno-vlm/`](../setup/ventuno-vlm/)) |

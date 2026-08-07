@@ -153,3 +153,6 @@ data-bearing tensors → (2) preproc parity on the NPU, both clips, floors
 `meta.engine:"imsdk"`, matching Stage 2; heartbeats; frame export → (6) flag
 mechanics: dry-runs, `Conflicts=` both ways, disabled at rest. Stage 5
 (live camera) pending hardware, above.
+
+Head-to-head numbers (decision parity, tensor deltas, NPU determinism proof,
+throughput): [`docs/IMSDK_VS_MAINLINE_FALL_ENGINE_BENCHMARK.md`](../../docs/IMSDK_VS_MAINLINE_FALL_ENGINE_BENCHMARK.md).
