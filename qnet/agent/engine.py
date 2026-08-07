@@ -225,11 +225,11 @@ def contact_verdict(text: str) -> str | None:
 _OBJECT_RES = (
     re.compile(r"\bwhere(?:'s|s| is| are)\s+(?P<obj>.+)$"),
     re.compile(r"\bwhere did (?:i|we) (?:leave|put)\s+(?P<obj>.+)$"),
-    re.compile(r"\b(?:have you seen|has anyone seen|can you (?:see|find)|look for|find|locate)\s+(?P<obj>.+)$"),
+    re.compile(r"\b(?:have you seen|has anyone seen|(?:can|do) you (?:see|find)|do you know where|look for|find|locate)\s+(?P<obj>.+)$"),
     re.compile(r"\bi (?:can't|cant|cannot) find\s+(?P<obj>.+)$"),
 )
 _DETERMINER_RE = re.compile(r"^(?:my|the|a|an|our|his|her|their|some)\s+")
-_TRAILER_RE = re.compile(r"\s*\b(?:please|anywhere|again|for me|right now|now)\b\s*$")
+_TRAILER_RE = re.compile(r"\s*\b(?:please|anywhere|again|for me|right now|now|is|are)\b\s*$")
 _EDGE_PUNCT_RE = re.compile(r"^[\s\"'`.,!?]+|[\s\"'`.,!?]+$")
 
 # "where's my glasses i can't find them anywhere" - the capture runs to the end
@@ -258,7 +258,11 @@ def _cut_trailing_clause(obj: str) -> str:
 # A question that names only a pronoun has named nothing: "where are they" is
 # exactly the follow-up §13 routes to `guide` off the remembered object.
 _PRONOUN_OBJECTS = frozenset(
-    {"it", "them", "they", "those", "these", "that", "this", "one", "thing", "things", "something", "anything"}
+    {"it", "them", "they", "those", "these", "that", "this", "one", "thing", "things", "something", "anything",
+     # bare determiners: a misparse upstream can leave one standing alone
+     # (observed live 2026-08-07: "do you see my chair" -> object "my"), and a
+     # determiner is never a findable object - asking beats searching for it.
+     "my", "your", "the", "a", "an", "our", "his", "her", "their", "some", "mine", "yours"}
 )
 
 

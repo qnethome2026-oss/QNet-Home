@@ -303,6 +303,13 @@ def test_object_heuristic() -> None:
     assert engine.extract_object("where's my wallet, i looked everywhere") == "wallet"
     # Compound objects without a clause break still survive intact.
     assert engine.extract_object("where's my water bottle") == "water bottle"
+    # "do you see X" - observed live 2026-08-07: this shape missed the
+    # heuristic, fell to the 2B model, and the search ran for the object "my".
+    assert engine.extract_object("do you see my chair") == "chair"
+    assert engine.extract_object("do you find my glasses") == "glasses"
+    assert engine.extract_object("do you know where my wallet is") == "wallet"
+    # A bare determiner is never a findable object (the live misparse itself).
+    assert engine.extract_object("where is my") is None
     # An object-less follow-up names nothing - which is what routes it to guide.
     assert engine.extract_object("i still don't see them") is None
     assert engine.extract_object("where are they") is None

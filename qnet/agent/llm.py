@@ -539,7 +539,10 @@ def _clean_line(answer: str | None, max_chars: int = MAX_LINE_CHARS) -> str | No
 # "where are they" is exactly the follow-up §13 routes to `guide` by remembering
 # the last object, not by searching for the word "them".
 _PRONOUNS = frozenset(
-    {"none", "it", "them", "they", "that", "this", "these", "those", "thing", "something", "anything", "one"}
+    {"none", "it", "them", "they", "that", "this", "these", "those", "thing", "something", "anything", "one",
+     # bare determiners survive the determiner-strip (it needs a word after) -
+     # observed live: the model answered "my" for "do you see my chair"
+     "my", "your", "the", "a", "an", "our", "his", "her", "their", "some", "mine", "yours"}
 )
 
 
