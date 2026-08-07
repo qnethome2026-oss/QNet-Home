@@ -715,7 +715,13 @@ class Agent:
         try:
             text = path.read_text(encoding="utf-8")
         except OSError:
-            log.info("no %s - replies acknowledge without first-aid guidance", filename)
+            # WARNING, not info: a deploy that forgets this file loses all
+            # first-aid guidance with zero visible symptoms (it happened -
+            # 2026-08-07, "I think I'm bleeding" earned generic comfort for a
+            # day because the hub never had the file). Still optional, still
+            # non-fatal - but no longer quiet.
+            log.warning("MISSING %s - replies will acknowledge WITHOUT first-aid guidance "
+                        "(deploy it: scp skills/%s <hub>:%s/)", path, filename, self.skills_dir)
             return None
         try:
             return parse_first_aid(text, source=str(path))
